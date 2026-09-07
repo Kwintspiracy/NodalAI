@@ -86,7 +86,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
             title AND the global controls. Canonical max-width is on the inner wrapper.
           */}
           <main className="flex min-w-0 flex-1 flex-col pt-16 lg:ml-[244px] lg:pt-0">
-            <div className="flex-1 overflow-x-hidden">{children}</div>
+            {/*
+              `overflow-x-clip`, PAS `overflow-x-hidden` : `hidden` sur un axe
+              force l'autre axe à `auto`, ce qui fait de ce bloc le conteneur
+              de défilement de référence pour tout `position: sticky` en
+              dessous — alors que c'est le document qui défile. Le composer du
+              fil (`sticky bottom-7`) et la barre d'état (`sticky bottom-0`)
+              ne se collaient donc JAMAIS au bas de l'écran : l'utilisateur
+              devait descendre en bas de page pour écrire (Quentin, 07/09).
+              `clip` coupe le débordement horizontal sans créer de conteneur.
+            */}
+            <div className="flex-1 overflow-x-clip">{children}</div>
           </main>
 
           <ThemedToaster />
