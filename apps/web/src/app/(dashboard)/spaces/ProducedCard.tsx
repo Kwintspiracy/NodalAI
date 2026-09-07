@@ -46,13 +46,24 @@ export default function ProducedCard({
           <span className="text-mono-11 text-ink-4">outside any registered project</span>
         )}
       </div>
-      <ul className="py-1">
+      {/* Lignes clé/valeur (maquette `.kv`) : le GENRE à gauche, ce qui a été
+          produit à droite. Les pastilles rondes alignaient mal des libellés de
+          longueurs très inégales ; une colonne fixe se balaie du regard. Une
+          classification incertaine garde sa pastille : c'est un doute, pas un
+          genre. */}
+      <ul>
         {verdict.items.map((item, i) => (
-          <li key={i} className="flex items-center gap-3 px-4 py-1.5 text-mono-12 text-ink-2">
-            <MonoMicroTag tone={item.kind === 'external' && !item.certain ? 'warn' : 'agent'}>
+          <li
+            key={i}
+            className="grid grid-cols-[190px_1fr] gap-3.5 px-4 py-1.5 text-mono-12 first:pt-3 last:pb-3"
+          >
+            <span className="flex items-center gap-2 text-ink-4">
               {KIND_WORDS[item.kind]}
-            </MonoMicroTag>
-            <span className="min-w-0 flex-1 truncate" title={item.label}>
+              {item.kind === 'external' && !item.certain && (
+                <MonoMicroTag tone="warn">?</MonoMicroTag>
+              )}
+            </span>
+            <span className="min-w-0 truncate text-ink-2" title={item.label}>
               {item.label}
             </span>
           </li>

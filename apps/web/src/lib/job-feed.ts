@@ -113,10 +113,20 @@ export async function collectDescendants(
  * la vraie forme des lignes). Les messages sont masqués à l'AFFICHAGE
  * (SECRET-001), jamais à l'écriture.
  */
+/**
+ * P2bis — jusqu'où le fil d'une délégation s'ouvre. Un niveau : la carte
+ * « Delegated to Officier » montre ce que l'Officier a fait (son classeur, sa
+ * question, ses fichiers), pas seulement son texte. Le petit-enfant, lui, se
+ * lit sur la page de son propre run — sinon un fil de conversation chargerait
+ * toute la descendance à chaque affichage.
+ */
+const CHILD_FEED_DEPTH = 1;
+
 export async function assembleJobFeeds(
   db: Db,
   entityId: string,
   inputs: readonly JobFeedInput[],
+  depth = 0,
 ): Promise<JobFeedResult[]> {
   if (inputs.length === 0) return [];
   const ids = inputs.map((i) => i.job.id);
@@ -209,6 +219,34 @@ export async function assembleJobFeeds(
     return out;
   }
 
+  // Le fil des enfants DIRECTS, assemblé par la même fonction (une passe pour
+  // tous les enfants de tous les jobs, jamais une par enfant), borné en
+  // profondeur. Sans lui, la délégation n'avait que le texte du délégué : le
+  // classeur qu'il avait écrit, avec son aperçu et son état, restait invisible
+  // depuis la conversation (capture du 07/09).
+  const childFeedById = new Map<string, ConversationFeed>();
+  if (depth < CHILD_FEED_DEPTH && childRows.length > 0) {
+    const childJobs = await db
+      .select({ job: agentJobs, agentName: agents.name, agentSlug: agents.slug })
+      .from(agentJobs)
+      .leftJoin(agents, eq(agents.id, agentJobs.agentId))
+      .where(
+        and(
+          inArray(
+            agentJobs.id,
+            childRows.map((r) => r.id),
+          ),
+          eq(agentJobs.entityId, entityId),
+        ),
+      )
+      .orderBy(agentJobs.createdAt);
+    const childFeeds = await assembleJobFeeds(db, entityId, childJobs, depth + 1);
+    childJobs.forEach((c, i) => {
+      const assembledChild = childFeeds[i];
+      if (assembledChild) childFeedById.set(c.job.id, assembledChild.feed);
+    });
+  }
+
   const childrenByJob = groupBy(childRows, (r) => r.parentJobId);
   const toolsByJob = groupBy(toolRows, (r) => r.jobId);
   const llmByJob = groupBy(llmRows, (r) => r.jobId);
@@ -246,7 +284,10 @@ export async function assembleJobFeeds(
         completedAt: job.completedAt,
         messages,
         scheduleName,
-        children: childrenByJob.get(job.id) ?? [],
+        children: (childrenByJob.get(job.id) ?? []).map((c) => {
+          const childFeed = childFeedById.get(c.id);
+          return childFeed === undefined ? c : { ...c, feed: childFeed };
+        }),
       },
       (toolsByJob.get(job.id) ?? []).map((t) => ({
         ...t,

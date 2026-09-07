@@ -236,7 +236,7 @@ describe('buildConversationThread — une conversation du dashboard', () => {
       jobs: [],
     });
     expect(items.map((i) => i.kind)).toEqual(['request', 'turn', 'note']);
-    expect(items[2]).toEqual({ kind: 'note', text: JOB_GONE_NOTE });
+    expect(items[2]).toEqual({ kind: 'note', text: JOB_GONE_NOTE, origin: 'thread' });
   });
 });
 
@@ -251,7 +251,73 @@ describe('buildConversationThread — ce que le fil ne peut pas dire', () => {
     });
     expect(items.some((i) => i.kind === 'produced')).toBe(false);
     const note = items.find((i) => i.kind === 'note');
-    expect(note).toEqual({ kind: 'note', text: UNCLASSIFIED_NOTE });
+    expect(note).toEqual({ kind: 'note', text: UNCLASSIFIED_NOTE, origin: 'thread' });
+  });
+
+  it("l'aveu d'ignorance paraît UNE fois par fil, pas une fois par job (P2bis)", () => {
+    const { items } = buildConversationThread({
+      conversation,
+      messages: [],
+      jobs: [
+        job({ jobId: 'j1', verdict: inconnu, feed: feedDeJob('un', 'a') }),
+        job({ jobId: 'j2', verdict: inconnu, feed: feedDeJob('deux', 'b') }),
+        job({ jobId: 'j3', verdict: inconnu, feed: feedDeJob('trois', 'c') }),
+      ],
+    });
+    const notes = items.filter((i) => i.kind === 'note' && i.text === UNCLASSIFIED_NOTE);
+    expect(notes).toHaveLength(1);
+    // Et elle suit le PREMIER job concerné, pas le dernier.
+    const rang = items.findIndex((i) => i.kind === 'note' && i.text === UNCLASSIFIED_NOTE);
+    const rangDeux = items.findIndex((i) => i.kind === 'request' && i.text === 'deux');
+    expect(rang).toBeLessThan(rangDeux);
+  });
+
+  it('deux notes consécutives de même texte n’en font qu’une', () => {
+    const { items } = buildConversationThread({
+      conversation,
+      messages: [],
+      jobs: [
+        job({
+          jobId: 'j1',
+          feed: {
+            items: [
+              { kind: 'note', text: 'Tu es sur Telegram.', origin: 'runner' },
+              { kind: 'note', text: 'Tu es sur Telegram.', origin: 'runner' },
+              { kind: 'note', text: 'Livre ta réponse.', origin: 'runner' },
+            ],
+            totals: totals(),
+          },
+        }),
+      ],
+    });
+    expect(items.map((i) => (i.kind === 'note' ? i.text : i.kind))).toEqual([
+      'Tu es sur Telegram.',
+      'Livre ta réponse.',
+    ]);
+  });
+
+  it('la compaction des tours muets vaut aussi pour le fil entier (P2bis)', () => {
+    const muet = (): FeedItem => ({
+      kind: 'turn',
+      index: 2,
+      turn: 2,
+      turnSource: 'audit',
+      agent: { name: 'Alfred', slug: 'alfred' },
+      model: 'claude-opus-5',
+      blocks: [],
+      usage: null,
+    });
+    const { items } = buildConversationThread({
+      conversation,
+      messages: [],
+      jobs: [
+        job({
+          jobId: 'j1',
+          feed: { items: [tour('voilà'), muet(), muet()], totals: totals() },
+        }),
+      ],
+    });
+    expect(items.filter((i) => i.kind === 'turn')).toHaveLength(1);
   });
 
   it('un tour qui a produit ET porte des lignes anciennes garde son encart, sans note', () => {
@@ -280,7 +346,7 @@ describe('buildConversationThread — ce que le fil ne peut pas dire', () => {
       jobs: [job({ jobId: 'j1' }), job({ jobId: 'j2' })],
       truncated: { messages: false, jobs: true },
     });
-    expect(items[0]).toEqual({ kind: 'note', text: olderTurnsNote(2) });
+    expect(items[0]).toEqual({ kind: 'note', text: olderTurnsNote(2), origin: 'thread' });
     expect(items[1]?.kind).toBe('request');
   });
 
@@ -294,7 +360,7 @@ describe('buildConversationThread — ce que le fil ne peut pas dire', () => {
       jobs: [],
       truncated: { messages: true, jobs: false },
     });
-    expect(items[0]).toEqual({ kind: 'note', text: olderTurnsNote(2) });
+    expect(items[0]).toEqual({ kind: 'note', text: olderTurnsNote(2), origin: 'thread' });
   });
 
   it('un fil entier ne parle pas de coupe', () => {

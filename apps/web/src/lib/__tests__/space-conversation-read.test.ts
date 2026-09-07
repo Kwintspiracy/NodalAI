@@ -301,9 +301,11 @@ describe('getSpaceConversationAction', () => {
 
     expect(r.data.job).toMatchObject({ id: jobId, channel: 'telegram', status: 'completed' });
     const kinds = r.data.feed.items.map((i) => i.kind);
-    expect(kinds).toEqual(['request', 'turn', 'turn', 'child', 'answer']);
+    // Pas d'item `answer` : le résultat du job (« Tu aimes les tableaux. ») EST
+    // la prose du dernier tour, et le fil ne la répète plus (P2bis).
+    expect(kinds).toEqual(['request', 'turn', 'turn', 'child']);
 
-    const [request, t1, t2, child, answer] = r.data.feed.items;
+    const [request, t1, t2, child] = r.data.feed.items;
     expect(request).toMatchObject({
       kind: 'request',
       text: 'Rappelle-moi ce que j’aime',
@@ -338,7 +340,7 @@ describe('getSpaceConversationAction', () => {
 
     expect(child?.kind === 'child' && child.job.id).toBe(childId);
     expect(child?.kind === 'child' && child.job.status).toBe('completed');
-    expect(answer).toEqual({ kind: 'answer', text: 'Tu aimes les tableaux.' });
+    expect(r.data.feed.items.some((i) => i.kind === 'answer')).toBe(false);
 
     expect(r.data.feed.totals).toMatchObject({
       turns: 2,
@@ -379,7 +381,8 @@ describe('getSpaceConversationAction', () => {
     const r = await getSpaceConversationAction(j!.id);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.data.feed.items.map((i) => i.kind)).toEqual(['history', 'request', 'turn', 'answer']);
+    // « Trois modèles. » est déjà la prose du tour : pas de second item.
+    expect(r.data.feed.items.map((i) => i.kind)).toEqual(['history', 'request', 'turn']);
     const request = r.data.feed.items[1];
     expect(request?.kind === 'request' && request.text).not.toContain(secret);
     expect(request?.kind === 'request' && request.text).toContain('[secret masqué]');

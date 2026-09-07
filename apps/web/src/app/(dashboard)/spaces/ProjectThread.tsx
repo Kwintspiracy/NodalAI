@@ -65,7 +65,11 @@ export default function ProjectThread({
           </div>
         )}
       </div>
-      <ProjectComposer projectId={projectId} conversationId={conversationId} />
+      <ProjectComposer
+        projectId={projectId}
+        conversationId={conversationId}
+        {...(thread !== null ? { agentName: thread.data.conversation.agentName } : {})}
+      />
     </>
   );
 }

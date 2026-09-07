@@ -180,7 +180,13 @@ export type TurnUsage = {
 
 export type FeedItem =
   | { kind: 'request'; text: string; origin: Origin; at: Date | null }
-  | { kind: 'note'; text: string }
+  /**
+   * Ce que le fil dit de LUI-MÊME, pas de la conversation : un rappel que le
+   * runner a glissé à l'agent (`runner`), ou un aveu du fil sur ce qu'il ne
+   * peut pas montrer (`thread`). Les deux se dessinent en marge — le bruit
+   * système n'est pas un tour (P2bis).
+   */
+  | { kind: 'note'; text: string; origin: 'runner' | 'thread' }
   | {
       kind: 'turn';
       /** Rang d'affichage, 1..n dans CE job. */
@@ -348,6 +354,116 @@ function reasoningParts(content: unknown): string[] {
     .map((p) => p.text);
 }
 
+// ─── Répétitions et compaction ────────────────────────────────────────────────
+
+/** Le texte comparable d'un message : sans bords, espaces repliés. */
+export function normalizeText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * La réponse finale est-elle DÉJÀ dite par l'agent ? On remonte le fil
+ * jusqu'à la DERNIÈRE PROSE de l'agent : si elle contient le texte de la
+ * réponse, la répéter n'ajoute rien.
+ *
+ * On remonte à travers ce qui n'est pas une parole : un tour MUET (l'appel
+ * `telegram_send_message` puis `return_result` qui suivent la phrase), un
+ * rappel du runner, une délégation. Sur la capture du 07/09, la phrase
+ * « C'est fait ✅ … » paraissait deux fois précisément parce que le tour
+ * d'envoi s'intercalait entre elle et la fin du fil. On s'arrête à la demande
+ * de l'utilisateur : au-delà, ce serait la conversation d'avant.
+ */
+function lastProseContains(items: readonly FeedItem[], answer: string): boolean {
+  const needle = normalizeText(answer);
+  if (needle === '') return true;
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i];
+    if (item === undefined) continue;
+    if (item.kind === 'request' || item.kind === 'history') return false;
+    if (item.kind !== 'turn') continue;
+    const proses = item.blocks.filter((b) => b.kind === 'prose');
+    const last = proses[proses.length - 1];
+    if (last === undefined) continue;
+    return normalizeText(last.text).includes(needle);
+  }
+  return false;
+}
+
+/** Le tour et le précédent sont-ils du même agent ? */
+function sameAgent(
+  a: { name: string | null; slug: string | null },
+  b: { name: string | null; slug: string | null },
+): boolean {
+  if (a.slug !== null && b.slug !== null) return a.slug === b.slug;
+  if (a.slug === null && b.slug === null) return a.name === b.name;
+  return false;
+}
+
+function addUsage(a: TurnUsage | null, b: TurnUsage | null): TurnUsage | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cachedTokens: a.cachedTokens + b.cachedTokens,
+    cacheCreationTokens: a.cacheCreationTokens + b.cacheCreationTokens,
+    // null + x = x, null + null = null : un coût inconnu n'est pas un coût nul.
+    costUsd: a.costUsd === null ? b.costUsd : a.costUsd + (b.costUsd ?? 0),
+    durationMs: a.durationMs + b.durationMs,
+    calls: a.calls + b.calls,
+  };
+}
+
+/**
+ * Les tours MUETS se replient dans le précédent (P2bis).
+ *
+ * Le runner compte un tour par tentative LLM. Un agent qui enchaîne cinq
+ * appels d'outils sans rien dire produisait cinq tours, donc cinq avatars et
+ * cinq plaques — la capture de Quentin en montrait quatre d'affilée pour un
+ * seul geste. Un tour qui ne DIT rien (pas de prose) et ne MONTRE rien (pas de
+ * carte) n'est pas un tour à l'écran : ses étapes appartiennent au tour qui l'a
+ * précédé.
+ *
+ * Ce qui empêche la fusion, et pourquoi : une prose ou une carte (le tour a
+ * quelque chose à lui), un autre agent (ce serait mentir sur qui a agi), et
+ * tout item entre les deux (une note, une demande, un encart : le fil a repris
+ * la parole entre-temps).
+ */
+export function compactTurns(items: readonly FeedItem[]): FeedItem[] {
+  const out: FeedItem[] = [];
+  for (const item of items) {
+    const prev = out[out.length - 1];
+    const mute =
+      item.kind === 'turn' && !item.blocks.some((b) => b.kind === 'prose' || b.kind === 'card');
+    if (!mute || prev === undefined || prev.kind !== 'turn' || item.kind !== 'turn') {
+      out.push(item);
+      continue;
+    }
+    if (!sameAgent(prev.agent, item.agent)) {
+      out.push(item);
+      continue;
+    }
+    const steps = item.blocks.flatMap((b) => (b.kind === 'steps' ? b.steps : []));
+    const blocks = [...prev.blocks];
+    if (steps.length > 0) {
+      const lastIdx = blocks.map((b) => b.kind).lastIndexOf('steps');
+      const last = lastIdx >= 0 ? blocks[lastIdx] : undefined;
+      if (last !== undefined && last.kind === 'steps') {
+        blocks[lastIdx] = { kind: 'steps', steps: [...last.steps, ...steps] };
+      } else {
+        blocks.push({ kind: 'steps', steps });
+      }
+    }
+    out[out.length - 1] = {
+      ...prev,
+      blocks,
+      model: prev.model ?? item.model,
+      usage: addUsage(prev.usage, item.usage),
+    };
+  }
+  return out;
+}
+
 // ─── Le fil ───────────────────────────────────────────────────────────────────
 
 export function buildConversationFeed(
@@ -446,8 +562,14 @@ export function buildConversationFeed(
         items.push({ kind: 'request', text, origin, at: job.createdAt });
       } else {
         // Après la demande, un message `user` est un rappel du runner, pas
-        // l'utilisateur — le fil le dit comme tel.
-        items.push({ kind: 'note', text: text.replace(RUNNER_NOTE_PREFIX, '').trim() });
+        // l'utilisateur — le fil le dit comme tel. Le runner répète souvent le
+        // même rappel à chaque tour : deux fois de suite la même phrase, c'est
+        // une phrase.
+        const note = text.replace(RUNNER_NOTE_PREFIX, '').trim();
+        const prev = items[items.length - 1];
+        if (!(prev?.kind === 'note' && normalizeText(prev.text) === normalizeText(note))) {
+          items.push({ kind: 'note', text: note, origin: 'runner' });
+        }
       }
       continue;
     }
@@ -552,7 +674,12 @@ export function buildConversationFeed(
   for (const child of job.children) items.push({ kind: 'child', job: child });
 
   if (job.status === 'completed' && job.result && job.result.trim() !== '') {
-    items.push({ kind: 'answer', text: job.result });
+    // La réponse finale est le plus souvent la DERNIÈRE PHRASE de l'agent,
+    // recopiée dans `job.result` par `return_result`. La pousser en plus
+    // affichait deux fois le même texte — la prose du dernier tour, puis une
+    // plaque « Answer » (constat de Quentin sur captures, 07/09). Elle n'est
+    // gardée que quand elle DIT autre chose.
+    if (!lastProseContains(items, job.result)) items.push({ kind: 'answer', text: job.result });
   } else if ((job.status === 'failed' || job.status === 'cancelled') && (job.error || job.result)) {
     items.push({ kind: 'failure', text: job.error ?? job.result ?? '' });
   }
@@ -581,5 +708,5 @@ export function buildConversationFeed(
   }
   totals.models = [...models];
 
-  return { items, totals };
+  return { items: compactTurns(items), totals };
 }

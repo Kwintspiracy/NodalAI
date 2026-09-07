@@ -28,7 +28,14 @@
 // (thread-history.ts) ; dans un fil de CONVERSATION, ces tours sont déjà
 // au-dessus. Les garder afficherait deux fois la même chose.
 
-import type { ConversationFeed, FeedItem, FeedTotals, Origin } from './conversation-feed.ts';
+import {
+  compactTurns,
+  normalizeText,
+  type ConversationFeed,
+  type FeedItem,
+  type FeedTotals,
+  type Origin,
+} from './conversation-feed.ts';
 import type { ProductionVerdict } from './chat-or-work.ts';
 
 export type ThreadProject = { id: string; name: string; path: string };
@@ -111,7 +118,8 @@ function afterJobItems(job: ThreadJob): FeedItem[] {
       },
     ];
   }
-  if (job.verdict.unclassified > 0) return [{ kind: 'note', text: UNCLASSIFIED_NOTE }];
+  if (job.verdict.unclassified > 0)
+    return [{ kind: 'note', text: UNCLASSIFIED_NOTE, origin: 'thread' }];
   return [];
 }
 
@@ -154,6 +162,40 @@ function sumTotals(jobs: readonly ThreadJob[]): FeedTotals {
  */
 export type ThreadTruncation = { messages: boolean; jobs: boolean };
 
+/**
+ * Le bruit système, dit une fois (P2bis).
+ *
+ * Trois jobs anciens dans un même fil poussaient trois fois la même phrase
+ * (« Older activity in this turn cannot be classified… »), sous chaque tour :
+ * la capture de Quentin en montrait une colonne entière. L'aveu vaut pour LE
+ * FIL, pas pour chaque job — il paraît après le premier job concerné, et plus
+ * jamais. Deux notes consécutives de même texte fusionnent aussi : c'est la
+ * même phrase, écrite deux fois.
+ */
+function dedupeNotes(items: readonly FeedItem[]): FeedItem[] {
+  const out: FeedItem[] = [];
+  let saidUnclassified = false;
+  for (const item of items) {
+    if (item.kind !== 'note') {
+      out.push(item);
+      continue;
+    }
+    if (item.text === UNCLASSIFIED_NOTE) {
+      if (saidUnclassified) continue;
+      saidUnclassified = true;
+    }
+    const prev = out[out.length - 1];
+    if (prev?.kind === 'note' && normalizeText(prev.text) === normalizeText(item.text)) continue;
+    out.push(item);
+  }
+  return out;
+}
+
+/** Ce que TOUT fil de conversation subit avant d'être rendu. */
+function settle(items: readonly FeedItem[]): FeedItem[] {
+  return compactTurns(dedupeNotes(items));
+}
+
 export function buildConversationThread(input: {
   conversation: ThreadConversation;
   /** Les tours du dashboard, chronologiques. `[]` pour une conversation de canal. */
@@ -175,7 +217,11 @@ export function buildConversationThread(input: {
     ? truncated?.messages === true || truncated?.jobs === true
     : truncated?.jobs === true;
   if (cut) {
-    items.push({ kind: 'note', text: olderTurnsNote(isDashboard ? messages.length : jobs.length) });
+    items.push({
+      kind: 'note',
+      text: olderTurnsNote(isDashboard ? messages.length : jobs.length),
+      origin: 'thread',
+    });
   }
 
   if (conversation.channel !== 'dashboard') {
@@ -184,7 +230,7 @@ export function buildConversationThread(input: {
       items.push(...jobItems(job, false));
       items.push(...afterJobItems(job));
     }
-    return { items, totals: sumTotals(jobs) };
+    return { items: settle(items), totals: sumTotals(jobs) };
   }
 
   const byJobId = new Map(jobs.map((j) => [j.jobId, j]));
@@ -222,12 +268,12 @@ export function buildConversationThread(input: {
       // Le job a été purgé (pas de clé étrangère depuis `chat_messages.job_id`
       // vers un job vivant : la colonne est SET NULL, mais un job supprimé
       // avant P6 a pu laisser l'id). Le fil le dit plutôt que de sauter le tour.
-      items.push({ kind: 'note', text: JOB_GONE_NOTE });
+      items.push({ kind: 'note', text: JOB_GONE_NOTE, origin: 'thread' });
       continue;
     }
     items.push(...jobItems(job, true));
     items.push(...afterJobItems(job));
   }
 
-  return { items, totals: sumTotals(jobs) };
+  return { items: settle(items), totals: sumTotals(jobs) };
 }

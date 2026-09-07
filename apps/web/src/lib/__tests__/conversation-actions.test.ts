@@ -30,7 +30,7 @@ let testDb: TestDb;
 let seed: Awaited<ReturnType<typeof seedMinimal>>;
 
 /** Les identités posées une fois pour toutes par le seed du fichier. */
-const telegramConv = { id: '', jobA: '', jobB: '' };
+const telegramConv = { id: '', jobA: '', jobB: '', child: '' };
 const dashboardConv = { id: '' };
 const projet = { id: '', path: '', name: 'Bilans mensuels' };
 const voisin = { entityId: '', agentId: '', conversationId: '' };
@@ -131,6 +131,53 @@ beforeAll(async () => {
     })
     .returning({ id: agentJobs.id });
   telegramConv.jobA = jobA!.id;
+
+  // P2bis — un DÉLÉGUÉ du job A, avec une lecture (pas une production : le
+  // verdict du job A reste « chat »). Son fil doit arriver jusqu'à la carte de
+  // délégation, avec l'étape qu'il a faite.
+  const [child] = await testDb
+    .insert(agentJobs)
+    .values({
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      channel: 'internal',
+      chatId: null,
+      conversationId: telegramConv.id,
+      parentJobId: telegramConv.jobA,
+      task: 'Relis les notes',
+      status: 'completed',
+      result: 'Rien à signaler dans les notes.',
+      messages: [
+        { role: 'user', content: 'Relis les notes' },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Rien à signaler dans les notes.' },
+            {
+              type: 'tool-call',
+              toolCallId: 'read-notes-1',
+              toolName: 'file_read',
+              input: { path: 'notes.md' },
+            },
+          ],
+        },
+      ],
+      createdAt: new Date('2026-09-01T10:00:20Z'),
+      completedAt: new Date('2026-09-01T10:00:40Z'),
+    })
+    .returning({ id: agentJobs.id });
+  telegramConv.child = child!.id;
+  await testDb.insert(toolCalls).values({
+    entityId: seed.entityId,
+    jobId: telegramConv.child,
+    toolCallId: 'read-notes-1',
+    toolName: 'file_read',
+    card: 'read',
+    presented: { card: 'read', path: 'notes.md', excerpt: '# notes', chars: 7, truncated: false },
+    riskLevel: 'read',
+    toolInput: { path: 'notes.md' },
+    toolOutput: '# notes',
+  });
 
   const [jobB] = await testDb
     .insert(agentJobs)
@@ -529,6 +576,32 @@ describe('listAllConversationsAction', () => {
 });
 
 describe('getConversationThreadAction — une conversation de canal', () => {
+  it('le fil d’un DÉLÉGUÉ arrive sous sa carte de délégation, avec ses étapes (P2bis)', async () => {
+    const { getConversationThreadAction } = await actions();
+    const r = await getConversationThreadAction(telegramConv.id);
+    if (!r.ok) throw new Error(`échec inattendu : ${r.code} ${r.message}`);
+
+    const child = r.data.feed.items.find((i) => i.kind === 'child');
+    if (child?.kind !== 'child') throw new Error('item child attendu');
+    expect(child.job.id).toBe(telegramConv.child);
+    // Le fil de l'enfant est assemblé : sa prose ET l'étape de lecture, avec
+    // la carte persistée sur sa ligne d'audit — pas seulement son texte.
+    const nested = child.job.feed;
+    if (nested === undefined) throw new Error('le fil du délégué manque');
+    const turn = nested.items.find((i) => i.kind === 'turn');
+    if (turn?.kind !== 'turn') throw new Error('tour du délégué attendu');
+    expect(turn.blocks.some((b) => b.kind === 'prose' && b.text.includes('Rien à signaler'))).toBe(
+      true,
+    );
+    const steps = turn.blocks.flatMap((b) => (b.kind === 'steps' ? b.steps : []));
+    expect(steps.map((s) => (s.kind === 'tool' ? [s.toolName, s.card] : ['reasoning']))).toEqual([
+      ['file_read', 'read'],
+    ]);
+    // Un seul niveau : le délégué n'a pas d'enfant ici, et s'il en avait, leur
+    // fil ne serait pas assemblé (CHILD_FEED_DEPTH).
+    expect(nested.items.filter((i) => i.kind === 'child')).toHaveLength(0);
+  });
+
   it('rend les deux travaux en un seul fil, avec l’encart de production et son projet', async () => {
     const { getConversationThreadAction } = await actions();
     const r = await getConversationThreadAction(telegramConv.id);
@@ -581,8 +654,14 @@ describe('getConversationThreadAction — une conversation du dashboard', () => 
       'turn',
       'handoff',
       'turn',
-      'answer',
     ]);
+    // P2bis — la réponse du travail (« 42 lignes. ») EST la dernière prose du
+    // tour : le fil ne la répète plus en item `answer`. Elle est dite une fois.
+    const proses = r.data.feed.items.flatMap((i) =>
+      i.kind === 'turn' ? i.blocks.filter((b) => b.kind === 'prose').map((b) => b.text) : [],
+    );
+    expect(proses.filter((t) => t === '42 lignes.')).toHaveLength(1);
+    expect(r.data.feed.items.some((i) => i.kind === 'answer')).toBe(false);
     const consigne = r.data.feed.items.find((i) => i.kind === 'handoff');
     if (consigne?.kind !== 'handoff') throw new Error('item handoff attendu');
     expect(consigne.text).toBe('Compter les lignes du bilan');
@@ -642,6 +721,7 @@ describe('getConversationThreadAction — les plafonds gardent la FIN du fil', (
     expect(r.data.feed.items[0]).toEqual({
       kind: 'note',
       text: 'Older turns are not shown (100 shown).',
+      origin: 'thread',
     });
     const demandes = r.data.feed.items
       .filter((i) => i.kind === 'request')
@@ -661,6 +741,7 @@ describe('getConversationThreadAction — les plafonds gardent la FIN du fil', (
     expect(r.data.feed.items[0]).toEqual({
       kind: 'note',
       text: 'Older turns are not shown (500 shown).',
+      origin: 'thread',
     });
     const demandes = r.data.feed.items
       .filter((i) => i.kind === 'request')

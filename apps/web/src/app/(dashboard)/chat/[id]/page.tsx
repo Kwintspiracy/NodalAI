@@ -17,6 +17,7 @@ import StatusBar from '@/app/(dashboard)/spaces/StatusBar.tsx';
 import VerificationSection from '@/app/(dashboard)/code/[id]/VerificationSection.tsx';
 import { formatCost, formatTokens, originLabel } from '@/app/(dashboard)/spaces/format.ts';
 import { getConversationThreadAction } from '@/lib/conversation-actions.ts';
+import { plainText } from '@/components/Markdown.tsx';
 import { truncate } from '@/lib/format-time';
 import ThreadComposer from '../ThreadComposer.tsx';
 
@@ -43,15 +44,22 @@ export default async function ChatThreadPage({ params }: { params: Promise<{ id:
   const pendingDeliveries = deliveries.filter(
     (d) => d.outcome === 'prepared' || d.outcome === 'attempted',
   ).length;
+  const showVerification =
+    verification.sequences.length > 0 ||
+    verification.unconfigured.length > 0 ||
+    verification.skippedSurfaces.length > 0 ||
+    live;
 
   // Le titre : celui que porte la conversation, sinon sa première demande —
   // jamais un identifiant. « Untitled » n'apparaît que si les deux manquent.
   const firstRequest = feed.items.find((i) => i.kind === 'request');
+  // `plainText` avant de couper : un titre qui commence par « ## **PRD** »
+  // s'affichait avec ses dièses et ses astérisques.
   const title =
     conversation.title !== ''
-      ? truncate(conversation.title, 90)
+      ? truncate(plainText(conversation.title), 90)
       : firstRequest
-        ? truncate(firstRequest.text.split('\n')[0] ?? '', 90)
+        ? truncate(plainText(firstRequest.text), 90)
         : 'Untitled';
 
   const origin = originLabel({
@@ -95,18 +103,23 @@ export default async function ChatThreadPage({ params }: { params: Promise<{ id:
       <ConversationFeedView feed={feed} deliverables={verification.deliverables} />
       {/* P3 — la preuve et la file d'envoi de TOUT le fil, la même carte que la
           page d'un espace. */}
+      {/* La preuve ne se rend QUE s'il y a quelque chose à en dire. Une carte
+          « No proof ran for this process. » sous chaque fil terminé était du
+          bruit : la barre d'état le dit déjà, en permanence. */}
       <div className="mx-auto mt-8 max-w-[840px] space-y-6">
-        <VerificationSection
-          sequences={verification.sequences}
-          skippedSurfaces={verification.skippedSurfaces}
-          unconfigured={verification.unconfigured}
-          stage={live ? 'processing' : 'completed'}
-          live={live}
-        />
+        {showVerification && (
+          <VerificationSection
+            sequences={verification.sequences}
+            skippedSurfaces={verification.skippedSurfaces}
+            unconfigured={verification.unconfigured}
+            stage={live ? 'processing' : 'completed'}
+            live={live}
+          />
+        )}
         <DeliveriesCard deliveries={deliveries} />
       </div>
       {canReply ? (
-        <ThreadComposer conversationId={conversation.id} />
+        <ThreadComposer conversationId={conversation.id} agentName={conversation.agentName} />
       ) : (
         <p className="mx-auto mt-8 max-w-[840px] text-body-13 text-ink-4">
           This conversation lives in {origin.replace(/^via /, '')}. Reply from there.

@@ -324,6 +324,46 @@ describe('P12 — la carte d’un classeur écrit porte l’aperçu de la feuill
     expect(JSON.stringify(rows).match(/Q1/g)).toHaveLength(1);
   });
 
+  it('xlsx_create nomme le fichier comme l’agent l’a nommé, pas par son chemin absolu', async () => {
+    const card = await runAndReadCard(xlsxCreateTool, { path: 'nommé.xlsx', sheet: 'S' });
+    expect(card.files[0]?.path).toBe('nommé.xlsx');
+  });
+
+  it('xlsx_read lit une formule fraîche comme la formule, jamais « [object Object] »', async () => {
+    // Le cas vu sur la stack dev (07/09) : l'agent écrit `=SUM(B2:B4)` puis relit
+    // la feuille pour vérifier, et la table lui répondait « [object Object] ».
+    await runAndReadCard(xlsxCreateTool, { path: 'relu.xlsx', sheet: 'S' });
+    await runAndReadCard(xlsxSetRangeTool, {
+      path: 'relu.xlsx',
+      sheet: 'S',
+      start_cell: 'A1',
+      values: [
+        ['Loyer', 1200],
+        ['Total', '=SUM(B1:B1)'],
+      ],
+    });
+    const result = await executeTool(
+      officeTool('xlsx_read') as ToolDefinition<z.ZodTypeAny, unknown>,
+      { path: 'relu.xlsx' },
+      ctx(),
+      opts,
+    );
+    expect(result.outcome, JSON.stringify(result)).toBe('success');
+    const [row] = await db
+      .select({ presented: toolCalls.presented, card: toolCalls.card })
+      .from(toolCalls)
+      .where(eq(toolCalls.jobId, jobId))
+      .orderBy(desc(toolCalls.createdAt), desc(toolCalls.id))
+      .limit(1);
+    expect(row?.card).toBe('table');
+    const table = row?.presented as CardPayloadFor<'table'>;
+    expect(table.tables[0]?.rows).toEqual([
+      ['Loyer', '1200'],
+      ['Total', '=SUM(B1:B1)'],
+    ]);
+    expect(JSON.stringify(result)).not.toContain('[object Object]');
+  });
+
   it('une feuille de 35 colonnes : l’aperçu en montre CARD_COLS_MAX et dit la largeur réelle', async () => {
     const WIDTH = CARD_COLS_MAX + 15;
     const wb = new ExcelJS.Workbook();

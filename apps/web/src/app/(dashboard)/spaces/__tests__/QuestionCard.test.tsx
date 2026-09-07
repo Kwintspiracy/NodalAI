@@ -72,10 +72,15 @@ describe('QuestionCard — dans le fil', () => {
     notes: null,
   };
 
-  it('en attente : un bouton par option', async () => {
+  it('en attente : un bouton par option, et la carte dit qu’elle attend', async () => {
     await render(<QuestionCard prompt={PROMPT} options={OPTIONS} question={pending} />);
     expect(container.textContent).toContain(PROMPT);
     expect(buttonLabels()).toEqual(OPTIONS);
+    // P2bis — forme de la maquette : un cadre encré, une pastille d'attente,
+    // et AUCUN bandeau « Question » au-dessus.
+    expect(container.textContent).toContain('Waiting');
+    expect(container.textContent).not.toContain('Question');
+    expect(container.innerHTML).toContain('border-ink');
   });
 
   it("le clic passe le LIBELLÉ de l'option à l'action, et rafraîchit le fil", async () => {

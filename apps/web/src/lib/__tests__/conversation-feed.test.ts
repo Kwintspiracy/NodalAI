@@ -7,10 +7,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildConversationFeed,
+  compactTurns,
   STANDALONE_CARDS,
+  type FeedItem,
   type FeedJob,
   type FeedToolCallRow,
   type FeedLlmCallRow,
+  type Step,
+  type TurnUsage,
 } from '../conversation-feed.ts';
 
 const at = (s: string) => new Date(s);
@@ -267,11 +271,17 @@ describe('buildConversationFeed — un job cron réel', () => {
     expect(notes[0]?.kind === 'note' && notes[0].text).not.toContain('[système]');
   });
 
-  it('numérote les tours et leur joint le modèle et les jetons du tour', () => {
+  it('replie les tours MUETS et additionne leurs jetons (P2bis)', () => {
+    // Quatre tours du runner, deux tours à l'écran : les tours 2 et 4
+    // n'appellent que `return_result` — ils ne disent rien et ne montrent rien.
     const turns = feed.items.filter((i) => i.kind === 'turn');
-    expect(turns.map((t) => t.kind === 'turn' && t.index)).toEqual([1, 2, 3, 4]);
+    expect(turns.map((t) => t.kind === 'turn' && t.index)).toEqual([1, 3]);
     const t1 = turns[0];
     expect(t1?.kind === 'turn' && t1.model).toBe('z-ai/glm-5.3');
+    // Le tour 2 n'a AUCUNE ligne d'audit (`return_result` n'en écrit pas) : il
+    // est déduit, donc sans métrique (passe 18). Fusionner n'invente rien —
+    // les jetons restés sont ceux du tour 1, et les totaux du job les portent
+    // tous. L'addition champ à champ est prouvée sur `compactTurns` plus bas.
     expect(t1?.kind === 'turn' && t1.usage).toEqual({
       inputTokens: 33988,
       outputTokens: 73,
@@ -284,7 +294,7 @@ describe('buildConversationFeed — un job cron réel', () => {
     expect(t1?.kind === 'turn' && t1.agent).toEqual({ name: 'Veilleur', slug: 'veilleur' });
   });
 
-  it('tour 1 : deux actions mineures (brut, table) repliées en UN groupe, dispatchées sur la CARTE persistée', () => {
+  it('tour 1 : les actions mineures des tours 1 et 2 tiennent en UN groupe, dispatchées sur la CARTE persistée', () => {
     const t1 = feed.items.find((i) => i.kind === 'turn' && i.index === 1);
     expect(t1?.kind === 'turn' && t1.blocks).toHaveLength(1);
     const block = t1?.kind === 'turn' ? t1.blocks[0] : undefined;
@@ -297,31 +307,24 @@ describe('buildConversationFeed — un job cron réel', () => {
     ).toEqual([
       ['mcp_fetch__fetch_markdown', 'generic', 'success', 5319],
       ['query_memory', 'table', 'success', 7],
+      // Repliées depuis le tour 2, dans l'ordre.
+      'reasoning',
+      ['return_result', null, 'unknown', null],
     ]);
     const qm = block.steps[1];
     expect(qm?.kind === 'tool' && qm.presented).toEqual(tablePayload);
     expect(qm?.kind === 'tool' && qm.input).toEqual({ query: 'changelog' });
-  });
-
-  it('tour 2 : le raisonnement est une étape, avant l’appel sans ligne d’audit (carte null, jamais devinée)', () => {
-    const t2 = feed.items.find((i) => i.kind === 'turn' && i.index === 2);
-    const block = t2?.kind === 'turn' ? t2.blocks[0] : undefined;
-    expect(block?.kind).toBe('steps');
-    if (block?.kind !== 'steps') return;
-    expect(block.steps[0]).toEqual({
+    expect(block.steps[2]).toEqual({
       kind: 'reasoning',
       text: 'Nothing new since 0.8.8 — announce nothing.',
     });
-    const rr = block.steps[1];
-    expect(rr?.kind === 'tool' && rr.toolName).toBe('return_result');
-    expect(rr?.kind === 'tool' && rr.card).toBeNull();
+    const rr = block.steps[3];
     expect(rr?.kind === 'tool' && rr.presented).toBeNull();
-    expect(rr?.kind === 'tool' && rr.outcome).toBe('unknown');
   });
 
-  it('tour 3 : la prose d’abord, puis l’envoi Telegram en CARTE seule, avec sa charge utile', () => {
+  it('tour 3 : la prose d’abord, l’envoi Telegram en CARTE, puis le tour 4 muet replié', () => {
     const t3 = feed.items.find((i) => i.kind === 'turn' && i.index === 3);
-    expect(t3?.kind === 'turn' && t3.blocks.map((b) => b.kind)).toEqual(['prose', 'card']);
+    expect(t3?.kind === 'turn' && t3.blocks.map((b) => b.kind)).toEqual(['prose', 'card', 'steps']);
     const card = t3?.kind === 'turn' ? t3.blocks[1] : undefined;
     expect(card?.kind === 'card' && card.step.card).toBe('sent');
     expect(card?.kind === 'card' && card.step.presented).toEqual(sentPayload);
@@ -342,6 +345,194 @@ describe('buildConversationFeed — un job cron réel', () => {
       llmDurationMs: 3782 + 1369 + 1946 + 1706,
       models: ['z-ai/glm-5.3'],
     });
+  });
+});
+
+describe('la réponse finale ne se dit pas deux fois (P2bis)', () => {
+  const oneTurn = (prose: string, result: string): FeedJob => ({
+    ...job,
+    task: 'x',
+    result,
+    messages: [
+      { role: 'user', content: 'x' },
+      { role: 'assistant', content: [{ type: 'text', text: prose }] },
+    ],
+  });
+
+  it('une réponse déjà dite par la dernière prose ne produit AUCUN item answer', () => {
+    const feed = buildConversationFeed(oneTurn('Tout est prêt.', 'Tout est prêt.'), [], []);
+    expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
+  });
+
+  it('la comparaison ignore les espaces : la prose enveloppée compte pour dite', () => {
+    const feed = buildConversationFeed(
+      oneTurn('Voici le bilan :\n\nTout   est\nprêt.', 'Tout est prêt.'),
+      [],
+      [],
+    );
+    expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
+  });
+
+  it('une réponse qui dit AUTRE chose est gardée', () => {
+    const feed = buildConversationFeed(oneTurn('Je regarde.', 'Tout est prêt.'), [], []);
+    expect(feed.items.at(-1)).toEqual({ kind: 'answer', text: 'Tout est prêt.' });
+  });
+
+  it('la prose déjà dite AVANT un rappel du runner et un tour muet d’envoi ne se répète pas', () => {
+    // Le cas de la capture du 07/09 : l'agent écrit sa réponse, le runner lui
+    // rappelle de l'envoyer, un tour muet appelle telegram_send_message puis
+    // return_result — et la même phrase paraissait une seconde fois en bas.
+    const feed = buildConversationFeed(
+      {
+        ...job,
+        task: 'x',
+        result: "C'est fait ✅ L'app est prête.",
+        messages: [
+          { role: 'user', content: 'x' },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: "C'est fait ✅ L'app est prête." }],
+          },
+          { role: 'user', content: '[système] Tu es sur Telegram. Envoie ta réponse.' },
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: 'send-1',
+                toolName: 'telegram_send_message',
+                input: {},
+              },
+              { type: 'tool-call', toolCallId: 'ret-1', toolName: 'return_result', input: {} },
+            ],
+          },
+        ],
+      },
+      [],
+      [],
+    );
+    expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
+    // Et la phrase n'est rendue qu'une fois dans les proses du fil.
+    const proses = feed.items.flatMap((i) =>
+      i.kind === 'turn' ? i.blocks.filter((b) => b.kind === 'prose') : [],
+    );
+    expect(proses).toHaveLength(1);
+  });
+});
+
+describe('compactTurns — les tours muets se replient (P2bis)', () => {
+  const step = (name: string): Step => ({
+    kind: 'tool',
+    toolName: name,
+    toolCallId: name,
+    jobId: 'j',
+    card: null,
+    presented: null,
+    input: {},
+    outputText: null,
+    outcome: 'success',
+    durationMs: 1,
+    question: null,
+  });
+
+  const usage = (input: number, cost: number | null): TurnUsage => ({
+    inputTokens: input,
+    outputTokens: 1,
+    cachedTokens: 0,
+    cacheCreationTokens: 0,
+    costUsd: cost,
+    durationMs: 10,
+    calls: 1,
+  });
+
+  const turn = (over: Partial<Extract<FeedItem, { kind: 'turn' }>>): FeedItem => ({
+    kind: 'turn',
+    index: 1,
+    turn: 1,
+    turnSource: 'audit',
+    agent: { name: 'Alfred', slug: 'alfred' },
+    model: 'm',
+    blocks: [],
+    usage: null,
+    ...over,
+  });
+
+  it('fusionne les étapes, additionne les jetons, et ne laisse qu’un tour', () => {
+    const out = compactTurns([
+      turn({ index: 1, blocks: [{ kind: 'steps', steps: [step('a')] }], usage: usage(10, 0.1) }),
+      turn({ index: 2, blocks: [{ kind: 'steps', steps: [step('b')] }], usage: usage(20, 0.2) }),
+    ]);
+    expect(out).toHaveLength(1);
+    const merged = out[0];
+    if (merged?.kind !== 'turn') throw new Error('tour attendu');
+    expect(merged.index).toBe(1);
+    expect(merged.blocks).toHaveLength(1);
+    expect(
+      merged.blocks[0]?.kind === 'steps' &&
+        merged.blocks[0].steps.map((s) => (s.kind === 'tool' ? s.toolName : s.kind)),
+    ).toEqual(['a', 'b']);
+    expect(merged.usage?.inputTokens).toBe(30);
+    expect(merged.usage?.costUsd).toBeCloseTo(0.3, 6);
+    expect(merged.usage?.calls).toBe(2);
+  });
+
+  it('un coût inconnu reste inconnu, et un coût connu survit à un inconnu', () => {
+    const both = compactTurns([
+      turn({ blocks: [{ kind: 'steps', steps: [step('a')] }], usage: usage(10, null) }),
+      turn({ blocks: [{ kind: 'steps', steps: [step('b')] }], usage: usage(20, null) }),
+    ]);
+    expect(both[0]?.kind === 'turn' && both[0].usage?.costUsd).toBeNull();
+    const mixed = compactTurns([
+      turn({ blocks: [{ kind: 'steps', steps: [step('a')] }], usage: usage(10, null) }),
+      turn({ blocks: [{ kind: 'steps', steps: [step('b')] }], usage: usage(20, 0.5) }),
+    ]);
+    expect(mixed[0]?.kind === 'turn' && mixed[0].usage?.costUsd).toBe(0.5);
+  });
+
+  it('un tour qui PARLE ne fusionne pas', () => {
+    const out = compactTurns([
+      turn({ index: 1, blocks: [{ kind: 'steps', steps: [step('a')] }] }),
+      turn({ index: 2, blocks: [{ kind: 'prose', text: 'voilà' }] }),
+    ]);
+    expect(out).toHaveLength(2);
+  });
+
+  it('un tour qui MONTRE une carte ne fusionne pas', () => {
+    const out = compactTurns([
+      turn({ index: 1, blocks: [{ kind: 'steps', steps: [step('a')] }] }),
+      turn({ index: 2, blocks: [{ kind: 'card', step: step('b') as never }] }),
+    ]);
+    expect(out).toHaveLength(2);
+  });
+
+  it('deux agents différents ne fusionnent jamais', () => {
+    const out = compactTurns([
+      turn({ index: 1, blocks: [{ kind: 'steps', steps: [step('a')] }] }),
+      turn({
+        index: 2,
+        agent: { name: 'Lead', slug: 'lead' },
+        blocks: [{ kind: 'steps', steps: [step('b')] }],
+      }),
+    ]);
+    expect(out).toHaveLength(2);
+  });
+
+  it('une note entre les deux empêche la fusion', () => {
+    const out = compactTurns([
+      turn({ index: 1, blocks: [{ kind: 'steps', steps: [step('a')] }] }),
+      { kind: 'note', text: 'rappel', origin: 'runner' },
+      turn({ index: 2, blocks: [{ kind: 'steps', steps: [step('b')] }] }),
+    ]);
+    expect(out.map((i) => i.kind)).toEqual(['turn', 'note', 'turn']);
+  });
+
+  it('un tour à ZÉRO bloc se replie sans rien ajouter', () => {
+    const out = compactTurns([
+      turn({ index: 1, blocks: [{ kind: 'steps', steps: [step('a')] }] }),
+      turn({ index: 2, blocks: [] }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.kind === 'turn' && out[0].blocks).toHaveLength(1);
   });
 });
 
@@ -603,7 +794,9 @@ describe('buildConversationFeed — historique préfixé et alignement des tours
       },
     ];
     const feed = buildConversationFeed(j, rows, llm);
-    expect(feed.items.map((i) => i.kind)).toEqual(['history', 'request', 'turn', 'turn', 'answer']);
+    // Pas d'item `answer` : la réponse du job EST la dernière prose du tour
+    // (« Rien depuis hier. »), et le fil ne la dit pas deux fois (P2bis).
+    expect(feed.items.map((i) => i.kind)).toEqual(['history', 'request', 'turn', 'turn']);
     expect(feed.items[0]).toEqual({
       kind: 'history',
       exchanges: [

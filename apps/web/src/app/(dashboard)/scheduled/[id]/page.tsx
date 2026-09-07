@@ -17,6 +17,7 @@ import DeliveriesCard from '@/app/(dashboard)/spaces/DeliveriesCard.tsx';
 import StatusBar from '@/app/(dashboard)/spaces/StatusBar.tsx';
 import VerificationSection from '@/app/(dashboard)/code/[id]/VerificationSection.tsx';
 import { formatCost, formatTokens } from '@/app/(dashboard)/spaces/format.ts';
+import { plainText } from '@/components/Markdown.tsx';
 import { truncate } from '@/lib/format-time';
 
 // Force dynamic — the feed is read per request, and re-read while the job runs.
@@ -53,7 +54,12 @@ export default async function ScheduledRunPage({ params }: { params: Promise<{ i
     (d) => d.outcome === 'prepared' || d.outcome === 'attempted',
   ).length;
   const live = !TERMINAL.has(job.status ?? '');
-  const firstLine = job.task.split('\n')[0] ?? job.task;
+  const showVerification =
+    verification.sequences.length > 0 ||
+    verification.unconfigured.length > 0 ||
+    verification.skippedSurfaces.length > 0 ||
+    live;
+  const firstLine = plainText(job.task);
   const subtitle = [
     job.agentName,
     `${feed.totals.turns} ${feed.totals.turns === 1 ? 'turn' : 'turns'}`,
@@ -91,13 +97,15 @@ export default async function ScheduledRunPage({ params }: { params: Promise<{ i
           vide : elle dit « pas encore », « hors vérification », « rien à
           configurer »), puis la file d'envoi. */}
       <div className="mx-auto mt-8 max-w-[840px] space-y-6">
-        <VerificationSection
-          sequences={verification.sequences}
-          skippedSurfaces={verification.skippedSurfaces}
-          unconfigured={verification.unconfigured}
-          stage={job.status ?? 'pending'}
-          live={live}
-        />
+        {showVerification && (
+          <VerificationSection
+            sequences={verification.sequences}
+            skippedSurfaces={verification.skippedSurfaces}
+            unconfigured={verification.unconfigured}
+            stage={job.status ?? 'pending'}
+            live={live}
+          />
+        )}
         <DeliveriesCard deliveries={deliveries} />
       </div>
       {/* P4 — la barre d'état, permanente en bas de la page ; ses jetons et son

@@ -39,6 +39,7 @@ import {
   verificationRuns,
 } from '@nodal-agents/db';
 import { normalizePath, stripGroupPrefix } from '@nodal-agents/shared';
+import { plainText } from '@/components/Markdown.tsx';
 import { requireAuth } from '@nodal-agents/auth';
 import { headers } from 'next/headers';
 import { getDb, applyActiveEntity, getAuthProvider } from './server.ts';
@@ -161,8 +162,13 @@ const LIST_MAX = 200;
 const TITLE_MAX = 60;
 const PREVIEW_MAX = 120;
 
+/**
+ * La première ligne LISIBLE d'un texte d'agent : son markdown est aplati
+ * (P2bis) avant la coupe, sinon la liste des conversations affichait
+ * « ## **PRD**, Podium » avec ses dièses et ses astérisques.
+ */
 function firstLine(text: string, max: number): string {
-  const line = (text.split('\n')[0] ?? '').trim();
+  const line = plainText(text);
   return line.length <= max ? line : line.slice(0, max);
 }
 
@@ -293,7 +299,7 @@ export async function listAllConversationsAction(): Promise<ActionResult<Convers
           // préfixe de groupe, qui nomme l'expéditeur et pas le sujet.
           title:
             r.title !== ''
-              ? r.title
+              ? firstLine(r.title, TITLE_MAX)
               : firstLine(stripGroupPrefix(stats?.firstRequest ?? ''), TITLE_MAX),
           agentId: r.agentId,
           agentName: r.agentName,

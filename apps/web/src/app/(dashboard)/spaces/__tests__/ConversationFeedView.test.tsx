@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ConversationFeedView from '../ConversationFeedView.tsx';
 import { summarizeSteps } from '../format.ts';
+import { compactTurns } from '@/lib/conversation-feed.ts';
 import type { ConversationFeed, Step } from '@/lib/conversation-feed.ts';
 
 const tool = (over: Partial<Extract<Step, { kind: 'tool' }>>): Extract<Step, { kind: 'tool' }> => ({
@@ -59,7 +60,7 @@ const feed: ConversationFeed = {
         calls: 1,
       },
       blocks: [
-        { kind: 'prose', text: 'Je reprends le format du mois dernier.' },
+        { kind: 'prose', text: 'Je reprends le **format** du mois dernier.' },
         {
           kind: 'steps',
           steps: [
@@ -151,7 +152,8 @@ const feed: ConversationFeed = {
         },
       ],
     },
-    { kind: 'note', text: 'Tu es sur Telegram. Livre ta réponse.' },
+    { kind: 'note', text: 'Tu es sur Telegram. Livre ta réponse.', origin: 'runner' },
+    { kind: 'note', text: 'Older turns are not shown (2 shown).', origin: 'thread' },
     { kind: 'answer', text: 'La revue d’août est prête et envoyée.' },
   ],
   totals: {
@@ -170,11 +172,69 @@ const feed: ConversationFeed = {
 describe('ConversationFeedView', () => {
   const html = renderToStaticMarkup(<ConversationFeedView feed={feed} />);
 
-  it('la demande dit d’où elle vient ; le tour dit son modèle, ses jetons, son coût', () => {
+  it('la demande dit d’où elle vient ; les jetons descendent dans le groupe d’étapes', () => {
     expect(html).toContain('Prépare la revue');
     expect(html).toContain('via automation “Revue mensuelle”');
     expect(html).toContain('Alfred');
-    expect(html).toContain('claude-opus-5 · 12,480 tokens · 9.4 s · $0.05');
+    // P2bis — la ligne du nom ne porte plus que le modèle quand le tour a un
+    // groupe d'étapes ; le coût vit dans l'en-tête du groupe, à droite.
+    expect(html).not.toContain('claude-opus-5 · 12,480 tokens');
+    expect(html).toContain('>claude-opus-5<');
+    // Une seule durée : celle des étapes. La durée des appels LLM (9.4 s) ne
+    // se met plus à côté — deux temps sans étiquette ne se lisaient pas.
+    expect(html).toContain('3 steps · 20 ms · 12,480 tokens · $0.05');
+    expect(html).not.toContain('12,480 tokens · 9.4 s');
+  });
+
+  it('le titre d’un groupe nomme jusqu’à deux outils sans carte ; au-delà, il les compte', () => {
+    const named = (n: number): Step[] =>
+      Array.from({ length: n }, (_, i) =>
+        tool({ toolName: `tool_${i}`, card: null, presented: null, outcome: 'success' }),
+      );
+    expect(summarizeSteps(named(2))).toBe('tool_0 · tool_1');
+    expect(summarizeSteps([{ kind: 'reasoning', text: 'x' }, ...named(4)])).toBe(
+      'reasoning · 4 tool calls',
+    );
+  });
+
+  it('le markdown de la prose est RENDU : plus d’astérisques à l’écran', () => {
+    expect(html).toContain('<strong class="font-semibold text-ink">format</strong>');
+    expect(html).not.toContain('**format**');
+  });
+
+  it('la réponse finale est un tour de l’agent, jamais une plaque « Answer »', () => {
+    expect(html).toContain('La revue d’août est prête et envoyée.');
+    expect(html).not.toContain('>Answer<');
+    // Une seule fois : la prose du dernier tour ne la répète pas.
+    expect(html.split('La revue d’août est prête et envoyée.')).toHaveLength(2);
+  });
+
+  it('un rappel du runner se nomme ; un aveu du fil parle en son nom', () => {
+    expect(html).toContain('Nodal reminded the agent · Tu es sur Telegram.');
+    expect(html).toContain('Older turns are not shown (2 shown).');
+    expect(html).not.toContain('Nodal reminded the agent · Older turns');
+  });
+
+  it('un tour sans prose ni carte fusionne dans le précédent', () => {
+    const muet = {
+      kind: 'turn' as const,
+      index: 2,
+      turn: 2,
+      turnSource: 'audit' as const,
+      agent: { name: 'Alfred', slug: 'alfred' },
+      model: 'claude-opus-5',
+      usage: null,
+      blocks: [{ kind: 'steps' as const, steps: [tool({ toolName: 'file_read' })] }],
+    };
+    const compact = compactTurns([feed.items[2]!, muet]);
+    const rendu = renderToStaticMarkup(
+      <ConversationFeedView feed={{ items: compact, totals: feed.totals }} />,
+    );
+    // Un seul « Alfred » : un seul tour à l'écran.
+    expect(rendu.split('>Alfred<')).toHaveLength(2);
+    expect(rendu).toContain('4 steps');
+    // Et plus jamais l'aveu d'un tour vide.
+    expect(rendu).not.toContain('No visible action this turn');
   });
 
   it('les actions mineures sont repliées sous un titre déduit des CARTES, pas des noms', () => {
@@ -224,9 +284,9 @@ describe('ConversationFeedView', () => {
     );
   });
 
-  it('le rappel du runner est dit comme tel, et la réponse finale ferme le fil', () => {
-    expect(html).toContain('Nodal reminded the agent · Tu es sur Telegram.');
-    expect(html).toContain('La revue d’août est prête et envoyée.');
-    expect(html.lastIndexOf('Answer')).toBeGreaterThan(html.indexOf('Sent to telegram'));
+  it('la réponse ferme le fil, après l’envoi', () => {
+    expect(html.lastIndexOf('La revue d’août est prête et envoyée.')).toBeGreaterThan(
+      html.indexOf('Sent to telegram'),
+    );
   });
 });

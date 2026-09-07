@@ -19,15 +19,19 @@ import { createProjectConversationAction } from '@/lib/project-actions.ts';
 export default function ProjectComposer({
   projectId,
   conversationId,
+  agentName,
 }: {
   projectId: string;
   conversationId: string | null;
+  /** L'agent du projet, pour que la saisie dise à qui on écrit. */
+  agentName?: string | null;
 }) {
   const router = useRouter();
 
   return (
     <ThreadComposer
       conversationId={conversationId ?? ''}
+      {...(agentName !== undefined ? { agentName } : {})}
       onBeforeSend={
         conversationId !== null
           ? undefined

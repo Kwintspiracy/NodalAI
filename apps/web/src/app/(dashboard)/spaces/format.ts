@@ -96,7 +96,13 @@ export function summarizeSteps(steps: readonly Step[]): string {
     const words = CARD_WORDS[key as ToolCard];
     parts.push(`${n} ${n === 1 ? words[0] : words[1]}`);
   }
-  for (const name of named) parts.push(name);
+  // Jusqu'à deux outils sont nommés ; au-delà, le titre ne tiendrait plus sur
+  // une ligne (« reasoning · assign_lead · send_file · telegram_send_message ·
+  // return_result » débordait sur la capture du 07/09) et ne dirait rien de
+  // plus qu'un compte. Les noms restent lisibles, un à un, dans les lignes du
+  // groupe déplié.
+  if (named.size <= 2) for (const name of named) parts.push(name);
+  else parts.push(`${named.size} tool calls`);
   if (failed > 0) parts.push(`${failed} failed`);
   return parts.length > 0 ? parts.join(' · ') : 'no action';
 }

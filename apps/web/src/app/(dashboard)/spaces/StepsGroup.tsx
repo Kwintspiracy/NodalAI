@@ -11,22 +11,30 @@ import { MonoMicroTag } from '@/components/ui/MonoMicroTag';
 import type { Step } from '@/lib/conversation-feed.ts';
 import { formatMs, shortToolName, summarizeSteps } from './format.ts';
 
-export default function StepsGroup({ steps }: { steps: Step[] }) {
+export default function StepsGroup({ steps, meta }: { steps: Step[]; meta?: string }) {
   const [open, setOpen] = useState(false);
   const summary = summarizeSteps(steps);
   const totalMs = steps.reduce(
     (acc, s) => acc + (s.kind === 'tool' && s.durationMs !== null ? s.durationMs : 0),
     0,
   );
+  // Ce que le groupe dit de lui-même à droite : son compte d'étapes, sa durée,
+  // puis ce que le TOUR ajoute (jetons, coût) quand l'appelant le passe. Ces
+  // deux nombres étaient dans la ligne du nom de l'agent, où ils encombraient
+  // un tour qui n'avait rien fait.
+  const right = [
+    `${steps.length} ${steps.length === 1 ? 'step' : 'steps'}`,
+    totalMs > 0 ? formatMs(totalMs) : null,
+    meta !== undefined && meta !== '' ? meta : null,
+  ]
+    .filter((x): x is string => x !== null)
+    .join(' · ');
 
   return (
-    <div className="max-w-[720px] overflow-hidden rounded-[10px] border border-rule-2 bg-paper">
+    <div className="max-w-[720px] overflow-hidden rounded-lg border border-rule-2 bg-paper">
       <DisclosureButton open={open} onClick={() => setOpen((v) => !v)} className="py-2">
         <span className="text-medium-13 text-ink-2">{summary}</span>
-        <span className="ml-auto text-mono-11 text-ink-4">
-          {steps.length} {steps.length === 1 ? 'step' : 'steps'}
-          {totalMs > 0 ? ` · ${formatMs(totalMs)}` : ''}
-        </span>
+        <span className="ml-auto shrink-0 text-mono-11 text-ink-4">{right}</span>
       </DisclosureButton>
       {open && (
         <ul className="border-t border-rule-2 py-2">
@@ -124,14 +132,58 @@ function StepLine({ step }: { step: Extract<Step, { kind: 'tool' }> }) {
           {p.total} {p.total === 1 ? 'file' : 'files'} · {p.files[0]?.path ?? ''}
         </>
       );
+    case 'sent': {
+      const chars =
+        step.input !== null &&
+        typeof step.input === 'object' &&
+        typeof (step.input as { text?: unknown }).text === 'string'
+          ? (step.input as { text: string }).text.length
+          : null;
+      return (
+        <>
+          to {p.target ?? p.channel}
+          {chars !== null ? ` · ${chars} chars` : ''}
+        </>
+      );
+    }
+    case 'question':
+      return (
+        <>
+          asked · {p.options?.length ?? 0} {p.options?.length === 1 ? 'option' : 'options'}
+        </>
+      );
+    case 'delegation':
+      return (
+        <>
+          to {p.to} · {p.ok ? 'done' : 'failed'}
+        </>
+      );
+    case 'terminal':
+      return (
+        <>
+          {p.command} · {p.timedOut ? 'timed out' : `exit ${p.exitCode ?? '?'}`}
+        </>
+      );
+    case 'checks':
+      return (
+        <>
+          {p.verdict === 'pass' ? 'approved' : 'changes requested'} · {p.total}{' '}
+          {p.total === 1 ? 'finding' : 'findings'}
+        </>
+      );
     case 'generic':
       return (
         <>
           <MonoMicroTag tone="ink">raw</MonoMicroTag> <RawExcerpt text={step.outputText} />
         </>
       );
-    default:
-      return <MonoMicroTag tone="ink">{p.card}</MonoMicroTag>;
+    default: {
+      // Toutes les cartes ont leur ligne. Une carte NEUVE casse la compilation
+      // ici plutôt que de rendre une pastille muette en silence.
+      const unhandled: never = p;
+      void unhandled;
+      return null;
+    }
   }
 }
 

@@ -1,0 +1,212 @@
+// Markdown — le texte d'un agent, rendu (P2bis, plan « De la maquette au
+// produit »).
+//
+// Le fil montrait `**gras**`, `## titres` et les backticks tels quels : ce que
+// le LLM écrit est du markdown, et l'écran l'affichait comme du texte brut.
+// Ce composant le parse (`remark-parse` + GFM) et rend l'arbre mdast vers des
+// éléments React, avec les tokens du design system — jamais une taille en
+// pixels, jamais une couleur hors tokens.
+//
+// AUCUN HTML BRUT n'est jamais interprété : un nœud `html` du markdown se rend
+// comme du TEXTE échappé, et une image se rend comme un lien vers son URL. Le
+// texte vient d'un LLM et de ce qu'un outil a lu ; le laisser injecter des
+// balises serait une faille, pas une fonctionnalité. `dangerouslySetInnerHTML`
+// n'apparaît nulle part dans ce fichier — c'est la garantie.
+
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
+import { toString as mdastToString } from 'mdast-util-to-string';
+import type { Nodes, RootContent, TableCell, TableRow } from 'mdast';
+import Table, { THead, Th, Tr, Td } from './ui/Table';
+import CodeBlock from './ui/CodeBlock';
+
+export type MarkdownTone = 'agent' | 'user';
+
+const processor = unified().use(remarkParse).use(remarkGfm);
+
+function parse(text: string): Nodes {
+  return processor.parse(text) as Nodes;
+}
+
+/**
+ * Le texte PLAT d'un markdown : sa première ligne non vide, les espaces
+ * repliés. Sert aux titres de page (`## **PRD**, Podium` doit se lire
+ * « PRD, Podium ») et à décider si un texte est « long » avant de le replier —
+ * la longueur du markdown source compterait les astérisques.
+ */
+export function plainText(markdown: string): string {
+  const tree = parse(markdown);
+  // Le PREMIER bloc, pas l'arbre entier : `mdastToString` colle les blocs sans
+  // séparateur, et « # Titre\n\nsuite » rendrait « Titresuite ».
+  const first = 'children' in tree ? (tree.children as RootContent[])[0] : undefined;
+  const flat = mdastToString(first ?? tree);
+  const firstLine = flat.split('\n').find((l) => l.trim() !== '') ?? '';
+  return firstLine.replace(/\s+/g, ' ').trim();
+}
+
+export default function Markdown({
+  text,
+  tone = 'agent',
+  className = '',
+}: {
+  text: string;
+  tone?: MarkdownTone;
+  className?: string;
+}) {
+  const tree = parse(text);
+  const children = 'children' in tree ? (tree.children as RootContent[]) : [];
+  return <div className={`break-words ${className}`}>{children.map(renderNode(tone))}</div>;
+}
+
+function renderNode(tone: MarkdownTone) {
+  return function render(node: RootContent, index: number): React.ReactNode {
+    return <MdNode key={index} node={node} tone={tone} />;
+  };
+}
+
+function kids(node: { children?: RootContent[] }, tone: MarkdownTone): React.ReactNode[] {
+  return (node.children ?? []).map((child, i) => <MdNode key={i} node={child} tone={tone} />);
+}
+
+const PROSE = 'max-w-[68ch] text-body-15';
+
+function MdNode({ node, tone }: { node: RootContent; tone: MarkdownTone }): React.ReactNode {
+  const ink = tone === 'user' ? 'text-ink' : 'text-ink-2';
+  switch (node.type) {
+    case 'paragraph':
+      return <p className={`mb-3 last:mb-0 ${PROSE} ${ink}`}>{kids(node, tone)}</p>;
+    case 'heading':
+      return node.depth <= 2 ? (
+        <h2 className="mt-4 mb-2 text-title-15 text-ink first:mt-0">{kids(node, tone)}</h2>
+      ) : (
+        <h3 className="mt-3 mb-1.5 text-title-13 text-ink first:mt-0">{kids(node, tone)}</h3>
+      );
+    case 'strong':
+      return <strong className="font-semibold text-ink">{kids(node, tone)}</strong>;
+    case 'emphasis':
+      return <em className="italic">{kids(node, tone)}</em>;
+    case 'delete':
+      return <del className="text-ink-4 line-through">{kids(node, tone)}</del>;
+    case 'inlineCode':
+      return (
+        <code className="rounded-[5px] bg-hover px-1 py-0.5 text-mono-12 text-ink-2">
+          {node.value}
+        </code>
+      );
+    case 'code':
+      return (
+        <CodeBlock
+          code={node.value}
+          lang={node.lang ?? null}
+          {...(node.meta !== null && node.meta !== undefined && node.meta !== ''
+            ? { filename: node.meta }
+            : {})}
+        />
+      );
+    case 'break':
+      return <br />;
+    case 'thematicBreak':
+      return <hr className="my-4 border-rule-2" />;
+    case 'blockquote':
+      return (
+        <blockquote className="mb-3 border-l-2 border-rule pl-3 text-ink-3">
+          {kids(node, tone)}
+        </blockquote>
+      );
+    case 'list':
+      return node.ordered === true ? (
+        <ol className={`mb-3 list-decimal space-y-1 pl-5 ${PROSE} ${ink}`}>{kids(node, tone)}</ol>
+      ) : (
+        <ul className={`mb-3 list-disc space-y-1 pl-5 ${PROSE} ${ink}`}>{kids(node, tone)}</ul>
+      );
+    case 'listItem':
+      // Une case à cocher est un ÉTAT, pas un contrôle : le fil est un compte
+      // rendu, pas un formulaire. Un caractère, jamais un `<input>`.
+      return (
+        <li className={node.checked === null || node.checked === undefined ? '' : 'list-none'}>
+          {node.checked === true && <span className="mr-1 text-mono-12 text-ok">✓</span>}
+          {node.checked === false && <span className="mr-1 text-mono-12 text-ink-4">◻</span>}
+          {kids(node, tone)}
+        </li>
+      );
+    case 'link': {
+      const external = /^[a-z][a-z0-9+.-]*:/i.test(node.url) && !node.url.startsWith('#');
+      return (
+        <a
+          href={node.url}
+          {...(node.title ? { title: node.title } : {})}
+          {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+          className="text-ink underline decoration-rule underline-offset-2 hover:decoration-ink"
+        >
+          {kids(node, tone)}
+        </a>
+      );
+    }
+    case 'image':
+      // Pas de `<img>` : le fil ne charge pas une ressource distante décidée
+      // par le texte d'un LLM. L'adresse est dite, et se suit d'un clic.
+      return (
+        <a
+          href={node.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-ink underline decoration-rule underline-offset-2 hover:decoration-ink"
+        >
+          {node.alt !== null && node.alt !== undefined && node.alt !== '' ? node.alt : node.url}
+        </a>
+      );
+    case 'table':
+      return <MdTable node={node} tone={tone} />;
+    case 'text':
+      return node.value;
+    case 'html':
+      // Le HTML du markdown se rend comme TEXTE. React échappe la valeur : la
+      // balise s'affiche, elle ne s'exécute pas.
+      return node.value;
+    case 'footnoteReference':
+      return <sup className="text-mono-11 text-ink-4">[{node.identifier}]</sup>;
+    default:
+      // Un nœud que cet écran ne dessine pas encore : son texte, jamais rien.
+      return mdastToString(node);
+  }
+}
+
+function MdTable({
+  node,
+  tone,
+}: {
+  node: Extract<RootContent, { type: 'table' }>;
+  tone: MarkdownTone;
+}) {
+  const rows = node.children as TableRow[];
+  const head = rows[0];
+  const body = rows.slice(1);
+  const align = (i: number): 'left' | 'right' => (node.align?.[i] === 'right' ? 'right' : 'left');
+  return (
+    <div className="mb-3 overflow-x-auto rounded-lg border border-rule-2">
+      <Table frame={false}>
+        {head && (
+          <THead>
+            {(head.children as TableCell[]).map((cell, i) => (
+              <Th key={i} align={align(i)}>
+                {kids(cell, tone)}
+              </Th>
+            ))}
+          </THead>
+        )}
+        <tbody>
+          {body.map((row, ri) => (
+            <Tr key={ri}>
+              {(row.children as TableCell[]).map((cell, ci) => (
+                <Td key={ci} align={align(ci)} className="text-body-13 text-ink-2">
+                  {kids(cell, tone)}
+                </Td>
+              ))}
+            </Tr>
+          ))}
+        </tbody>
+      </Table>
+    </div>
+  );
+}

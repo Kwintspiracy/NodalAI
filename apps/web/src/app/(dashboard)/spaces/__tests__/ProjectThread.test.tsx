@@ -34,6 +34,7 @@ const filLu = {
     // P12 — le fil passe l'état des documents au rendu des cartes. Aucun ici :
     // ce fixture n'a pas de fichier écrit.
     verification: { sequences: [], skippedSurfaces: [], unconfigured: [], deliverables: [] },
+    conversation: { agentName: 'Alfred' },
   } as unknown as ConversationThreadView,
 };
 
@@ -48,7 +49,7 @@ describe('ProjectThread', () => {
     );
     expect(html).toContain('Failed to load the conversation');
     // Pas de saisie : on ne répond pas par-dessus un historique inconnu.
-    expect(html).not.toContain('Write to your agent');
+    expect(html).not.toContain('Reply');
     expect(html).not.toContain('Send');
     // Et surtout, pas de « vide » là où il y a une panne.
     expect(html).not.toContain('Nothing said here yet');
@@ -59,7 +60,8 @@ describe('ProjectThread', () => {
       <ProjectThread projectId="p-1" conversationId={null} thread={null} />,
     );
     expect(html).toContain('Nothing said here yet');
-    expect(html).toContain('Write to your agent');
+    // Sans agent connu, la saisie reste sobre — elle n'invente pas de nom.
+    expect(html).toContain('placeholder="Reply…"');
   });
 
   it('le fil est là : il est dessiné, et on peut écrire', () => {
@@ -67,7 +69,8 @@ describe('ProjectThread', () => {
       <ProjectThread projectId="p-1" conversationId="c-1" thread={filLu} />,
     );
     expect(html).toContain('Range le dossier');
-    expect(html).toContain('Write to your agent');
+    // P2bis — la saisie dit À QUI on écrit.
+    expect(html).toContain('placeholder="Reply to Alfred…"');
     expect(html).not.toContain('Nothing said here yet');
   });
 });

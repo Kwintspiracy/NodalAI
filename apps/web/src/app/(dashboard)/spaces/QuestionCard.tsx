@@ -1,14 +1,21 @@
 'use client';
 
 import { useTransition } from 'react';
+import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { resolveApprovalAction } from '@/lib/actions.ts';
 import PrimaryButton from '@/components/ui/PrimaryButton';
+import StatusPill from '@/components/ui/StatusPill';
 
 export interface QuestionCardProps {
-  /** La question, telle que l'agent l'a écrite. */
-  prompt: string;
+  /**
+   * La question, telle que l'agent l'a écrite. Un `ReactNode` : le fil y met
+   * du markdown RENDU, composé côté serveur. La carte est cliente (elle
+   * répond) ; parser le markdown ici embarquerait remark dans le navigateur
+   * pour une phrase.
+   */
+  prompt: ReactNode;
   options: string[];
   /**
    * La ligne `approval_requests` de cette question, quand le fil l'a chargée.
@@ -27,16 +34,23 @@ export interface QuestionCardProps {
  * La carte d'une question dans le fil (P10a) — la même que la page Approvals
  * porte, à sa place : là où l'agent l'a posée.
  *
- * Trois états, et un seul est interactif. En attente : la question et ses
- * options en boutons. Répondue : l'option retenue, mise en avant, les autres
- * en retrait — ce qui a été choisi se lit sans relire toute la liste.
- * Déclinée : dit comme tel, avec la raison si elle a été donnée.
+ * Forme de la maquette (P2bis) : un cadre encré, sans en-tête. Une question
+ * n'a pas besoin qu'on lui écrive « Question » au-dessus — le point
+ * d'interrogation et les boutons le disent, et le bandeau la faisait
+ * ressembler aux cartes de résultat qui l'entourent alors qu'elle est la seule
+ * chose du fil qui attend le lecteur.
+ *
+ * Trois états, et un seul est interactif. En attente : la question, ses
+ * options en boutons, et la pastille qui dit qu'on attend. Répondue : l'option
+ * retenue en pastille, les autres en retrait. Déclinée : dit comme tel, avec
+ * la raison si elle a été donnée.
  */
 export default function QuestionCard({ prompt, options, question }: QuestionCardProps) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const status = question?.status ?? null;
   const answer = question?.answer ?? null;
+  const waiting = status === 'pending' && question !== null;
 
   function answerWith(option: string) {
     if (!question) return;
@@ -58,57 +72,53 @@ export default function QuestionCard({ prompt, options, question }: QuestionCard
   }
 
   return (
-    <div className="max-w-[760px] overflow-hidden rounded-xl border border-rule-2 bg-paper">
-      <div className="flex flex-wrap items-center gap-2.5 border-b border-rule-2 bg-sidebar px-4 py-2.5">
-        <span className="text-medium-13 text-ink">Question</span>
-        {status !== null && status !== 'pending' && (
-          <span className="text-mono-11 text-ink-4">
-            {status === 'rejected' ? 'declined' : 'answered'}
-          </span>
-        )}
+    <div className="max-w-[620px] rounded-xl border border-ink bg-paper px-[18px] py-4">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1 text-body-14 text-ink">{prompt}</div>
+        {waiting && <StatusPill variant="run" label="Waiting" />}
       </div>
-      <div className="space-y-2.5 px-4 py-3">
-        <p className="max-w-[68ch] whitespace-pre-wrap text-body-15 text-ink">{prompt}</p>
 
-        {status === 'pending' && question !== null ? (
-          <div className="flex flex-wrap gap-2">
-            {options.map((option, i) => (
-              <PrimaryButton
+      {waiting ? (
+        <div className="mt-3.5 flex flex-wrap gap-2">
+          {options.map((option) => (
+            <PrimaryButton
+              key={option}
+              variant="neutral"
+              size="sm"
+              onClick={() => answerWith(option)}
+              disabled={isPending}
+            >
+              {option}
+            </PrimaryButton>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3.5 flex flex-wrap items-center gap-2">
+          {options.map((option) =>
+            option === answer ? (
+              <span
                 key={option}
-                variant={i === 0 ? 'ink' : 'neutral'}
-                size="sm"
-                onClick={() => answerWith(option)}
-                disabled={isPending}
-                className="!text-xs"
+                className="inline-flex h-[30px] items-center rounded-lg bg-ok-bg px-3.5 text-medium-13 text-ok"
               >
+                ✓ {option}
+              </span>
+            ) : (
+              <span key={option} className="text-body-12 text-ink-4">
                 {option}
-              </PrimaryButton>
-            ))}
-          </div>
-        ) : (
-          <ul className="space-y-0.5">
-            {options.map((option) => (
-              <li
-                key={option}
-                className={
-                  option === answer ? 'text-medium-13 text-ink' : 'text-body-12 text-ink-4'
-                }
-              >
-                {option === answer ? `✓ ${option}` : `· ${option}`}
-              </li>
-            ))}
-          </ul>
-        )}
+              </span>
+            ),
+          )}
+        </div>
+      )}
 
-        {status === 'rejected' && (
-          <p className="text-body-12 text-ink-3">
-            Declined{question?.notes ? ` · ${question.notes}` : ''}
-          </p>
-        )}
-        {question === null && (
-          <p className="text-body-12 text-ink-4">Answer it from the Approvals page.</p>
-        )}
-      </div>
+      {status === 'rejected' && (
+        <p className="mt-3 text-body-12 text-ink-3">
+          Declined{question?.notes ? ` · ${question.notes}` : ''}
+        </p>
+      )}
+      {question === null && (
+        <p className="mt-3 text-body-12 text-ink-4">Answer it from the Approvals page.</p>
+      )}
     </div>
   );
 }

@@ -20,9 +20,12 @@ import { sendChatMessageAction } from '@/lib/actions.ts';
 
 export default function ThreadComposer({
   conversationId,
+  agentName,
   onBeforeSend,
 }: {
   conversationId: string;
+  /** À qui on écrit — le placeholder le dit. Absent : « Reply… ». */
+  agentName?: string | null;
   /**
    * P8 — la page d'un projet sans conversation. Appelé AVANT l'envoi, il rend
    * l'id de la conversation qui doit recevoir le message (elle vient d'être
@@ -68,8 +71,12 @@ export default function ThreadComposer({
       <TextArea
         value={message}
         onChange={(e) => setMessage(e.target.value)}
-        placeholder="Write to your agent…"
-        rows={3}
+        placeholder={
+          agentName !== undefined && agentName !== null && agentName !== ''
+            ? `Reply to ${agentName}…`
+            : 'Reply…'
+        }
+        rows={2}
         disabled={isPending}
         containerClassName="flex-1"
       />

@@ -21,11 +21,13 @@ import type {
   Step,
   TurnBlock,
 } from '@/lib/conversation-feed.ts';
+import Markdown from '@/components/Markdown.tsx';
 import StepsGroup from './StepsGroup.tsx';
 import ProducedCard from './ProducedCard.tsx';
 import QuestionCard from './QuestionCard.tsx';
 import FileDiff from './FileDiff.tsx';
 import HistoryGroup from './HistoryGroup.tsx';
+import DelegationDisclosure from './DelegationDisclosure.tsx';
 import { formatCost, formatMs, formatTokens, originLabel } from './format.ts';
 
 type ToolStep = Extract<Step, { kind: 'tool' }>;
@@ -54,14 +56,39 @@ export default function ConversationFeedView({
   );
   return (
     <div className="mx-auto max-w-[840px]">
-      {feed.items.map((item, i) => (
-        <FeedItemView key={i} item={item} deliverables={byKey} />
-      ))}
+      <FeedItems items={feed.items} deliverables={byKey} />
     </div>
   );
 }
 
-function FeedItemView({ item, deliverables }: { item: FeedItem; deliverables: Deliverables }) {
+/**
+ * Les items d'un fil, sans cadre : le fil de la page en haut, et le fil d'un
+ * DÉLÉGUÉ sous sa carte de délégation (P2bis) passent par le même code.
+ */
+function FeedItems({ items, deliverables }: { items: FeedItem[]; deliverables: Deliverables }) {
+  // La réponse finale se rend comme un TOUR : il lui faut donc un nom et un
+  // avatar. Le fil ne les porte pas sur l'item ; ils viennent du dernier tour
+  // de l'agent, qui est celui qui l'a écrite.
+  const lastTurn = [...items].reverse().find((i) => i.kind === 'turn');
+  const agentName = lastTurn?.agent.name ?? 'Agent';
+  return (
+    <>
+      {items.map((item, i) => (
+        <FeedItemView key={i} item={item} deliverables={deliverables} agentName={agentName} />
+      ))}
+    </>
+  );
+}
+
+function FeedItemView({
+  item,
+  deliverables,
+  agentName,
+}: {
+  item: FeedItem;
+  deliverables: Deliverables;
+  agentName: string;
+}) {
   switch (item.kind) {
     case 'request':
       return (
@@ -73,49 +100,67 @@ function FeedItemView({ item, deliverables }: { item: FeedItem; deliverables: De
           }
         >
           <Who name="You" meta={originLabel(item.origin)} />
-          <ClampedText text={item.text} className="max-w-[68ch] text-body-15 text-ink" />
+          <ClampedText plain={item.text} className="max-w-[68ch]">
+            <Markdown text={item.text} tone="user" />
+          </ClampedText>
         </Turn>
       );
     case 'note':
+      // Le bruit système vit EN MARGE du fil : une ligne grise, tronquée,
+      // alignée sur la colonne de texte. Un rappel du runner dit qui parle ; un
+      // aveu du fil parle en son nom et n'a pas de préfixe.
       return (
         <p className="mt-3 truncate pl-[44px] text-mono-11 text-ink-4" title={item.text}>
-          Nodal reminded the agent · {item.text}
+          {item.origin === 'runner' ? `Nodal reminded the agent · ${item.text}` : item.text}
         </p>
       );
-    case 'turn':
+    case 'turn': {
+      // Les jetons et le coût descendent dans l'en-tête du groupe d'étapes
+      // quand il y en a un : la ligne du nom porte alors le modèle, et rien
+      // d'autre. Sans groupe, elle garde tout — sinon ces nombres n'auraient
+      // nulle part où aller.
+      // Une seule durée par tour : celle des étapes, que le groupe affiche
+      // déjà. Ajouter ici celle des appels LLM mettait deux temps côte à côte
+      // (« 31.7 s · 34,158 tokens · 15.5 s ») sans dire lequel était quoi.
+      const cost = [
+        item.usage
+          ? `${formatTokens(item.usage.inputTokens + item.usage.outputTokens)} tokens`
+          : null,
+        item.usage && item.usage.costUsd !== null ? formatCost(item.usage.costUsd) : null,
+      ].filter((x): x is string => x !== null);
+      // Le PREMIER groupe d'étapes du tour porte le coût ; les suivants (rares)
+      // n'en portent pas, sinon le même nombre paraîtrait deux fois.
+      const firstSteps = item.blocks.findIndex((b) => b.kind === 'steps');
+      const meta =
+        firstSteps >= 0
+          ? (item.model ?? '')
+          : [item.model, ...cost].filter((x): x is string => typeof x === 'string').join(' · ');
       return (
         <Turn avatar={<AgentAvatar name={item.agent.name ?? 'Agent'} size="md" shape="square" />}>
-          <Who
-            name={item.agent.name ?? 'Agent'}
-            meta={[
-              item.model,
-              item.usage
-                ? `${formatTokens(item.usage.inputTokens + item.usage.outputTokens)} tokens`
-                : null,
-              item.usage && item.usage.durationMs > 0 ? formatMs(item.usage.durationMs) : null,
-              item.usage && item.usage.costUsd !== null ? formatCost(item.usage.costUsd) : null,
-            ]
-              .filter((x): x is string => x !== null)
-              .join(' · ')}
-          />
+          <Who name={item.agent.name ?? 'Agent'} meta={meta} />
           {item.blocks.map((b, i) => (
-            <Block key={i} block={b} deliverables={deliverables} />
+            <Block
+              key={i}
+              block={b}
+              deliverables={deliverables}
+              {...(i === firstSteps && cost.length > 0 ? { meta: cost.join(' · ') } : {})}
+            />
           ))}
-          {item.blocks.length === 0 && (
-            <p className="text-body-12 italic text-ink-4">No visible action this turn.</p>
-          )}
         </Turn>
       );
+    }
     case 'history':
       return <HistoryGroup exchanges={item.exchanges} />;
     case 'child':
-      return <ChildCard job={item.job} />;
+      return <DelegationGroup job={item.job} deliverables={deliverables} />;
     case 'answer':
+      // La réponse gardée (elle DIT autre chose que la dernière prose) est un
+      // tour de l'agent, pas une plaque à part : c'est lui qui parle.
       return (
-        <div className="mt-6 max-w-[760px] rounded-xl border border-rule-2 bg-paper p-4">
-          <p className="mb-1 text-label-11 uppercase tracking-wider text-ink-4">Answer</p>
-          <p className="whitespace-pre-wrap text-body-15 text-ink">{item.text}</p>
-        </div>
+        <Turn avatar={<AgentAvatar name={agentName} size="md" shape="square" />}>
+          <Who name={agentName} meta="" />
+          <Markdown text={item.text} />
+        </Turn>
       );
     case 'produced':
       // P7 — ce qui est sorti du chat à ce tour. Il ne paraît QUE là :
@@ -131,9 +176,12 @@ function FeedItemView({ item, deliverables }: { item: FeedItem; deliverables: De
       );
     case 'failure':
       return (
-        <div className="mt-6 max-w-[760px] rounded-xl border border-err/30 bg-warn-bg p-4">
-          <p className="mb-1 text-label-11 uppercase tracking-wider text-err">Failed</p>
-          <p className="whitespace-pre-wrap text-body-13 text-err">{item.text}</p>
+        <div className="mt-6">
+          <CardFrame title="Failed" tone="warn">
+            <div className="px-4 py-3">
+              <Markdown text={item.text} />
+            </div>
+          </CardFrame>
         </div>
       );
   }
@@ -157,18 +205,23 @@ function Who({ name, meta }: { name: string; meta: string }) {
   );
 }
 
-function Block({ block, deliverables }: { block: TurnBlock; deliverables: Deliverables }) {
+function Block({
+  block,
+  deliverables,
+  meta,
+}: {
+  block: TurnBlock;
+  deliverables: Deliverables;
+  /** Ce que le TOUR ajoute à l'en-tête du groupe : jetons, durée, coût. */
+  meta?: string;
+}) {
   switch (block.kind) {
     case 'prose':
-      return (
-        <p className="mb-3 max-w-[68ch] whitespace-pre-wrap text-body-15 text-ink-2">
-          {block.text}
-        </p>
-      );
+      return <Markdown text={block.text} className="mb-3" />;
     case 'steps':
       return (
         <div className="mb-3">
-          <StepsGroup steps={block.steps} />
+          <StepsGroup steps={block.steps} {...(meta !== undefined ? { meta } : {})} />
         </div>
       );
     case 'card':
@@ -226,7 +279,13 @@ function ResultCard({ step, deliverables }: { step: ToolStep; deliverables: Deli
     const prompt = p?.card === 'question' ? p.prompt : (fromInput?.question ?? null);
     const options = p?.card === 'question' ? (p.options ?? []) : (fromInput?.options ?? []);
     if (prompt !== null && options.length > 0) {
-      return <QuestionCard prompt={prompt} options={options} question={step.question} />;
+      return (
+        <QuestionCard
+          prompt={<Markdown text={prompt} tone="user" />}
+          options={options}
+          question={step.question}
+        />
+      );
     }
     // Une question dont ni la charge ni l'entrée ne se lisent : le brut, dit
     // tel quel, plutôt qu'une carte vide qui prétendrait poser une question.
@@ -313,7 +372,11 @@ function TableBody({ entry, notes = [] }: { entry: TableEntry; notes?: readonly 
       ? `showing ${shownWidth} of ${entry.columnsTotal} columns`
       : null,
     entry.clipped ? 'some cells were shortened' : null,
-    entry.header === 'unknown' ? 'first row may or may not be a header' : null,
+    // Une feuille VIDE n'a pas de première ligne : la question de l'en-tête ne
+    // se pose pas, et la poser faisait une note absurde sous « empty sheet ».
+    entry.header === 'unknown' && entry.rows.length > 0
+      ? 'first row may or may not be a header'
+      : null,
     ...notes,
   ].filter((x): x is string => x !== null);
   return (
@@ -521,7 +584,9 @@ function SentCard({
       tone="ok"
     >
       {text !== null && (
-        <p className="whitespace-pre-wrap px-4 py-3 text-body-13 text-ink-2">{text}</p>
+        <div className="px-4 py-3">
+          <Markdown text={text} />
+        </div>
       )}
       {payload.bytes !== undefined && (
         <p className="px-4 pb-3 text-mono-11 text-ink-4">{formatTokens(payload.bytes)} B</p>
@@ -538,7 +603,9 @@ function ChecksCard({ payload }: { payload: CardPayloadFor<'checks'> }) {
       meta={`${payload.total} ${payload.total === 1 ? 'finding' : 'findings'}`}
       tone={pass ? 'ok' : 'warn'}
     >
-      <p className="whitespace-pre-wrap px-4 py-3 text-body-13 text-ink-2">{payload.summary}</p>
+      <div className="px-4 py-3">
+        <Markdown text={payload.summary} />
+      </div>
       {payload.items.length > 0 && (
         <ul className="border-t border-rule-2">
           {payload.items.map((it, i) => (
@@ -563,39 +630,43 @@ function ChecksCard({ payload }: { payload: CardPayloadFor<'checks'> }) {
   );
 }
 
+/** L'en-tête d'un bloc déplié : « TASK », « RESULT ». */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <p className="mb-1 text-label-11 uppercase tracking-wider text-ink-4">{children}</p>;
+}
+
 function DelegationCard({ payload }: { payload: CardPayloadFor<'delegation'> }) {
   return (
-    <CardFrame
-      title={`Delegated to ${payload.to}`}
-      meta={[
+    <DelegationDisclosure
+      head={
+        <>
+          <span className="text-medium-13 text-ink-2">Delegated to {payload.to}</span>
+          <MonoMicroTag tone={payload.ok ? 'agent' : 'err'}>
+            {payload.ok ? 'done' : 'failed'}
+          </MonoMicroTag>
+        </>
+      }
+      aside={[
         payload.durationMs !== null ? formatMs(payload.durationMs) : null,
         payload.costUsd !== null ? formatCost(payload.costUsd) : null,
       ]
         .filter((x): x is string => x !== null)
         .join(' · ')}
-      aside={
-        <MonoMicroTag tone={payload.ok ? 'agent' : 'err'}>
-          {payload.ok ? 'done' : 'failed'}
-        </MonoMicroTag>
-      }
-      tone={payload.ok ? 'neutral' : 'warn'}
     >
-      <p className="px-4 pt-3 text-label-11 uppercase tracking-wider text-ink-4">Task</p>
-      <p className="whitespace-pre-wrap px-4 pb-3 text-body-13 text-ink-3">{payload.task}</p>
+      <div className="px-4 py-3">
+        <SectionLabel>Task</SectionLabel>
+        <Markdown text={payload.task} />
+      </div>
       {payload.resultText !== null && (
-        <>
-          <p className="border-t border-rule-2 px-4 pt-3 text-label-11 uppercase tracking-wider text-ink-4">
-            Result
-          </p>
-          <p className="whitespace-pre-wrap px-4 pb-3 text-body-13 text-ink-2">
-            {payload.resultText}
-          </p>
-        </>
+        <div className="border-t border-rule-2 px-4 py-3">
+          <SectionLabel>Result</SectionLabel>
+          <Markdown text={payload.resultText} />
+        </div>
       )}
       {payload.error !== null && (
         <p className="border-t border-rule-2 px-4 py-3 text-body-13 text-err">{payload.error}</p>
       )}
-    </CardFrame>
+    </DelegationDisclosure>
   );
 }
 
@@ -607,23 +678,71 @@ function statusVariant(status: string | null): StatusVariant {
   return 'idle';
 }
 
-function ChildCard({ job }: { job: FeedChildJob }) {
+/**
+ * Un travail confié à un autre agent, dépliable (P2bis).
+ *
+ * La consigne reçue et la réponse rendue sont ce qu'un lecteur vient chercher
+ * quand il ouvre une délégation : c'est là qu'un malentendu se voit. Elles
+ * étaient tronquées à une ligne. Le fil de l'enfant, quand l'appelant l'a
+ * construit, se rend dessous par le même composant — un fil est un fil.
+ */
+function DelegationGroup({ job, deliverables }: { job: FeedChildJob; deliverables: Deliverables }) {
+  const durationMs =
+    job.completedAt !== null && job.createdAt !== null
+      ? job.completedAt.getTime() - job.createdAt.getTime()
+      : null;
+  // Le fil du délégué, quand l'appelant l'a assemblé (un niveau, job-feed.ts) :
+  // ses tours, ses cartes, sa réponse — SANS sa demande, qui est la consigne
+  // du parent, déjà écrite sous « Task » ; un « You » y serait faux, c'est
+  // l'agent parent qui a demandé.
+  const nested = job.feed?.items.filter((i) => i.kind !== 'request' && i.kind !== 'history');
   return (
     <div className="mt-4 pl-[44px]">
-      {/* P8 : le fil d'un JOB vit sur /scheduled/[id] — /spaces/<id> est
-          devenu la page d'un PROJET. Sans ce changement, ouvrir une délégation
-          depuis le fil tombait sur « projet introuvable ». */}
-      <Link
-        href={`/scheduled/${job.id}`}
-        className="flex max-w-[760px] items-center gap-3 rounded-xl border border-rule-2 bg-paper px-4 py-3 hover:border-rule"
+      <DelegationDisclosure
+        head={
+          <>
+            <AgentAvatar name={job.agentName ?? 'Agent'} size="sm" shape="square" />
+            <span className="text-medium-13 text-ink-2">
+              Delegated to {job.agentName ?? 'an agent'}
+            </span>
+            <StatusPill variant={statusVariant(job.status)} />
+          </>
+        }
+        aside={durationMs !== null && durationMs > 0 ? formatMs(durationMs) : undefined}
       >
-        <AgentAvatar name={job.agentName ?? 'Agent'} size="sm" shape="square" />
-        <span className="text-medium-13 text-ink">Delegated to {job.agentName ?? 'an agent'}</span>
-        <StatusPill variant={statusVariant(job.status)} />
-        <span className="min-w-0 flex-1 truncate text-body-12 text-ink-3">
-          {job.result ?? job.error ?? job.task ?? ''}
-        </span>
-      </Link>
+        {job.task !== null && (
+          <div className="px-4 py-3">
+            <SectionLabel>Task</SectionLabel>
+            <Markdown text={job.task} />
+          </div>
+        )}
+        {nested !== undefined && nested.length > 0 ? (
+          // Le fil du délégué porte déjà sa réponse (`answer`) ou son échec
+          // (`failure`) : le résultat et l'erreur ne se répètent pas dessous.
+          <div className="border-t border-rule-2 px-4 pb-3">
+            <FeedItems items={nested} deliverables={deliverables} />
+          </div>
+        ) : (
+          <>
+            {job.result !== null && (
+              <div className="border-t border-rule-2 px-4 py-3">
+                <SectionLabel>Result</SectionLabel>
+                <Markdown text={job.result} />
+              </div>
+            )}
+            {job.error !== null && (
+              <p className="border-t border-rule-2 px-4 py-3 text-body-13 text-err">{job.error}</p>
+            )}
+          </>
+        )}
+        {/* P8 : le fil d'un JOB vit sur /scheduled/[id] — /spaces/<id> est
+            devenu la page d'un PROJET. */}
+        <div className="border-t border-rule-2 px-4 py-2">
+          <Link href={`/scheduled/${job.id}`} className="text-mono-11 text-ink-3 hover:text-ink">
+            Open the run
+          </Link>
+        </div>
+      </DelegationDisclosure>
     </div>
   );
 }

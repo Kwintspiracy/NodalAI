@@ -184,16 +184,23 @@ function toArgb(hex: string): string {
  * text → plain text), duplicated locally so xlsx_read's tested behaviour is
  * never touched by these additions.
  */
+/**
+ * A cell VALUE as text, for the tools that only hold the value (find_cells,
+ * column widths). Same rules as the preview (`previewScalar`): a formula
+ * without a cached result reads as the formula, rich text is joined, never
+ * "[object Object]". A shared formula's value carries no `formula` field and
+ * cannot be translated without its cell — it reads as its result, or empty.
+ */
 function stringifyCellValue(val: ExcelJS.CellValue): string {
-  if (val === null || val === undefined) return '';
-  if (val instanceof Date) return val.toISOString().slice(0, 10);
-  if (typeof val === 'object' && 'result' in val) {
-    return String((val as { result: unknown }).result ?? '');
+  if (typeof val === 'object' && val !== null && !(val instanceof Date) && 'formula' in val) {
+    const f = val as ExcelJS.CellFormulaValue;
+    const result: unknown = f.result;
+    if (result === undefined || result === null) return `=${f.formula}`;
+    const s = previewScalar(result);
+    return s === null ? '' : String(s);
   }
-  if (typeof val === 'object' && 'text' in val) {
-    return String((val as { text: unknown }).text ?? '');
-  }
-  return String(val);
+  const s = previewScalar(val);
+  return s === null ? '' : String(s);
 }
 
 // ─── P12: the preview a written workbook carries on its card ──────────────────
@@ -466,18 +473,13 @@ export const xlsxReadTool: ToolDefinition<typeof XlsxReadInput, XlsxReadOutput> 
         }
         const cells: Array<string | null> = [];
         row.eachCell({ includeEmpty: true }, (cell) => {
-          const val = cell.value;
-          if (val === null || val === undefined) {
-            cells.push(null);
-          } else if (typeof val === 'object' && 'result' in val) {
-            cells.push(String((val as { result: unknown }).result ?? ''));
-          } else if (val instanceof Date) {
-            cells.push(val.toISOString().slice(0, 10));
-          } else if (typeof val === 'object' && 'text' in val) {
-            cells.push(String((val as { text: unknown }).text ?? ''));
-          } else {
-            cells.push(String(val));
-          }
+          // The same reading as the write preview (P12): a formula without a
+          // cached result is shown as written, rich text is joined, a covered
+          // merge cell is blank. Before, `{ formula }` fell through to
+          // `String(val)` and the agent (and the card) read "[object Object]"
+          // for every formula this very tool family had just written.
+          const v = previewCellValue(cell);
+          cells.push(v === null ? null : String(v));
         });
         rows.push(cells);
         rowCount++;
@@ -766,8 +768,11 @@ export const xlsxCreateTool: ToolDefinition<typeof XlsxCreateInput, XlsxCreateOu
   inputSchema: XlsxCreateInput,
   riskLevel: 'write',
   card: 'files',
-  present: ({ output }) =>
-    output.ok ? writtenWorkbook(output.path, 'created', output) : failureText(output.reason),
+  // The card names the file as the agent named it (`input.path`), like every
+  // other xlsx tool — `output.path` is the resolved absolute path, and the
+  // card showed "C:\Users\…\workspaces\0000…\shared\b…" cut mid-way.
+  present: ({ input, output }) =>
+    output.ok ? writtenWorkbook(input.path, 'created', output) : failureText(output.reason),
   execute: async (input, ctx) => {
     const workbook = new ExcelJS.Workbook();
     const created = workbook.addWorksheet(input.sheet);

@@ -3,25 +3,34 @@
 // ClampedText — un texte long se replie à quelques lignes et se déplie d'un
 // clic. La demande d'une automatisation est un prompt entier : le fil la
 // montre, il ne la déroule pas d'office (retour de Quentin, 06/09).
+//
+// Le contenu est passé en `children` (du markdown rendu, depuis P2bis) et le
+// texte qui sert à MESURER en `plain`. C'est la source markdown : elle garde
+// ses sauts de ligne, donc « plus de six lignes » veut encore dire quelque
+// chose. `plainText()` replie tout sur une ligne — parfait pour un titre de
+// page, inutilisable pour compter des lignes.
 
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import TextButton from '@/components/ui/TextButton';
 
 const LINES = 6;
 
 export default function ClampedText({
-  text,
+  children,
+  plain,
   className = '',
 }: {
-  text: string;
+  children: ReactNode;
+  /** Le texte source, pour décider si c'est long. */
+  plain: string;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const lines = text.split('\n').length;
-  const long = lines > LINES || text.length > 600;
+  const long = plain.split('\n').length > LINES || plain.length > 600;
   return (
     <div className={className}>
-      <p className={`whitespace-pre-wrap ${!open && long ? 'line-clamp-6' : ''}`}>{text}</p>
+      <div className={!open && long ? 'line-clamp-6' : ''}>{children}</div>
       {long && (
         <TextButton
           onClick={() => setOpen((v) => !v)}
