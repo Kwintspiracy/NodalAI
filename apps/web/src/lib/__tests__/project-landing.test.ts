@@ -123,7 +123,13 @@ describe('composerPresentation — ce que la saisie dit d’elle-même (passes 6
         threadOrigin: 'via Telegram',
         rootAgentName: null,
       }),
-    ).toEqual({ kind: 'blocked', message: NO_ROOT_MESSAGE });
+    ).toEqual({
+      kind: 'blocked',
+      message: NO_ROOT_MESSAGE,
+      // Le geste qui débloque : créer un orchestrateur (le ROOT n'est pas
+      // « désigné », il naît avec le premier) — le lien de Settings, pas Settings.
+      action: { label: expect.stringContaining('ROOT'), href: '/agents' },
+    });
     // Mais un fil qu'on PROLONGE n'a pas besoin de ROOT.
     expect(
       composerPresentation({

@@ -820,7 +820,8 @@ describe('createProjectConversationAction', () => {
     expect(result).toEqual({
       ok: false,
       code: 'no_root_agent',
-      message: 'Designate a ROOT agent in Settings first.',
+      message:
+        'No ROOT agent yet. Create an orchestrator agent first: the first one you create becomes this workspace’s ROOT.',
     });
   });
 

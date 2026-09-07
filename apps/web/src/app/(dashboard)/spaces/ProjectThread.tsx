@@ -13,6 +13,7 @@
 // ne pouvait le savoir. Un échec se dit (inv. #4), il ne se dessine pas en
 // silence comme une conversation neuve.
 
+import Link from 'next/link';
 import EmptyState from '@/components/ui/EmptyState';
 import ConversationFeedView from './ConversationFeedView.tsx';
 import LiveRefresh from './LiveRefresh.tsx';
@@ -79,8 +80,17 @@ export default function ProjectThread({
         )}
       </div>
       {composer.kind === 'blocked' ? (
-        // Pas de ROOT : rien à créer, donc pas de champ — un mot à la place.
-        <p className="mx-auto mt-8 max-w-[760px] text-body-13 text-ink-4">{composer.message}</p>
+        // Pas de ROOT : rien à créer, donc pas de champ — un mot à la place,
+        // et le geste qui débloque, cliquable (le même lien que Settings).
+        <p className="mx-auto mt-8 max-w-[760px] text-body-13 text-ink-4">
+          {composer.message}{' '}
+          <Link
+            href={composer.action.href}
+            className="font-medium text-ink underline decoration-rule underline-offset-[3px] hover:decoration-ink-3"
+          >
+            {composer.action.label}
+          </Link>
+        </p>
       ) : (
         <>
           {composer.kind === 'start' && composer.note !== null && (

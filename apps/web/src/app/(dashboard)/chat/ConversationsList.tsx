@@ -85,11 +85,16 @@ export default function ConversationsList({ rows }: { rows: ConversationListRow[
       </div>
 
       {noRoot && (
+        // Le ROOT n'est pas désigné à la main : il naît avec le premier
+        // orchestrateur créé — Settings renvoie lui-même vers /agents (revue
+        // Codex, passe 62 : « Designate one in Settings » menait à une action
+        // qui n'existe pas).
         <p className="mb-4 text-body-13 text-ink-3">
-          Designate a ROOT agent in Settings first.{' '}
-          <Link href="/settings" className="text-ink-2 underline hover:text-ink">
-            Go to Settings
-          </Link>
+          No ROOT agent yet.{' '}
+          <Link href="/agents" className="text-ink-2 underline hover:text-ink">
+            Create an orchestrator agent
+          </Link>{' '}
+          — the first one you create becomes this workspace’s ROOT.
         </p>
       )}
 

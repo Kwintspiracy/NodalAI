@@ -977,7 +977,14 @@ export async function createProjectConversationAction(
       .where(eq(entities.id, session.entityId))
       .limit(1);
     const rootAgentId = entity?.rootAgentId ?? null;
-    if (!rootAgentId) return fail('no_root_agent', 'Designate a ROOT agent in Settings first.');
+    // Le ROOT n'est pas désigné à la main : il naît avec le premier
+    // orchestrateur créé (revue Codex, passe 62).
+    if (!rootAgentId) {
+      return fail(
+        'no_root_agent',
+        'No ROOT agent yet. Create an orchestrator agent first: the first one you create becomes this workspace’s ROOT.',
+      );
+    }
 
     const [inserted] = await db
       .insert(conversations)

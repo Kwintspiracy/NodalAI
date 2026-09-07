@@ -45,9 +45,19 @@ export function canReplyFromWeb(channel: string): boolean {
 export type ComposerPresentation =
   | { kind: 'reply'; agentName: string | null }
   | { kind: 'start'; agentName: string; placeholder: string; note: string | null }
-  | { kind: 'blocked'; message: string };
+  | { kind: 'blocked'; message: string; action: { label: string; href: string } };
 
-export const NO_ROOT_MESSAGE = 'No ROOT agent yet. Designate one in Settings to write here.';
+/**
+ * Le ROOT n'est pas DÉSIGNÉ : il naît avec le premier orchestrateur créé
+ * (`RootAgentSection`, Settings — qui renvoie lui-même vers /agents). Dire
+ * « Designate one in Settings » envoyait vers une action qui n'existe pas
+ * (revue Codex, passe 62).
+ */
+export const NO_ROOT_MESSAGE = 'No ROOT agent yet. Create an orchestrator agent to write here:';
+export const NO_ROOT_ACTION = {
+  label: 'the first one you create becomes this workspace’s ROOT.',
+  href: '/agents',
+} as const;
 
 export function composerPresentation(input: {
   /** La saisie prolonge-t-elle le fil affiché ? (`composerConversationId !== null`) */
@@ -60,7 +70,9 @@ export function composerPresentation(input: {
   rootAgentName: string | null;
 }): ComposerPresentation {
   if (input.continues) return { kind: 'reply', agentName: input.threadAgentName };
-  if (input.rootAgentName === null) return { kind: 'blocked', message: NO_ROOT_MESSAGE };
+  if (input.rootAgentName === null) {
+    return { kind: 'blocked', message: NO_ROOT_MESSAGE, action: NO_ROOT_ACTION };
+  }
   const root = input.rootAgentName;
   const note =
     input.threadOrigin === null

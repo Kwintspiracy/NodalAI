@@ -84,11 +84,18 @@ describe('ProjectThread', () => {
         thread={null}
         composer={{
           kind: 'blocked',
-          message: 'No ROOT agent yet. Designate one in Settings to write here.',
+          message: 'No ROOT agent yet. Create an orchestrator agent to write here:',
+          action: {
+            label: 'the first one you create becomes this workspace’s ROOT.',
+            href: '/agents',
+          },
         }}
       />,
     );
     expect(html).toContain('No ROOT agent yet');
+    // Le geste qui débloque est cliquable, vers /agents — pas vers Settings.
+    expect(html).toContain('href="/agents"');
+    expect(html).not.toContain('Settings');
     expect(html).not.toContain('<textarea');
     expect(html).not.toContain('Send');
   });
