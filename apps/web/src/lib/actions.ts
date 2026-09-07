@@ -11194,6 +11194,38 @@ export async function createConversationAction(
   }
 }
 
+/**
+ * Supprimer PLUSIEURS conversations d'un coup (07/09, Quentin : « il faudrait
+ * un moyen de faire du mass delete dans le chat »).
+ *
+ * Une seule requête, bornée à l'entité de la session comme la suppression
+ * unitaire : la liste peut envoyer cinquante identifiants, ils ne sortent pas
+ * de l'espace de travail courant. Le nombre RÉELLEMENT supprimé est rendu —
+ * une ligne déjà partie, ou d'une autre entité, ne fait pas échouer le geste,
+ * elle n'est simplement pas comptée, et l'écran dit le vrai compte.
+ */
+export async function deleteConversationsAction(
+  ids: readonly string[],
+): Promise<ActionResult<{ deleted: number }>> {
+  try {
+    const session = await getSession();
+    const parsed = z.array(z.string().guid()).min(1).max(200).safeParse(ids);
+    if (!parsed.success) return fail('validation_failed', 'Invalid conversation ids');
+    const db = getDb();
+    const rows = await db
+      .delete(conversations)
+      .where(
+        and(inArray(conversations.id, parsed.data), eq(conversations.entityId, session.entityId)),
+      )
+      .returning({ id: conversations.id });
+    revalidatePath('/chat');
+    return ok({ deleted: rows.length });
+  } catch (err) {
+    console.error('[deleteConversationsAction]', err);
+    return fail('db_error', 'Failed to delete the conversations');
+  }
+}
+
 export async function deleteConversationAction(id: string): Promise<ActionResult<void>> {
   try {
     const session = await getSession();

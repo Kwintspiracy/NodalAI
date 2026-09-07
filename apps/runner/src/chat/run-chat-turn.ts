@@ -7,7 +7,7 @@
 // can create a job. Action escalation (the agent uses a tool → a real
 // `agent_jobs` row) is a later increment.
 
-import { eq, and, desc } from '@nodal-agents/db';
+import { eq, and, desc, sql } from '@nodal-agents/db';
 import { agents, chatMessages, conversations, agentJobs } from '@nodal-agents/db';
 import { buildSystemPrompt } from '@nodal-agents/orchestration';
 import type { Agent, AgentId, EntityId } from '@nodal-agents/orchestration';
@@ -26,6 +26,7 @@ import {
   formatInlineDelegationLines,
 } from '../job/task-ledger.ts';
 import { loadConversationContext } from '../job/conversation-id.ts';
+import { TITLE_SYSTEM_PROMPT, cleanTitle, titlePrompt } from './conversation-title.ts';
 import { z } from 'zod';
 import type { ModelMessage } from 'ai';
 import type { RunnerDeps } from '../deps.ts';
@@ -569,5 +570,56 @@ export async function runChatTurn(opts: {
     .set({ updatedAt: new Date() })
     .where(eq(conversations.id, conversationId));
 
+  // Le titre DÉFINITIF, tiré de l'échange entier — après la réponse, jamais
+  // avant : le nommer coûte un appel, et l'utilisateur attend sa réponse, pas
+  // son titre. Un échec ne remonte pas : le titre provisoire (sa première
+  // phrase) reste, ce qui est le pire cas acceptable.
+  await nameConversationOnce({
+    db,
+    conversationId,
+    userMessage: message,
+    agentReply: replyText,
+    generate: (system, prompt) =>
+      llmClient.generateText({ system, messages: [{ role: 'user', content: prompt }] }),
+  });
+
   return { ok: true, reply: replyText };
+}
+
+/**
+ * Nomme la conversation d'après son PREMIER échange, une seule fois.
+ *
+ * « Une seule fois » se lit dans les données, pas dans un drapeau : le premier
+ * échange est celui après lequel la conversation compte exactement deux
+ * messages. Au troisième, on ne renomme plus — le titre appartient alors à
+ * l'utilisateur, qui l'a lu et gardé.
+ */
+async function nameConversationOnce(input: {
+  db: Parameters<typeof loadConversationContext>[0];
+  conversationId: string;
+  userMessage: string;
+  agentReply: string;
+  generate: (system: string, prompt: string) => Promise<{ text?: string }>;
+}): Promise<void> {
+  try {
+    const [count] = await input.db
+      .select({ n: sql<number>`count(*)` })
+      .from(chatMessages)
+      .where(eq(chatMessages.conversationId, input.conversationId));
+    if (Number(count?.n ?? 0) !== 2) return;
+
+    const out = await input.generate(
+      TITLE_SYSTEM_PROMPT,
+      titlePrompt({ userMessage: input.userMessage, agentReply: input.agentReply }),
+    );
+    const title = cleanTitle(out.text ?? '');
+    if (title === null) return;
+    await input.db
+      .update(conversations)
+      .set({ title })
+      .where(eq(conversations.id, input.conversationId));
+  } catch (err) {
+    // Jamais bloquant : la conversation garde son titre provisoire.
+    console.warn('[run-chat-turn] auto-title failed:', (err as Error).message);
+  }
 }

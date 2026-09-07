@@ -96,6 +96,47 @@ function makeMockLlmClient(
   };
 }
 
+/**
+ * Un client dont CHAQUE appel rend le texte suivant : un tour de chat en fait
+ * deux (la réponse, puis le titre), et un mock à texte fixe ne saurait pas les
+ * distinguer.
+ */
+function makeMockLlmClientSeq(next: () => string): RunnerDeps['llmClient'] {
+  const mockModel = new MockLanguageModelV3({
+    provider: 'mock',
+    modelId: 'mock',
+    doGenerate: async () => ({
+      content: [{ type: 'text', text: next() }],
+      finishReason: { unified: 'stop' as const, raw: 'stop' },
+      usage: {
+        inputTokens: { total: 10, noCache: 10, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: 5, text: 5, reasoning: undefined },
+      },
+      warnings: [],
+    }),
+  });
+  return {
+    config: { provider: 'anthropic', model: 'mock' } as RunnerDeps['llmClient']['config'],
+    capabilities: {
+      toolUse: true,
+      promptCaching: false,
+      vision: false,
+      structuredOutputs: false,
+      streaming: false,
+    },
+    generateText: (args) =>
+      generateText({ ...args, model: mockModel } as Parameters<
+        typeof generateText
+      >[0]) as ReturnType<RunnerDeps['llmClient']['generateText']>,
+    streamText: () => {
+      throw new Error('streamText not supported in mock');
+    },
+    generateObject: () => {
+      throw new Error('generateObject not supported in mock');
+    },
+  };
+}
+
 /** Flatten every string leaf reachable in a ModelMessage[] (string content,
  *  `text` parts, tool-call `instruction`, tool-result text `value`) into one
  *  blob, so a test can assert a fact is somewhere in what the model saw. */
@@ -430,6 +471,88 @@ function makeRunTaskLlmClient(
     },
   };
 }
+
+describe('runChatTurn — le titre de la conversation (07/09)', () => {
+  it('après le PREMIER échange, le titre vient du modèle — plus la première phrase de l’utilisateur', async () => {
+    const [conv] = await db
+      .insert(conversations)
+      .values({
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        title: '',
+        origin: 'user',
+        channel: 'dashboard',
+      })
+      .returning({ id: conversations.id });
+
+    // Le modèle répond d'abord à l'utilisateur, puis nomme la conversation :
+    // deux appels, deux textes. Le second est le titre.
+    const replies = ['Oui, je suis là !', '"Cache OpenRouter"'];
+    let call = 0;
+    setActiveLlmClient(makeMockLlmClientSeq(() => replies[Math.min(call++, replies.length - 1)]!));
+
+    const r = await runChatTurn({
+      deps,
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      conversationId: conv!.id,
+      message: 'bonjour, tu es là ? je veux comprendre le cache de tokens chez OpenRouter',
+    });
+    expect(r.ok).toBe(true);
+
+    const [after] = await db
+      .select({ title: conversations.title })
+      .from(conversations)
+      .where(eq(conversations.id, conv!.id));
+    // Nettoyé de ses guillemets, et surtout : ce n'est PAS la phrase de départ.
+    expect(after?.title).toBe('Cache OpenRouter');
+  });
+
+  it('au DEUXIÈME échange, le titre ne bouge plus — il appartient à l’utilisateur qui l’a lu', async () => {
+    const [conv] = await db
+      .insert(conversations)
+      .values({
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        title: 'Cache OpenRouter',
+        origin: 'user',
+        channel: 'dashboard',
+      })
+      .returning({ id: conversations.id });
+    // Un échange existe déjà : le tour qui suit est le deuxième.
+    await db.insert(chatMessages).values([
+      {
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        conversationId: conv!.id,
+        role: 'user',
+        content: 'première question',
+      },
+      {
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        conversationId: conv!.id,
+        role: 'assistant',
+        content: 'première réponse',
+      },
+    ]);
+
+    setActiveLlmClient(makeMockLlmClientSeq(() => 'Autre chose'));
+    await runChatTurn({
+      deps,
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      conversationId: conv!.id,
+      message: 'et sinon, la météo ?',
+    });
+
+    const [after] = await db
+      .select({ title: conversations.title })
+      .from(conversations)
+      .where(eq(conversations.id, conv!.id));
+    expect(after?.title).toBe('Cache OpenRouter');
+  });
+});
 
 describe('runChatTurn — le projet courant de la conversation (P6)', () => {
   it('le job escaladé PORTE le project_id du fil, et le prompt dit le projet', async () => {
