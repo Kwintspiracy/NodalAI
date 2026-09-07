@@ -965,6 +965,21 @@
         les dossiers déclarés, le dossier partagé ne sert qu'au récapitulatif.</span
       >
     </div>
+    <div class="ligne">
+      <span class="l">retour de Quentin</span
+      ><span class="v"
+        ><b>07/09 : « dans quel monde tu fais scroller le user pour qu'il tape ? »</b> Il avait
+        raison, et la cause était en amont du fil : le conteneur du contenu du tableau de bord
+        portait <code>overflow-x-hidden</code>, qui force <code>overflow-y: auto</code> et fait de
+        ce bloc le conteneur de défilement de référence pour tout <code>position: sticky</code> —
+        alors que c'est le document qui défile. Le composer, la barre d'état et la barre de
+        sauvegarde de l'édition d'agent ne se collaient donc <b>jamais</b> ; une capture pleine page
+        ne pouvait pas le montrer. Corrigé par <code>overflow-x-clip</code>, mesuré dans le
+        navigateur : le composer passe de 1582 px à 813 px du haut pour un viewport de 900 px.
+        <i>Leçon pour la preuve</i> : une capture du viewport à l'ouverture et au milieu du fil, en
+        plus de la pleine page.</span
+      >
+    </div>
   </div>
 
   <div class="pierre">

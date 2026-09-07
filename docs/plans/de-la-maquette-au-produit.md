@@ -393,6 +393,20 @@ la zone de saisie se remesure vide après l'envoi (le DOM est vidé avant la
 mesure). Et un commentaire corrigé : la page Code ne retient toujours que les
 dossiers déclarés — le dossier partagé ne sert qu'au récapitulatif du fil.
 
+**Retour de Quentin, 07/09 : « dans quel monde tu fais scroller le user pour
+qu'il tape ? »** Il avait raison, et la cause était en amont du fil : le
+conteneur du contenu du tableau de bord portait `overflow-x-hidden`, qui force
+`overflow-y: auto` et fait de ce bloc le conteneur de défilement de référence
+pour tout `position: sticky` — alors que c'est le document qui défile. Le
+composer (`sticky bottom-7`), la barre d'état (`sticky bottom-0`) et la barre
+de sauvegarde de l'édition d'agent ne se collaient donc JAMAIS ; les captures
+pleine page ne pouvaient pas le montrer, une capture pleine page dessine un
+élément collant à sa place naturelle. Corrigé par `overflow-x-clip` (coupe
+sans créer de conteneur), mesuré dans le navigateur : le composer passe de
+1582 px à 813 px du haut pour un viewport de 900 px, visible à l'ouverture et
+au défilement. *Leçon pour la preuve* : une capture du VIEWPORT à l'ouverture
+et au milieu du fil, en plus de la pleine page.
+
 **Ce que la vérification a corrigé dans le plan lui-même.** La ligne « la
 maquette est une intention, pas une spécification au pixel » des limites
 restait vraie sur le fond mais servait d'excuse : la maquette est bien la spec
