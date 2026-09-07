@@ -19,7 +19,7 @@ import { getProjectThreadPageAction } from '@/lib/project-actions.ts';
 import { getConversationThreadAction } from '@/lib/conversation-actions.ts';
 import { composerPresentation, projectLanding } from '@/lib/project-landing.ts';
 import { originLabel } from '../format.ts';
-import WorkHeader from '../WorkHeader.tsx';
+import WorkBar from '../WorkBar.tsx';
 import { threadAgents } from '../format.ts';
 import ProjectThread from '../ProjectThread.tsx';
 import StatusBar from '../StatusBar.tsx';
@@ -79,11 +79,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   return (
     <PageShell
       fill
-      header={
-        <WorkHeader
-          back={{ label: 'Spaces', href: '/spaces' }}
-          name={project.name}
-          path={project.path}
+      title={project.name}
+      subtitle={project.path}
+      toolbar={
+        <WorkBar
+          back={{ label: 'Back to spaces', href: '/spaces' }}
           agents={view !== null ? threadAgents(view.feed.items) : []}
           {...(view !== null
             ? { status: <StatusPill variant={view.live ? 'run' : 'idle'} /> }

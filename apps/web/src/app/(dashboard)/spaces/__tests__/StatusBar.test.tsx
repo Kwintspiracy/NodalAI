@@ -80,7 +80,7 @@ describe('StatusBar', () => {
     expect(html).toContain('1 delivery pending');
   });
 
-  it('sans preuve, sans coût connu : « no proof », « n/a » — jamais un 0 qui voudrait dire gratuit', () => {
+  it('AUCUN appel connu : le fil le DIT — jamais « 0 tokens · n/a », qui se lit « gratuit »', () => {
     const empty = renderToStaticMarkup(
       <StatusBar
         cost={{
@@ -102,7 +102,12 @@ describe('StatusBar', () => {
       />,
     );
     expect(empty).toContain('no proof');
-    expect(empty).toContain('n/a');
+    // Un fil d'avant la migration 0100, ou un agent en runtime CLI dont la
+    // consommation vit ailleurs : ne rien savoir se dit (revue Codex, passe 65).
+    expect(empty).toContain('no usage recorded');
+    expect(empty).not.toContain('0 tokens');
+    expect(empty).not.toContain('n/a');
+    expect(empty).not.toContain('thinking');
     expect(empty).toContain('running…');
     expect(empty).not.toContain('$0');
     expect(empty).not.toContain('cached');

@@ -5,8 +5,6 @@
 
 import Link from 'next/link';
 import AgentAvatar from '@/components/ui/AgentAvatar';
-import Disc from '@/components/ui/Disc';
-import { User } from '@phosphor-icons/react/dist/ssr';
 import ClampedText from './ClampedText.tsx';
 import Table, { THead, Th, Tr, Td } from '@/components/ui/Table';
 import { MonoMicroTag } from '@/components/ui/MonoMicroTag';
@@ -93,31 +91,28 @@ function FeedItemView({
 }) {
   switch (item.kind) {
     case 'request':
+      // La voix de l'utilisateur : à DROITE, dans une bulle teintée, bornée en
+      // largeur — comme dans toute application de chat (Quentin, 07/09 : « tu
+      // mets l'agent à gauche, l'humain à droite ; t'as déjà vu un chat ? »).
+      // Pas d'icône : elle décalait le texte par rapport à la saisie du bas.
       return (
-        <Turn
-          avatar={
-            <Disc variant="ink" size="sm" shape="square" aria-hidden>
-              <User weight="bold" />
-            </Disc>
-          }
-        >
-          <Who name="You" meta={originLabel(item.origin)} />
-          {/* La demande est DANS une carte (P2bis) : c'est la seule chose du
-              fil que l'utilisateur a écrite, et le design la pose sur du
-              papier pour qu'on la retrouve d'un coup d'œil. */}
-          <div className="rounded-xl border border-rule-2 bg-paper px-4 py-3">
-            <ClampedText plain={item.text}>
-              <Markdown text={item.text} tone="user" />
-            </ClampedText>
+        <div className="flex justify-end pt-6">
+          <div className="max-w-[80%] min-w-0">
+            <p className="mb-1.5 text-right text-mono-11 text-ink-4">{originLabel(item.origin)}</p>
+            <div className="rounded-xl bg-hover px-4 py-3">
+              <ClampedText plain={item.text}>
+                <Markdown text={item.text} tone="user" />
+              </ClampedText>
+            </div>
           </div>
-        </Turn>
+        </div>
       );
     case 'note':
       // Le bruit système vit EN MARGE du fil : une ligne grise, tronquée,
       // alignée sur la colonne de texte. Un rappel du runner dit qui parle ; un
       // aveu du fil parle en son nom et n'a pas de préfixe.
       return (
-        <p className="mt-3 truncate pl-[46px] text-mono-11 text-ink-4" title={item.text}>
+        <p className="mt-3 truncate text-mono-11 text-ink-4" title={item.text}>
           {item.origin === 'runner' ? `Nodal reminded the agent · ${item.text}` : item.text}
         </p>
       );
@@ -146,7 +141,7 @@ function FeedItemView({
           ? (item.model ?? '')
           : [item.model, ...cost].filter((x): x is string => typeof x === 'string').join(' · ');
       return (
-        <Turn avatar={<AgentAvatar name={item.agent.name ?? 'Agent'} size="md" shape="square" />}>
+        <Turn>
           <Who name={item.agent.name ?? 'Agent'} meta={meta} />
           {item.blocks.map((b, i) => (
             <Block
@@ -167,7 +162,7 @@ function FeedItemView({
       // La réponse gardée (elle DIT autre chose que la dernière prose) est un
       // tour de l'agent, pas une plaque à part : c'est lui qui parle.
       return (
-        <Turn avatar={<AgentAvatar name={agentName} size="md" shape="square" />}>
+        <Turn>
           <Who name={agentName} meta="" />
           <Markdown text={item.text} />
         </Turn>
@@ -183,7 +178,7 @@ function FeedItemView({
       // P7 — la consigne passée au travail. Repliée dans le style des notes :
       // la demande de l'utilisateur est juste au-dessus, écrite de sa main.
       return (
-        <p className="mt-3 truncate pl-[46px] text-mono-11 text-ink-4" title={item.text}>
+        <p className="mt-3 truncate text-mono-11 text-ink-4" title={item.text}>
           Handed to the work · {item.text}
         </p>
       );
@@ -200,13 +195,14 @@ function FeedItemView({
   }
 }
 
-function Turn({ avatar, children }: { avatar: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="grid grid-cols-[32px_1fr] gap-[14px] pt-6">
-      <div>{avatar}</div>
-      <div className="min-w-0">{children}</div>
-    </div>
-  );
+/**
+ * La voix de l'AGENT : à gauche, sur toute la colonne du fil. Pas de gouttière
+ * d'avatar — elle décalait le texte du fil par rapport à la saisie du bas, qui
+ * commence au bord (Quentin, 07/09). Les cartes du tour (outils, diff,
+ * livraison) veulent cette largeur ; c'est la PROSE qui se borne, dans `Who`.
+ */
+function Turn({ children }: { children: React.ReactNode }) {
+  return <div className="min-w-0 pt-6">{children}</div>;
 }
 
 function Who({ name, meta }: { name: string; meta: string }) {

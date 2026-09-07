@@ -85,7 +85,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
           s'arrêtait (Quentin, 07/09 : « le champ de texte est en plein
           milieu, il descend au fur et à mesure que j'écris »).
         */}
-        <div className="flex h-screen overflow-hidden bg-canvas text-ink">
+        {/* `dvh`, pas `vh` : sur Safari iOS, `100vh` compte la barre d'adresse
+            comme si elle n'était pas là — l'écran déborde et la saisie passe
+            dessous (revue Codex, passe 65). `dvh` suit la hauteur réellement
+            visible. Repli `h-screen` pour un navigateur qui l'ignore. */}
+        <div className="flex h-screen h-[100dvh] overflow-hidden bg-canvas text-ink">
           <Sidebar workspaces={workspaces} userMenu={<UserMenu />} />
 
           {/*

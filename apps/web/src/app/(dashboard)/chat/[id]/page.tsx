@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import PageShell from '@/components/ui/PageShell';
 import StatusPill from '@/components/ui/StatusPill';
-import WorkHeader from '@/app/(dashboard)/spaces/WorkHeader.tsx';
+import WorkBar from '@/app/(dashboard)/spaces/WorkBar.tsx';
 import ConversationFeedView from '@/app/(dashboard)/spaces/ConversationFeedView.tsx';
 import LiveRefresh from '@/app/(dashboard)/spaces/LiveRefresh.tsx';
 import StatusBar from '@/app/(dashboard)/spaces/StatusBar.tsx';
@@ -70,11 +70,15 @@ export default async function ChatThreadPage({ params }: { params: Promise<{ id:
   return (
     <PageShell
       fill
-      header={
-        <WorkHeader
-          back={{ label: 'Chat', href: '/chat' }}
-          name={project ? project.name : title}
-          path={project ? project.path : origin}
+      // Le design system : le NOM est le titre de la page, le chemin son
+      // sous-titre. Ce qui reste (retour, agents, dossier, état) va dans la
+      // barre sous l'en-tête, comme « Back to agents » sur Edit agent
+      // (Quentin, 07/09).
+      title={project ? project.name : title}
+      subtitle={project ? project.path : origin}
+      toolbar={
+        <WorkBar
+          back={{ label: 'Back to chat', href: '/chat' }}
           agents={threadAgents(feed.items)}
           status={<StatusPill variant={live ? 'run' : 'idle'} />}
           proofVerdict={lastProof?.verdict ?? null}

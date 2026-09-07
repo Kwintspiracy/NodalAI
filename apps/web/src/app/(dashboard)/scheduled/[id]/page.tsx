@@ -11,7 +11,7 @@ import { notFound } from 'next/navigation';
 import { getSpaceConversationAction } from '@/lib/actions.ts';
 import PageShell from '@/components/ui/PageShell';
 import StatusPill, { type StatusVariant } from '@/components/ui/StatusPill';
-import WorkHeader from '@/app/(dashboard)/spaces/WorkHeader.tsx';
+import WorkBar from '@/app/(dashboard)/spaces/WorkBar.tsx';
 import ConversationFeedView from '@/app/(dashboard)/spaces/ConversationFeedView.tsx';
 import LiveRefresh from '@/app/(dashboard)/spaces/LiveRefresh.tsx';
 import DeliveriesCard from '@/app/(dashboard)/spaces/DeliveriesCard.tsx';
@@ -68,11 +68,11 @@ export default async function ScheduledRunPage({ params }: { params: Promise<{ i
   return (
     <PageShell
       fill
-      header={
-        <WorkHeader
-          back={{ label: 'Scheduled', href: '/scheduled' }}
-          name={truncate(firstLine, 60)}
-          path={job.agentName !== null && job.agentName !== '' ? `run · ${job.agentName}` : 'run'}
+      title={truncate(firstLine, 60)}
+      subtitle={job.agentName !== null && job.agentName !== '' ? `run · ${job.agentName}` : 'run'}
+      toolbar={
+        <WorkBar
+          back={{ label: 'Back to scheduled', href: '/scheduled' }}
           agents={threadAgents(feed.items)}
           status={<StatusPill variant={statusVariant(job.status)} />}
           proofVerdict={lastProof?.verdict ?? null}

@@ -76,19 +76,32 @@ export default function StatusBar({
             Un seul endroit le dit, celui qui a les visages. */}
         {live && <Seg>running…</Seg>}
         <span className="ml-auto flex items-center">
-          <Seg onClick={() => setOpen((v) => !v)} active={open}>
-            {formatTokens(tokens)} tokens{cacheShare !== null ? ` · ${cacheShare} cached` : ''}
-          </Seg>
-          <Seg onClick={() => setOpen((v) => !v)} active={open} strong>
-            {formatCost(t.costUsd)}
-            {t.unpricedCalls > 0 ? ' · partial' : ''}
-          </Seg>
+          {/* AUCUN appel connu : le fil ne dit pas « 0 tokens · n/a », qui se
+              lit « c'était gratuit ». Il arrive qu'on ne sache rien — un fil
+              d'avant la migration 0100, ou un agent en runtime CLI, dont la
+              consommation vit dans `cli_runs` et n'est pas encore agrégée ici
+              (revue Codex, passe 65). Ne rien savoir se dit. */}
+          {t.calls === 0 ? (
+            <Seg title="No LLM call recorded for this thread">no usage recorded</Seg>
+          ) : (
+            <>
+              <Seg onClick={() => setOpen((v) => !v)} active={open}>
+                {formatTokens(tokens)} tokens{cacheShare !== null ? ` · ${cacheShare} cached` : ''}
+              </Seg>
+              <Seg onClick={() => setOpen((v) => !v)} active={open} strong>
+                {formatCost(t.costUsd)}
+                {t.unpricedCalls > 0 ? ' · partial' : ''}
+              </Seg>
+            </>
+          )}
           {/* Le temps que les modèles ont passé à répondre — pas le temps
               écoulé depuis l'ouverture du fil, qui affichait « 8 min 36 » sous
               une réponse de sept secondes parce que la conversation était
               ouverte depuis huit minutes (Quentin, 07/09). Le temps écoulé
               n'apprend rien : une conversation laissée ouverte ne coûte rien. */}
-          <Seg title="Time the models spent answering">{formatMs(t.llmDurationMs)} thinking</Seg>
+          {t.calls > 0 && (
+            <Seg title="Time the models spent answering">{formatMs(t.llmDurationMs)} thinking</Seg>
+          )}
           {pendingDeliveries > 0 && (
             <Seg>
               <span className="text-warn">●</span> {pendingDeliveries}{' '}

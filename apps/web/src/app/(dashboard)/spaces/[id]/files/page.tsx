@@ -13,7 +13,7 @@ import PageShell from '@/components/ui/PageShell';
 import EmptyState from '@/components/ui/EmptyState';
 import { getProjectPageAction } from '@/lib/project-actions.ts';
 import type { VerificationUnconfiguredView } from '@/lib/verification-runs-view.ts';
-import WorkHeader from '../../WorkHeader.tsx';
+
 import ProjectShelf from '../../ProjectShelf.tsx';
 import ProjectConversations from '../../ProjectConversations.tsx';
 import NewProjectConversationButton from '../../NewProjectConversationButton.tsx';
@@ -56,11 +56,16 @@ export default async function ProjectFilesPage({ params }: { params: Promise<{ i
 
   return (
     <PageShell
-      header={<WorkHeader name={project.name} path={project.path} agents={[]} />}
+      title={project.name}
+      subtitle={project.path}
       toolbar={
         <div className="flex items-center gap-3">
-          <Link href={`/spaces/${project.id}`} className="text-mono-11 text-ink-4 hover:text-ink-2">
-            ← {project.name}
+          <Link
+            href={`/spaces/${project.id}`}
+            className="inline-flex items-center gap-1.5 text-body-13 text-ink-3 transition-colors hover:text-ink-2"
+          >
+            <span className="text-body-15 leading-none!">‹</span>
+            Back to {project.name}
           </Link>
           <span className="ml-auto">
             <NewProjectConversationButton projectId={project.id} />
