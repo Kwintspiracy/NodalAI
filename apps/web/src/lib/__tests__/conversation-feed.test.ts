@@ -435,6 +435,15 @@ describe('la réponse finale ne se dit pas deux fois (P2bis)', () => {
     expect(feed.items.at(-1)).toEqual({ kind: 'answer', text: 'OK.' });
   });
 
+  it('une réponse qui est la dernière LIGNE de la prose, après un simple saut de ligne, ne se répète pas (passe 51)', () => {
+    const feed = buildConversationFeed(
+      oneTurn('Voici le bilan :\nTout est prêt.', 'Tout est prêt.'),
+      [],
+      [],
+    );
+    expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
+  });
+
   it('une réponse de plusieurs paragraphes déjà dite en fin de prose ne se répète pas', () => {
     const feed = buildConversationFeed(
       oneTurn(
