@@ -19,6 +19,8 @@
 // ce soit. C'est ce que la page Code affiche depuis toujours, et le fil dit la
 // même chose avec les mêmes nombres.
 
+import { isWindowsPath, normalizePath } from '@nodal-agents/shared';
+
 /**
  * Une écriture lue dans UN appel d'outil, pour le panneau Changes du détail
  * Code. `cli:MultiEdit` applique plusieurs paires avant/après au même fichier :
@@ -193,17 +195,19 @@ export function lineCountsOfCall(
 }
 
 /**
- * Les compteurs d'UN fichier dans le jeu d'un appel, ou `null`.
+ * Les compteurs d'UN fichier de la carte d'un appel, ou `null`. `counts` et
+ * `path` viennent du MÊME appel : ses compteurs (lus dans son entrée) et un
+ * chemin de sa carte `files` (écrit par son présentateur).
  *
- * Le même fichier arrive sous deux orthographes : la charge utile `files` d'un
- * outil Nodal le nomme relativement au dossier (`src/auth/session.ts`), les
- * outils du CLI l'écrivent en absolu (`D:\ws\src\auth\session.ts`). La page
- * Code recolle les deux avec les racines des dossiers de l'entité, que le fil
- * n'a pas sous la main. On compare donc sur la forme à barres obliques, et un
- * chemin qui TERMINE l'autre sur une frontière de segment compte comme le
- * même fichier. Rien de plus : deux fichiers homonymes dans deux dossiers ne
- * se confondent que si l'un est un suffixe complet de l'autre, ce qui est
- * exactement le cas qu'on cherche à recoller.
+ * Le même fichier arrive sous deux orthographes : `file_write` présente le
+ * chemin RÉSOLU (`C:\…\shared\notes\x.html`), son entrée porte le chemin
+ * relatif (`notes/x.html`). Recoller par suffixe collait à un fichier le
+ * compteur d'un autre dès qu'une carte nommait `index.ts` et l'appel
+ * `a/index.ts` et `b/index.ts` (revue Codex, passes 56-57). La règle est donc
+ * structurelle : un appel qui n'a écrit qu'UN fichier n'a qu'un compteur, et
+ * tout chemin de sa carte le désigne ; un appel à plusieurs fichiers
+ * (`cli:file_change`) présente les MÊMES chemins que ses compteurs, donc
+ * l'égalité suffit. Sinon, rien.
  */
 export function findLineCounts(
   counts: Record<string, LineCounts>,
@@ -211,26 +215,32 @@ export function findLineCounts(
 ): LineCounts | null {
   const direct = counts[path];
   if (direct !== undefined) return direct;
-  // UN seul candidat, sinon rien : une carte qui nomme `index.ts` quand
-  // l'appel a écrit `a/index.ts` ET `b/index.ts` ne peut pas choisir, et le
-  // premier venu aurait collé à un fichier le compteur d'un autre (revue
-  // Codex, passe 56).
-  const matches = Object.entries(counts).filter(([key]) => isSameFile(key, path));
-  return matches.length === 1 ? matches[0]![1] : null;
+  const entries = Object.entries(counts);
+  return entries.length === 1 ? entries[0]![1] : null;
 }
 
 /**
- * Deux chemins nomment-ils le MÊME fichier ? La règle de `findLineCounts`,
- * nommée pour être partagée : le récapitulatif de livraison compte les
- * fichiers écrits, et le même `notes/bonjour.html` écrit en absolu par
- * `file_write` puis en relatif par `file_edit` faisait « 2 files » (vu en vrai
- * le 07/09).
+ * Le chemin CANONIQUE d'un fichier changé : barres obliques, et la racine du
+ * dossier de travail retirée quand elle est connue (`workspaceRoots`, les plus
+ * longues d'abord, insensible à la casse sur un chemin Windows). Ainsi la forme
+ * absolue du CLI ou de `file_write` (`D:/ws/src/a.ts`) et la forme relative
+ * des outils Nodal (`src/a.ts`) désignent le même fichier par ÉGALITÉ — pas par
+ * suffixe, qui confondait `index.ts` et `a/index.ts`. C'est la règle de la page
+ * Code depuis août, sortie d'`actions.ts` pour que le récapitulatif de
+ * livraison compte les fichiers de la même façon.
  */
-export function isSameFile(a: string, b: string): boolean {
-  const x = a.replace(/\\/g, '/');
-  const y = b.replace(/\\/g, '/');
-  if (x === y) return true;
-  return x.endsWith('/' + y) || y.endsWith('/' + x);
+export function canonicalChangePath(rawPath: string, workspaceRoots: readonly string[]): string {
+  const p = normalizePath(rawPath.trim());
+  const windows = isWindowsPath(p);
+  for (const root of workspaceRoots) {
+    const r = normalizePath(root);
+    if (r === '') continue;
+    const matches = windows
+      ? p.toLowerCase().startsWith(r.toLowerCase() + '/')
+      : p.startsWith(r + '/');
+    if (matches) return p.slice(r.length + 1);
+  }
+  return p.replace(/^\.\//, '');
 }
 
 /** La somme de plusieurs jeux de compteurs — le total d'une carte, d'un travail. */

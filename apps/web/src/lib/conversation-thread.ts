@@ -38,7 +38,7 @@ import {
   type FeedTotals,
   type Origin,
 } from './conversation-feed.ts';
-import { isSameFile, lineCountsOfCall, sumLineCounts } from './coding-changes.ts';
+import { canonicalChangePath, lineCountsOfCall, sumLineCounts } from './coding-changes.ts';
 import { callHappened, outcomeOfToolOutput, parsePresented } from './tool-card-payload.ts';
 import type { ProductionVerdict } from './chat-or-work.ts';
 
@@ -90,6 +90,13 @@ export type ThreadJob = {
    * sans le dire (revue Codex, passe 56).
    */
   audit: readonly ThreadAuditRow[];
+  /**
+   * Les racines des dossiers de travail de l'entité : un chemin absolu d'une
+   * carte (`file_write` présente le chemin résolu) se ramène au relatif avant
+   * d'être compté, et le même fichier sous deux orthographes compte une fois
+   * — par égalité, pas par suffixe (revue Codex, passe 57).
+   */
+  workspaceRoots: readonly string[];
 };
 
 /** Une ligne d'audit, réduite à ce que le récapitulatif en lit. */
@@ -155,12 +162,14 @@ function deliverySummary(job: ThreadJob): DeliverySummary {
   // blocage, attente d'approbation) ne compte pas ; une écriture sans ligne
   // d'audit n'existe pas ici.
   //
-  // Les fichiers sont dédoublonnés par IDENTITÉ et non par orthographe :
-  // `file_write` présente le chemin absolu, `file_edit` le chemin relatif, et
-  // le même fichier faisait « 2 files » (vu en vrai le 07/09).
-  const files: string[] = [];
+  // Les fichiers sont dédoublonnés sur leur chemin CANONIQUE (racine du
+  // dossier retirée) : `file_write` présente le chemin absolu, `file_edit` le
+  // chemin relatif, et le même fichier faisait « 2 files » (vu en vrai le
+  // 07/09). Par égalité et non par suffixe : `index.ts` et `a/index.ts` sont
+  // deux fichiers (revue Codex, passe 57).
+  const files = new Set<string>();
   const addFile = (path: string): void => {
-    if (!files.some((f) => isSameFile(f, path))) files.push(path);
+    files.add(canonicalChangePath(path, job.workspaceRoots));
   };
   const counted = job.audit
     .filter((row) => callHappened(outcomeOfToolOutput(row.toolOutput)))
@@ -208,7 +217,7 @@ function deliverySummary(job: ThreadJob): DeliverySummary {
   const passed = job.proof.filter((r) => r.verdict === 'green').length;
   const lines = sumLineCounts(counted);
   return {
-    files: files.length,
+    files: files.size,
     lines: lines.added === 0 && lines.removed === 0 ? null : lines,
     tests: job.proof.length > 0 ? { passed, total: job.proof.length } : null,
     durationMs:

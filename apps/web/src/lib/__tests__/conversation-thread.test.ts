@@ -88,6 +88,7 @@ const job = (over: Partial<ThreadJob> & { jobId: string }): ThreadJob => ({
   project: null,
   proof: [],
   audit: [],
+  workspaceRoots: [],
   ...over,
 });
 
@@ -201,6 +202,8 @@ describe('buildConversationThread — une conversation de canal', () => {
           jobId: 'j2',
           verdict: travail,
           audit: [ecriture(absolu, Array.from({ length: 12 }, () => 'l').join('\n')), edition],
+          // La racine connue : l'absolu se ramène à `notes/bonjour.html`.
+          workspaceRoots: ['C:\\Users\\q\\.nodalai\\workspaces\\shared'],
         }),
       ],
     });
@@ -210,6 +213,23 @@ describe('buildConversationThread — une conversation de canal', () => {
       added: 14,
       removed: 1,
     });
+  });
+
+  it('`index.ts` à la racine et `a/index.ts` sont DEUX fichiers, même quand l’un est présenté en absolu (passe 57)', () => {
+    const { items } = buildConversationThread({
+      conversation,
+      messages: [],
+      jobs: [
+        job({
+          jobId: 'j2',
+          verdict: travail,
+          audit: [ecriture('index.ts', 'x'), ecriture('/home/q/ws/a/index.ts', 'y')],
+          workspaceRoots: ['/home/q/ws'],
+        }),
+      ],
+    });
+    const produit = items.find((i) => i.kind === 'produced');
+    expect(produit?.kind === 'produced' && produit.summary.files).toBe(2);
   });
 
   it('les lignes d’audit de TOUTE la descendance comptent — pas seulement le fil assemblé (passe 56)', () => {

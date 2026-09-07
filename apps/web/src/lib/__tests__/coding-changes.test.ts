@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  canonicalChangePath,
   changeLineCounts,
   extractChange,
   extractFilePath,
@@ -146,37 +147,55 @@ describe('lineCountsOfCall — les compteurs « −a +b »', () => {
   });
 });
 
-describe('findLineCounts — recoller les deux orthographes du même fichier', () => {
-  const counts = { 'D:\\ws\\src\\auth\\session.ts': { added: 3, removed: 1 } };
-
-  it('trouve le fichier quand la carte le nomme relativement au dossier', () => {
-    expect(findLineCounts(counts, 'src/auth/session.ts')).toEqual({ added: 3, removed: 1 });
-  });
-
-  it('trouve aussi dans l’autre sens, quand l’appel est relatif et la carte absolue', () => {
+describe('findLineCounts — le compteur d’un fichier de la carte du MÊME appel', () => {
+  it('un appel qui n’a écrit qu’un fichier : tout chemin de sa carte le désigne (résolu ou relatif)', () => {
+    // `file_write` présente le chemin résolu, son entrée porte le relatif.
+    const un = { 'notes/bonjour.html': { added: 12, removed: 0 } };
     expect(
-      findLineCounts({ 'src/auth/session.ts': { added: 2, removed: 0 } }, 'ws/src/auth/session.ts'),
-    ).toEqual({ added: 2, removed: 0 });
+      findLineCounts(un, 'C:\\Users\\q\\.nodalai\\workspaces\\shared\\notes\\bonjour.html'),
+    ).toEqual({
+      added: 12,
+      removed: 0,
+    });
+    expect(findLineCounts(un, 'notes/bonjour.html')).toEqual({ added: 12, removed: 0 });
   });
 
-  it('un chemin court qui correspond à DEUX fichiers de l’appel ne choisit pas : null (passe 56)', () => {
+  it('un appel à plusieurs fichiers : par égalité de chemin, jamais par suffixe (passes 56-57)', () => {
     const deux = {
       'a/index.ts': { added: 2, removed: 0 },
       'b/index.ts': { added: 9, removed: 1 },
     };
-    expect(findLineCounts(deux, 'index.ts')).toBeNull();
-    // Nommé en entier, chacun se retrouve.
     expect(findLineCounts(deux, 'b/index.ts')).toEqual({ added: 9, removed: 1 });
-  });
-
-  it('ne confond pas deux homonymes de dossiers différents', () => {
-    expect(findLineCounts(counts, 'src/api/session.ts')).toBeNull();
-    // Un suffixe qui ne tombe pas sur une frontière de segment ne compte pas.
-    expect(findLineCounts({ 'a/mysession.ts': { added: 1, removed: 0 } }, 'session.ts')).toBeNull();
+    expect(findLineCounts(deux, 'index.ts')).toBeNull();
+    expect(findLineCounts(deux, 'D:/ws/b/index.ts')).toBeNull();
   });
 
   it('rend null quand l’appel n’a rien écrit', () => {
     expect(findLineCounts({}, 'src/a.ts')).toBeNull();
+  });
+});
+
+describe('canonicalChangePath — la règle de la page Code, partagée', () => {
+  const roots = ['C:\\Users\\q\\.nodalai\\workspaces\\shared', '/home/q/ws'];
+
+  it('retire la racine connue, insensible à la casse sur Windows, et normalise les barres', () => {
+    expect(
+      canonicalChangePath('c:\\users\\Q\\.nodalai\\workspaces\\shared\\notes\\bonjour.html', roots),
+    ).toBe('notes/bonjour.html');
+    expect(canonicalChangePath('/home/q/ws/src/a.ts', roots)).toBe('src/a.ts');
+  });
+
+  it('laisse un chemin relatif tel quel (sans « ./ »), et un absolu hors racine tel quel', () => {
+    expect(canonicalChangePath('./notes/bonjour.html', roots)).toBe('notes/bonjour.html');
+    expect(canonicalChangePath('index.ts', roots)).toBe('index.ts');
+    expect(canonicalChangePath('/tmp/x.ts', roots)).toBe('/tmp/x.ts');
+  });
+
+  it('`index.ts` et `<racine>/a/index.ts` restent DEUX fichiers (passe 57)', () => {
+    const a = canonicalChangePath('index.ts', roots);
+    const b = canonicalChangePath('/home/q/ws/a/index.ts', roots);
+    expect(a).not.toBe(b);
+    expect(b).toBe('a/index.ts');
   });
 });
 

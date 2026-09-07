@@ -108,6 +108,7 @@ function summaryOf(over: Partial<ThreadJob> & { feed: ConversationFeed }): Deliv
     project: null,
     proof: [],
     audit: [],
+    workspaceRoots: [],
     ...over,
   };
   const { items } = buildConversationThread({

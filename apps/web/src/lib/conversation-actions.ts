@@ -44,6 +44,7 @@ import { requireAuth } from '@nodal-agents/auth';
 import { headers } from 'next/headers';
 import { getDb, applyActiveEntity, getAuthProvider } from './server.ts';
 import { assembleJobFeeds, collectDescendants } from './job-feed.ts';
+import { entityWorkspaceRoots } from './workspace-roots.ts';
 import { buildConversationThread } from './conversation-thread.ts';
 import type { ThreadJob, ThreadProject, ThreadProofRun } from './conversation-thread.ts';
 import { classifyProduction } from './chat-or-work.ts';
@@ -585,6 +586,9 @@ export async function getConversationThreadAction(
           ]);
 
     const conversationRef = { channel: conv.channel, chatId: conv.chatId };
+    // Les racines des dossiers de travail : le récapitulatif ramène les chemins
+    // absolus des cartes au relatif avant de compter les fichiers (passe 57).
+    const workspaceRoots = await entityWorkspaceRoots(db, session.entityId);
     // P2bis — la preuve rangée SOUS le job de tête, comme les lignes d'audit :
     // un délégué qui fait tourner les tests les fait tourner POUR le travail
     // qui l'a mandaté, et c'est le récapitulatif de ce travail-là qui doit les
@@ -618,6 +622,7 @@ export async function getConversationThreadAction(
         toolOutput: row.toolOutput,
         presented: row.presented,
       })),
+      workspaceRoots,
     }));
 
     const currentProject = projectOf(conv);

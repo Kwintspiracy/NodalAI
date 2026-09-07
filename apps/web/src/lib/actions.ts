@@ -42,13 +42,17 @@ import {
   isUnderPath,
 } from './code-projects.ts';
 import {
+  canonicalChangePath,
   extractChange,
   extractFilePath,
   isRefusedToolCall,
   type CodingChangeView,
 } from './coding-changes.ts';
 import {
-  isWindowsPath,
+  entityWorkspaceRoots,
+  sharedWorkspacePath as sharedWorkspacePathOf,
+} from './workspace-roots.ts';
+import {
   normalizePath,
   projectKey,
   discoverVerifyCommands,
@@ -8789,14 +8793,9 @@ export type SettingsView = {
 export async function getSettingsAction(): Promise<ActionResult<SettingsView>> {
   try {
     const session = await getSession();
-    // Shared workspace folder for this entity — must mirror the runner's
-    // workspacesRoot() resolver (apps/runner/src/lib/workspaces-root.ts):
-    //   <NODALAI_WORKSPACES_ROOT | ~/.nodalai/workspaces>/<entityId>/shared
-    const sharedWorkspacePath = pathJoin(
-      process.env['NODALAI_WORKSPACES_ROOT'] ?? pathJoin(homedir(), '.nodalai', 'workspaces'),
-      session.entityId,
-      'shared',
-    );
+    // Shared workspace folder for this entity — the runner's resolver, mirrored
+    // once in `workspace-roots.ts` (the Code page and the thread read it too).
+    const sharedWorkspacePath = sharedWorkspacePathOf(session.entityId);
     return ok({
       llm: {
         provider: env.LLM_PROVIDER ?? null,
@@ -11473,49 +11472,11 @@ const FILE_TOOL_NAMES = new Set([...EDIT_TOOL_NAMES, 'file_edit', 'file_write'])
  * comme un trou avant de conclure l'inverse, d'où cette ligne.
  */
 
-/**
- * Canonicalize an edit path for file grouping/counting (retour Quentin
- * 20/08, job cbdbfc6c) : the SAME file arrives as an ABSOLUTE path from the
- * CLI's own tools (`C:\…\<ws-root>\outputs\app\index.html`) and as a
- * WORKSPACE-RELATIVE path from the Nodal file tools
- * (`outputs/app/index.html`) — raw-string grouping counted one file twice.
- * Backslashes are normalized to `/` and a known workspace-root prefix is
- * stripped (case-insensitively for Windows-style paths, whose filesystems
- * are case-insensitive). Falls back to the slash-normalized original.
- *
- * « Windows-style » vient de `@nodal-agents/shared` depuis le 03/09 : la copie
- * locale ne connaissait que la lettre de lecteur, pas le partage UNC — un
- * fichier sous `//serveur/part` était donc compté deux fois selon la casse.
- * Trouvé par le scanner d'architecture, pas par un lecteur.
- */
-function canonicalChangePath(rawPath: string, workspaceRoots: string[]): string {
-  const p = normalizePath(rawPath.trim());
-  const windows = isWindowsPath(p);
-  for (const root of workspaceRoots) {
-    const r = normalizePath(root);
-    if (r === '') continue;
-    const matches = windows
-      ? p.toLowerCase().startsWith(r.toLowerCase() + '/')
-      : p.startsWith(r + '/');
-    if (matches) return p.slice(r.length + 1);
-  }
-  return p.replace(/^\.\//, '');
-}
-
-/** All workspace roots of the entity's agents — one query, shared by the
- *  coding list AND detail so both canonicalize edit paths identically. */
-async function entityWorkspaceRoots(
-  db: ReturnType<typeof getDb>,
-  entityId: string,
-): Promise<string[]> {
-  const rows = await db
-    .select({ path: agentWorkspaces.path })
-    .from(agentWorkspaces)
-    .innerJoin(agents, eq(agents.id, agentWorkspaces.agentId))
-    .where(eq(agents.entityId, entityId));
-  // Longest roots first, so a nested workspace strips before its parent.
-  return rows.map((r) => r.path).sort((a, b) => b.length - a.length);
-}
+// `canonicalChangePath` vit dans `./coding-changes.ts` et
+// `entityWorkspaceRoots` dans `./workspace-roots.ts` (P2bis, passe 57) : le
+// récapitulatif de livraison compte les fichiers changés avec la MÊME règle que
+// cette page, et un helper enfoui dans un fichier `'use server'` ne se partage
+// pas.
 
 /**
  * A diff/change entry from one edit-shaped tool_call, for the detail view's
