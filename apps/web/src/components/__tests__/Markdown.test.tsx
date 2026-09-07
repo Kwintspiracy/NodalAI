@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import Markdown, { plainText } from '../Markdown.tsx';
+import Markdown, { plainText, safeHref } from '../Markdown.tsx';
 
 const render = (text: string, tone?: 'agent' | 'user'): string =>
   renderToStaticMarkup(tone ? <Markdown text={text} tone={tone} /> : <Markdown text={text} />);
@@ -130,5 +130,45 @@ describe('plainText', () => {
 
   it('rend une chaîne vide pour un markdown vide', () => {
     expect(plainText('')).toBe('');
+  });
+});
+
+describe('les adresses que le fil accepte de suivre', () => {
+  it('http, https, mailto et les adresses relatives font un lien', () => {
+    expect(safeHref('https://nodal.example/x')).toBe('https://nodal.example/x');
+    expect(safeHref('HTTP://a.b')).toBe('HTTP://a.b');
+    expect(safeHref('mailto:q@example.test')).toBe('mailto:q@example.test');
+    expect(safeHref('/spaces/1')).toBe('/spaces/1');
+    expect(safeHref('#ancre')).toBe('#ancre');
+    expect(safeHref('docs/plan.md')).toBe('docs/plan.md');
+  });
+
+  it('javascript:, data:, vbscript: et tout schéma inconnu ne font PAS de lien', () => {
+    for (const url of [
+      'javascript:alert(1)',
+      'JavaScript:alert(1)',
+      'data:text/html,x',
+      'vbscript:x',
+      'file:///etc/passwd',
+      'ftp://h/x',
+      '  ',
+    ]) {
+      expect(safeHref(url), url).toBeNull();
+    }
+  });
+
+  it('un lien markdown vers javascript: se rend en texte, sans href', () => {
+    const html = render('[clique](javascript:alert(1)) et ![img](data:text/html,x)');
+    expect(html).not.toContain('href="javascript');
+    expect(html).not.toContain('href="data');
+    expect(html).toContain('clique');
+    expect(html).toContain('(javascript:alert(1))');
+    expect(html).toContain('img');
+  });
+
+  it('un lien http reste un lien qui s’ouvre à part', () => {
+    const html = render('[site](https://nodal.example)');
+    expect(html).toContain('href="https://nodal.example"');
+    expect(html).toContain('rel="noopener noreferrer"');
   });
 });

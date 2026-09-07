@@ -71,6 +71,22 @@ function kids(node: { children?: RootContent[] }, tone: MarkdownTone): React.Rea
 
 const PROSE = 'max-w-[68ch] text-body-15';
 
+/**
+ * L'adresse d'un lien telle qu'on accepte de la poser dans un `href`, ou
+ * `null`. Le texte vient d'un LLM ou d'un outil : `[ici](javascript:…)` serait
+ * un clic qui exécute du code, `data:` une page forgée. Seuls `http`, `https`,
+ * `mailto` et les adresses relatives (`/…`, `./…`, `#…`, `?…`, un nom nu sans
+ * schéma) passent ; tout autre schéma — connu ou non — rend `null`.
+ */
+export function safeHref(url: string): string | null {
+  const trimmed = url.trim();
+  if (trimmed === '') return null;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed);
+  if (scheme === null) return trimmed;
+  const name = scheme[1]?.toLowerCase();
+  return name === 'http' || name === 'https' || name === 'mailto' ? trimmed : null;
+}
+
 function MdNode({ node, tone }: { node: RootContent; tone: MarkdownTone }): React.ReactNode {
   const ink = tone === 'user' ? 'text-ink' : 'text-ink-2';
   switch (node.type) {
@@ -131,10 +147,21 @@ function MdNode({ node, tone }: { node: RootContent; tone: MarkdownTone }): Reac
         </li>
       );
     case 'link': {
-      const external = /^[a-z][a-z0-9+.-]*:/i.test(node.url) && !node.url.startsWith('#');
+      const href = safeHref(node.url);
+      // Une URL qu'on ne suit pas (`javascript:`, `data:`, `vbscript:`…) n'est
+      // pas un lien : le texte reste, l'adresse est dite entre parenthèses.
+      if (href === null) {
+        return (
+          <>
+            {kids(node, tone)}
+            <span className="text-mono-11 text-ink-4"> ({node.url})</span>
+          </>
+        );
+      }
+      const external = /^(https?|mailto):/i.test(href);
       return (
         <a
-          href={node.url}
+          href={href}
           {...(node.title ? { title: node.title } : {})}
           {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
           className="text-ink underline decoration-rule underline-offset-2 hover:decoration-ink"
@@ -143,19 +170,25 @@ function MdNode({ node, tone }: { node: RootContent; tone: MarkdownTone }): Reac
         </a>
       );
     }
-    case 'image':
+    case 'image': {
       // Pas de `<img>` : le fil ne charge pas une ressource distante décidée
-      // par le texte d'un LLM. L'adresse est dite, et se suit d'un clic.
+      // par le texte d'un LLM. L'adresse est dite, et se suit d'un clic — si
+      // c'est une adresse qu'on suit.
+      const label =
+        node.alt !== null && node.alt !== undefined && node.alt !== '' ? node.alt : node.url;
+      const href = safeHref(node.url);
+      if (href === null) return <span className="text-mono-11 text-ink-4">{label}</span>;
       return (
         <a
-          href={node.url}
+          href={href}
           target="_blank"
           rel="noopener noreferrer"
           className="text-ink underline decoration-rule underline-offset-2 hover:decoration-ink"
         >
-          {node.alt !== null && node.alt !== undefined && node.alt !== '' ? node.alt : node.url}
+          {label}
         </a>
       );
+    }
     case 'table':
       return <MdTable node={node} tone={tone} />;
     case 'text':
