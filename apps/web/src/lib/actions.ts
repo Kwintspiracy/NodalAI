@@ -10838,7 +10838,7 @@ export async function updateRootPersonalityAction(raw: unknown): Promise<ActionR
     }
     const db = getDb();
     const { rootAgentId } = await resolveRoot(db, session.entityId);
-    if (!rootAgentId) return fail('not_found', 'No ROOT agent designated');
+    if (!rootAgentId) return fail('not_found', 'No ROOT agent yet');
     await db
       .update(agents)
       .set({ personality: parsed.data.personality })
@@ -10862,7 +10862,7 @@ export async function getRootSystemPromptAction(): Promise<ActionResult<string>>
     const session = await getSession();
     const db = getDb();
     const { rootAgentId } = await resolveRoot(db, session.entityId);
-    if (!rootAgentId) return fail('not_found', 'No ROOT agent designated');
+    if (!rootAgentId) return fail('not_found', 'No ROOT agent yet');
     const [row] = await db.select().from(agents).where(eq(agents.id, rootAgentId));
     if (!row) return fail('not_found', 'ROOT agent not found');
 
@@ -11167,7 +11167,14 @@ export async function createConversationAction(
     const session = await getSession();
     const db = getDb();
     const { rootAgentId } = await resolveRoot(db, session.entityId);
-    if (!rootAgentId) return fail('no_root_agent', 'Designate a ROOT agent in Settings first.');
+    // Le ROOT n'est pas désigné à la main : il naît avec le premier
+    // orchestrateur créé (revue Codex, passes 62-63).
+    if (!rootAgentId) {
+      return fail(
+        'no_root_agent',
+        'No ROOT agent yet. Create an orchestrator agent first: the first one you create becomes this workspace’s ROOT.',
+      );
+    }
 
     const [row] = await db
       .insert(conversations)

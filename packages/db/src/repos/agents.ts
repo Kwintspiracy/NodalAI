@@ -3,7 +3,7 @@
 // Takes a db instance + entityId + already-validated input; returns a
 // discriminated result or throws on unexpected errors.
 
-import { eq, and, or, ilike, inArray } from 'drizzle-orm';
+import { eq, and, or, ilike, inArray, isNull } from 'drizzle-orm';
 import { INITIAL_AUTO_ROOT_GRANTS } from '@nodal-agents/shared';
 import type { AnyDrizzleDb } from '../client.ts';
 import { agents, agentAssignments } from '../schema/agents.ts';
@@ -116,33 +116,42 @@ export async function createAgentRepo(
   // every subsequent orchestrator is forced under it as a sub-agent, so there is
   // never a second top-level orchestrator. Workers are untouched.
   if (input.role === 'orchestrator') {
-    const [ent] = await db
-      .select({ rootAgentId: entities.rootAgentId })
-      .from(entities)
-      .where(eq(entities.id, entityId))
-      .limit(1);
+    // The claim is ATOMIC: one conditional UPDATE, not a SELECT followed by an
+    // unconditional UPDATE. Two orchestrators created at the same time both
+    // read "no ROOT yet", and the last UPDATE won — leaving two top-level
+    // orchestrators, the very thing the invariant forbids (Codex review, pass
+    // 63). `WHERE root_agent_id IS NULL … RETURNING` lets exactly one win.
+    //
+    // First orchestrator → auto-ROOT. Grants start all-OFF (opt-in powers):
+    // the agent is structurally ROOT but holds no meta-tools until the user
+    // enables them in Settings. Writing explicit grants is REQUIRED — a null
+    // rootGrants parses to all-on and would expose un-gated meta-tools.
+    const claimed = await db
+      .update(entities)
+      .set({
+        rootAgentId: row.id,
+        rootGrants:
+          INITIAL_AUTO_ROOT_GRANTS as unknown as (typeof entities.$inferInsert)['rootGrants'],
+        updatedAt: new Date(),
+      })
+      .where(and(eq(entities.id, entityId), isNull(entities.rootAgentId)))
+      .returning({ rootAgentId: entities.rootAgentId });
 
-    if (!ent?.rootAgentId) {
-      // First orchestrator → auto-ROOT. Grants start all-OFF (opt-in powers):
-      // the agent is structurally ROOT but holds no meta-tools until the user
-      // enables them in Settings. Writing explicit grants is REQUIRED — a null
-      // rootGrants parses to all-on and would expose un-gated meta-tools.
-      await db
-        .update(entities)
-        .set({
-          rootAgentId: row.id,
-          rootGrants:
-            INITIAL_AUTO_ROOT_GRANTS as unknown as (typeof entities.$inferInsert)['rootGrants'],
-          updatedAt: new Date(),
-        })
-        .where(eq(entities.id, entityId));
-    } else if (ent.rootAgentId !== row.id) {
-      // Subsequent orchestrator → forced as a sub-agent of the ROOT.
-      await db.insert(agentAssignments).values({
-        orchestratorId: ent.rootAgentId,
-        subAgentId: row.id,
-        entityId,
-      });
+    if (claimed.length === 0) {
+      // Someone is ROOT already (or just won the race) → this orchestrator is
+      // forced under it as a sub-agent.
+      const [ent] = await db
+        .select({ rootAgentId: entities.rootAgentId })
+        .from(entities)
+        .where(eq(entities.id, entityId))
+        .limit(1);
+      if (ent?.rootAgentId && ent.rootAgentId !== row.id) {
+        await db.insert(agentAssignments).values({
+          orchestratorId: ent.rootAgentId,
+          subAgentId: row.id,
+          entityId,
+        });
+      }
     }
   }
 
