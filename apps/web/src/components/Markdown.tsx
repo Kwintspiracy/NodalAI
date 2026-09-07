@@ -79,12 +79,17 @@ const PROSE = 'max-w-[68ch] text-body-15';
  * schéma) passent ; tout autre schéma — connu ou non — rend `null`.
  */
 export function safeHref(url: string): string | null {
-  const trimmed = url.trim();
-  if (trimmed === '') return null;
-  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed);
-  if (scheme === null) return trimmed;
+  // Les caractères de contrôle et les espaces sont retirés AVANT de lire le
+  // schéma : un navigateur les ignore dans une URL, donc « java\nscript: »
+  // ou « \tjavascript: » exécuteraient ce que la regex n'aurait pas vu.
+  const cleaned = url.replace(/[\u0000-\u0020\u007f]/g, '');
+  if (cleaned === '') return null;
+  // « //evil.test » n'a pas de schéma mais quitte le site : pas un lien.
+  if (cleaned.startsWith('//')) return null;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(cleaned);
+  if (scheme === null) return cleaned;
   const name = scheme[1]?.toLowerCase();
-  return name === 'http' || name === 'https' || name === 'mailto' ? trimmed : null;
+  return name === 'http' || name === 'https' || name === 'mailto' ? cleaned : null;
 }
 
 function MdNode({ node, tone }: { node: RootContent; tone: MarkdownTone }): React.ReactNode {

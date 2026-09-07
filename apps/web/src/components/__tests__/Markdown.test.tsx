@@ -152,8 +152,15 @@ describe('les adresses que le fil accepte de suivre', () => {
       'file:///etc/passwd',
       'ftp://h/x',
       '  ',
+      // Un navigateur ignore les caractères de contrôle dans une URL : ces
+      // formes valent « javascript: » pour lui, elles doivent le valoir ici.
+      'java\nscript:alert(1)',
+      '\tjavascript:alert(1)',
+      'java script:alert(1)',
+      // Protocole-relatif : pas de schéma, mais on quitte le site.
+      '//evil.test/x',
     ]) {
-      expect(safeHref(url), url).toBeNull();
+      expect(safeHref(url), JSON.stringify(url)).toBeNull();
     }
   });
 
