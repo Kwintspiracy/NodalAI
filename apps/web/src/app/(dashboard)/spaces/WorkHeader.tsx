@@ -27,7 +27,7 @@ export default function WorkHeader({
   path,
   agents,
   proofVerdict = null,
-  projectId = null,
+  filesHref = null,
 }: {
   /** Le nom du projet courant, sinon le titre de la conversation. */
   name: string;
@@ -35,8 +35,13 @@ export default function WorkHeader({
   path: string;
   agents: readonly ThreadAgent[];
   proofVerdict?: ProofVerdict;
-  /** Le projet où le travail vit, s'il y en a un : le bouton « Files » l'ouvre. */
-  projectId?: string | null;
+  /**
+   * Où le bouton « Files » mène : la page des fichiers du projet
+   * (`/spaces/<id>/files` — dossier, fichiers, preuve, autres conversations).
+   * null : pas de projet, pas de bouton. Un lien plutôt qu'un id : la page
+   * d'un projet le pointe vers SES fichiers, un fil vers ceux de son projet.
+   */
+  filesHref?: string | null;
 }) {
   return (
     <div className="flex w-full min-w-0 items-center gap-4">
@@ -55,8 +60,8 @@ export default function WorkHeader({
         )}
         {proofVerdict === 'green' && <StatusPill variant="done" label="Verified" />}
         {proofVerdict === 'red' && <StatusPill variant="warn" label="Checks failed" />}
-        {projectId !== null && (
-          <PrimaryButton variant="neutral" size="sm" href={`/spaces/${projectId}`}>
+        {filesHref !== null && (
+          <PrimaryButton variant="neutral" size="sm" href={filesHref}>
             Files
           </PrimaryButton>
         )}

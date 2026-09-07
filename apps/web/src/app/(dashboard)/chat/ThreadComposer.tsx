@@ -91,7 +91,7 @@ export default function ThreadComposer({
   // retours, Maj+Entrée en ajoute un, et la zone grandit avec le texte (revue
   // Codex, passe 56 : le champ d'une ligne aplatissait tout). Entrée envoie.
   return (
-    <div className="sticky bottom-7 z-10 mx-auto mt-8 flex max-w-[760px] items-end gap-3 rounded-xl border border-rule bg-paper px-4 py-1.5">
+    <div className="sticky bottom-7 z-10 mx-auto mt-8 flex max-w-[760px] items-end gap-3 rounded-xl border border-rule bg-paper px-4 py-1">
       <TextArea
         ref={box}
         bare
@@ -114,16 +114,25 @@ export default function ThreadComposer({
         }
         disabled={isPending}
         containerClassName="min-w-0 flex-1"
-        className="max-h-[200px] resize-none overflow-y-auto bg-transparent px-0 py-2.5 text-body-15 leading-[20px]"
+        // `block` : en ligne, la zone laisse 5 px de descente sous elle dans
+        // son conteneur, et le bouton se calait sur CE bas-là, pas sur le sien.
+        className="block max-h-[200px] resize-none overflow-y-auto bg-transparent px-0 py-2 text-body-15 leading-[20px]"
       />
-      <PrimaryButton
-        variant="neutral"
-        size="sm"
-        onClick={send}
-        disabled={isPending || message.trim() === ''}
-      >
-        {isPending ? 'Sending…' : 'Send'}
-      </PrimaryButton>
+      {/* Une ligne de la zone fait 36 px (`h-9`) : le bouton est centré dans
+          une boîte de cette hauteur, alignée en bas du cadre (`items-end`).
+          Il est donc au milieu de la ligne à vide, et au milieu de la DERNIÈRE
+          ligne quand la zone a grandi. Sans ça il pendait sous le texte
+          (Quentin, 07/09 : « même pas centré verticalement »). */}
+      <span className="flex h-9 shrink-0 items-center">
+        <PrimaryButton
+          variant="neutral"
+          size="sm"
+          onClick={send}
+          disabled={isPending || message.trim() === ''}
+        >
+          {isPending ? 'Sending…' : 'Send'}
+        </PrimaryButton>
+      </span>
     </div>
   );
 }

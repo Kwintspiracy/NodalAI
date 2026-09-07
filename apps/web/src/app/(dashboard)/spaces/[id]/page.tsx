@@ -1,28 +1,29 @@
-// /spaces/[id] — LA PAGE D'UN PROJET (P8).
+// /spaces/[id] — LA PAGE D'UN PROJET : sa conversation (P8, refaite le 07/09).
 //
-// Trois choses, dans cet ordre : l'étagère (le dossier, ses fichiers, sa
-// preuve), ce qui s'est dit autour du projet, et la conversation qu'on
-// continue en bas. C'est l'ordre d'une visite : on regarde où on est, on lit
-// ce qui a été dit, on répond.
+// Ouvrir un projet, c'est atterrir dans le fil de SA conversation, la saisie
+// collée en bas — exactement comme /chat/[id]. Quentin, 07/09 : « quand
+// j'ouvre mon projet, je veux atterrir dans le feed de la conversation
+// directement » ; « ce que je vois, c'est des réglages de mon projet ». Le
+// dossier, ses fichiers, sa preuve et les autres conversations sont donc sur
+// /spaces/[id]/files, derrière le bouton « Files » de l'en-tête — pas empilés
+// au-dessus du fil.
 //
-// La page du FIL D'UN JOB n'est plus ici : elle vit sur /scheduled/[id] pour un
-// run d'automatisation, et dans /chat/[id] pour tout le reste.
+// La page du FIL D'UN JOB n'est pas ici : /scheduled/[id] pour un run
+// d'automatisation, /chat/[id] pour tout le reste.
 
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import PageShell from '@/components/ui/PageShell';
-import EmptyState from '@/components/ui/EmptyState';
+import StatusPill from '@/components/ui/StatusPill';
 import { getProjectPageAction } from '@/lib/project-actions.ts';
 import { getConversationThreadAction } from '@/lib/conversation-actions.ts';
-import type { VerificationUnconfiguredView } from '@/lib/verification-runs-view.ts';
+import { projectLanding } from '@/lib/project-landing.ts';
 import WorkHeader from '../WorkHeader.tsx';
 import { threadAgents } from '../format.ts';
-import ProjectShelf from '../ProjectShelf.tsx';
-import ProjectConversations from '../ProjectConversations.tsx';
 import ProjectThread from '../ProjectThread.tsx';
-import NewProjectConversationButton from '../NewProjectConversationButton.tsx';
+import StatusBar from '../StatusBar.tsx';
 
-// Force dynamic — le projet, son dossier et son fil sont relus à chaque requête.
+// Force dynamic — le projet et son fil sont relus à chaque requête.
 export const dynamic = 'force-dynamic';
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
@@ -40,37 +41,17 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     );
   }
 
-  const { project, files, proof, conversations, projectConversationId } = result.data;
+  const { project, conversations, projectConversationId } = result.data;
+  const landing = projectLanding(conversations, projectConversationId);
 
   // Le fil de la conversation du projet — la MÊME lecture que /chat/[id] (P7).
   const thread =
-    projectConversationId === null
-      ? null
-      : await getConversationThreadAction(projectConversationId);
-
-  // Ce que la preuve n'a pas pu éprouver, dans la forme que `VerificationSection`
-  // attend. Le type de livrable suit la SORTE du projet : dire « pas de
-  // commandes configurées » d'un dossier de documents enverrait son
-  // propriétaire chercher un réglage qui n'existe pas pour lui.
-  const unconfigured: VerificationUnconfiguredView[] =
-    proof.approval === 'approved'
-      ? []
-      : [
-          {
-            deliverableType: project.kind === 'documents' ? 'office_file' : 'code_project',
-            canonicalKey: project.path,
-            displayPath: project.path,
-            reason: proof.approval,
-          },
-        ];
-
-  // P2bis — le même en-tête que les deux autres écrans du fil : le nom du
-  // projet, son dossier, qui y a travaillé, et le verdict de la dernière
-  // preuve du fil. Pas de bouton « Files » : on est déjà sur la page du
-  // projet, il pointerait sur elle-même.
-  const threadFeed = thread !== null && thread.ok ? thread.data.feed : null;
-  const lastProof =
-    thread !== null && thread.ok ? (thread.data.verification.sequences.at(-1) ?? null) : null;
+    landing === null ? null : await getConversationThreadAction(landing.conversationId);
+  const view = thread !== null && thread.ok ? thread.data : null;
+  const lastProof = view?.verification.sequences.at(-1) ?? null;
+  const pendingDeliveries =
+    view?.deliveries.filter((d) => d.outcome === 'prepared' || d.outcome === 'attempted').length ??
+    0;
 
   return (
     <PageShell
@@ -78,8 +59,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         <WorkHeader
           name={project.name}
           path={project.path}
-          agents={threadFeed !== null ? threadAgents(threadFeed.items) : []}
+          agents={view !== null ? threadAgents(view.feed.items) : []}
           proofVerdict={lastProof?.verdict ?? null}
+          filesHref={`/spaces/${project.id}/files`}
         />
       }
       toolbar={
@@ -87,42 +69,30 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           <Link href="/spaces" className="text-mono-11 text-ink-4 hover:text-ink-2">
             ← Spaces
           </Link>
-          {projectConversationId !== null && (
-            <Link
-              href={`/chat/${projectConversationId}`}
-              className="text-mono-11 text-ink-4 hover:text-ink-2"
-            >
-              Open in Chat
-            </Link>
-          )}
-          <span className="ml-auto">
-            <NewProjectConversationButton projectId={project.id} />
-          </span>
+          {view !== null && <StatusPill variant={view.live ? 'run' : 'idle'} />}
         </div>
       }
     >
-      <ProjectShelf project={project} files={files} proof={proof} unconfigured={unconfigured} />
-
-      <div className="mx-auto mt-8 max-w-[840px]">
-        <p className="mb-2 text-label-11 uppercase tracking-wider text-ink-4">Conversations</p>
-        {conversations.length === 0 ? (
-          <EmptyState
-            title="No conversation yet"
-            description="Write below, and this project gets its own."
-            compact
-          />
-        ) : (
-          <ProjectConversations rows={conversations} />
-        )}
-      </div>
-
       {/* Le fil et la saisie : un échec de lecture y est DIT, et retire la
-          saisie (revue passe 30, constat 1). */}
+          saisie (revue passe 30, constat 1). La saisie prolonge la conversation
+          du projet quand on peut y répondre depuis le web ; sinon (un fil
+          Telegram qu'on lit ici) le premier envoi crée celle du projet. */}
       <ProjectThread
         projectId={project.id}
-        conversationId={projectConversationId}
+        conversationId={landing?.composerConversationId ?? null}
         thread={thread}
+        {...(project.agentName !== null ? { agentName: project.agentName } : {})}
       />
+      {/* P4 — la barre d'état, permanente en bas de la page, sous la saisie. */}
+      {view !== null && (
+        <StatusBar
+          cost={view.cost}
+          proofVerdict={lastProof?.verdict ?? null}
+          proofSequences={view.verification.sequences.length}
+          pendingDeliveries={pendingDeliveries}
+          live={view.live}
+        />
+      )}
     </PageShell>
   );
 }

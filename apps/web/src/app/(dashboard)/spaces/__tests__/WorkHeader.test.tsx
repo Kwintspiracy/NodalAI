@@ -89,14 +89,14 @@ describe('WorkHeader', () => {
           { key: 'relecteur', name: 'Le Relecteur' },
         ]}
         proofVerdict="green"
-        projectId="proj-1"
+        filesHref="/spaces/proj-1/files"
       />,
     );
     expect(html).toContain('auth-service');
     expect(html).toContain('D:/APPS/auth-service');
     expect(html).toContain('2 agents');
     expect(html).toContain('Verified');
-    expect(html).toContain('/spaces/proj-1');
+    expect(html).toContain('/spaces/proj-1/files');
     expect(html).toContain('Files');
     // Aucune taille de police en pixels : que des tokens de l'échelle typo.
     // (`text-[#0a0a0a]` d'AvatarStack est une COULEUR du DS, pas une taille.)

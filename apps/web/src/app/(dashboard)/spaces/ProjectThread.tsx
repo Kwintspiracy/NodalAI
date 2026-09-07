@@ -27,12 +27,19 @@ export default function ProjectThread({
   projectId,
   conversationId,
   thread,
+  agentName,
 }: {
   projectId: string;
-  /** `null` quand le projet n'a pas encore de conversation. */
+  /**
+   * La conversation que la saisie PROLONGE : `null` quand le premier envoi
+   * doit en créer une (projet neuf, ou fil d'un canal qu'on lit sans pouvoir
+   * y répondre depuis le web).
+   */
   conversationId: string | null;
   /** `null` quand il n'y avait rien à lire. */
   thread: ProjectThreadResult | null;
+  /** L'agent du projet, pour que la saisie dise à qui on écrit même sans fil. */
+  agentName?: string | null;
 }) {
   if (thread !== null && !thread.ok) {
     return (
@@ -68,7 +75,11 @@ export default function ProjectThread({
       <ProjectComposer
         projectId={projectId}
         conversationId={conversationId}
-        {...(thread !== null ? { agentName: thread.data.conversation.agentName } : {})}
+        {...(thread !== null
+          ? { agentName: thread.data.conversation.agentName }
+          : agentName !== undefined
+            ? { agentName }
+            : {})}
       />
     </>
   );

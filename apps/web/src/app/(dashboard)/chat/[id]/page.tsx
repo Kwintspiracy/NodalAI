@@ -74,7 +74,7 @@ export default async function ChatThreadPage({ params }: { params: Promise<{ id:
           path={project ? project.path : origin}
           agents={threadAgents(feed.items)}
           proofVerdict={lastProof?.verdict ?? null}
-          projectId={project ? project.id : null}
+          filesHref={project ? `/spaces/${project.id}/files` : null}
         />
       }
       toolbar={
