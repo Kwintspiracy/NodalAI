@@ -461,7 +461,13 @@ un défaut plus ancien que ce plan, trouvé en cherchant où naît le ROOT : le
 premier orchestrateur le devenait par un SELECT puis un UPDATE sans condition,
 si bien que deux orchestrateurs créés en même temps pouvaient tous deux rester
 de tête — le choix est atomique désormais, un test de création concurrente le
-prouve (rouge sans la condition). Passe 64 lancée.
+prouve (rouge sans la condition). **Passe 64 : aucun constat bloquant neuf —
+la page d'un projet est close par Codex (passes 60 à 64).** Deux défauts plus
+anciens que ce plan, dits et non codés ici : la création d'un agent n'est pas
+une transaction (une panne entre l'insertion et le rattachement laisse un
+orchestrateur de tête ni ROOT ni rattaché), et supprimer le ROOT remet
+l'entité sans ROOT et libère ses orchestrateurs rattachés, sans règle de
+succession. Ils sont au backlog du harnais.
 
 **Ce que la vérification a corrigé dans le plan lui-même.** La ligne « la
 maquette est une intention, pas une spécification au pixel » des limites
