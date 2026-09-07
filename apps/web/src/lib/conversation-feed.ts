@@ -373,9 +373,17 @@ export function normalizeText(text: string): string {
  * d'envoi s'intercalait entre elle et la fin du fil. On s'arrête à la demande
  * de l'utilisateur : au-delà, ce serait la conversation d'avant.
  */
+/** Les paragraphes d'un texte, normalisés, sans les vides. */
+function paragraphsOf(text: string): string[] {
+  return text
+    .split(/\n\s*\n/)
+    .map(normalizeText)
+    .filter((p) => p !== '');
+}
+
 function lastProseContains(items: readonly FeedItem[], answer: string): boolean {
-  const needle = normalizeText(answer);
-  if (needle === '') return true;
+  const wanted = paragraphsOf(answer);
+  if (wanted.length === 0) return true;
   for (let i = items.length - 1; i >= 0; i -= 1) {
     const item = items[i];
     if (item === undefined) continue;
@@ -384,12 +392,16 @@ function lastProseContains(items: readonly FeedItem[], answer: string): boolean 
     const proses = item.blocks.filter((b) => b.kind === 'prose');
     const last = proses[proses.length - 1];
     if (last === undefined) continue;
-    // Égalité, ou la prose SE TERMINE par la réponse (« Voici le bilan : …
-    // Tout est prêt. » puis `result` = « Tout est prêt. »). Pas `includes` :
-    // une réponse courte (« OK. ») trouvée au milieu d'une longue prose n'est
-    // pas cette prose (revue Codex PR #46, passe 49).
-    const said = normalizeText(last.text);
-    return said === needle || said.endsWith(needle);
+    // La réponse est « déjà dite » si ses PARAGRAPHES sont les derniers
+    // paragraphes de la prose, un à un (« Voici le bilan : ⏎⏎ Tout est prêt. »
+    // puis `result` = « Tout est prêt. »). Ni `includes` (une réponse courte
+    // trouvée au milieu, passe 49) ni un suffixe de caractères (« Résultat :
+    // PAS OK. » se termine par « OK. » et dit le contraire, passe 50) : le
+    // paragraphe est la frontière.
+    const said = paragraphsOf(last.text);
+    if (said.length < wanted.length) return false;
+    const tail = said.slice(said.length - wanted.length);
+    return tail.every((p, k) => p === wanted[k]);
   }
   return false;
 }

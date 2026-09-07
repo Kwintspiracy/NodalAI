@@ -427,6 +427,25 @@ describe('la réponse finale ne se dit pas deux fois (P2bis)', () => {
     );
     expect(feed.items.at(-1)).toEqual({ kind: 'answer', text: 'OK.' });
   });
+
+  it('une prose qui FINIT par les mêmes caractères mais dit le contraire garde la réponse (passe 50)', () => {
+    // « Résultat : PAS OK. » se termine par « OK. » — un suffixe de caractères
+    // aurait effacé une réponse opposée. Le paragraphe est la frontière.
+    const feed = buildConversationFeed(oneTurn('Résultat : PAS OK.', 'OK.'), [], []);
+    expect(feed.items.at(-1)).toEqual({ kind: 'answer', text: 'OK.' });
+  });
+
+  it('une réponse de plusieurs paragraphes déjà dite en fin de prose ne se répète pas', () => {
+    const feed = buildConversationFeed(
+      oneTurn(
+        'Je résume.\n\nLe classeur est écrit.\n\nLa formule est en B5.',
+        'Le classeur est écrit.\n\nLa formule est en B5.',
+      ),
+      [],
+      [],
+    );
+    expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
+  });
 });
 
 describe('compactTurns — les tours muets se replient (P2bis)', () => {
