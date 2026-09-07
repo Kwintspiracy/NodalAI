@@ -494,10 +494,11 @@
           <td>
             <span class="etat">SESSION 1 LIVRÉE le 07/09</span> — go de Quentin le 07/09 («
             l'interface livrée est ignoble ») ; <code>05d95510</code> + <code>61a85710</code>,
-            captures clair/sombre sur trois conversations réelles ; passes Codex 49 à 52 traitées
-            (liens sûrs, identité du tour fusionné, fils d'enfants bornés, réponse finale par règle
-            de structure), passe 53 en cours ; session 2 à venir (en-tête d'espace, preuve dans le
-            fil, cartes au pixel)
+            captures clair/sombre sur trois conversations réelles ; passes Codex 49 à 55 (liens
+            sûrs, identité du tour fusionné, fils d'enfants bornés, réponse finale par règle de
+            structure, sortes d'envoi textuel nommées dans shared), passe 55 : aucun constat neuf —
+            <b>session 1 close</b> ; session 2 à venir (en-tête d'espace, preuve dans le fil, cartes
+            au pixel)
           </td>
         </tr>
         <tr>
@@ -866,7 +867,16 @@
         prose est du markdown : « **Tout est prêt.** » et « Tout est prêt. » diffèrent à l'octet,
         pas à l'écran. Elle est remplacée par une <b>règle de structure</b>, que Codex recommande :
         ce que l'agent a écrit EST sa réponse ; <code>job.result</code> ne se montre que si le
-        dernier tour de l'agent est muet. Passe 53 en cours.</span
+        dernier tour de l'agent est muet. <b>Passes 53 à 55.</b> Un cron tout en outils (<code
+          >dashboard_publish</code
+        >
+        puis <code>return_result</code>) montrait son texte dans la carte d'envoi puis une seconde
+        fois en réponse : une carte d'envoi qui livre un texte vaut réponse. Le premier correctif
+        supposait <code>kind: 'message'</code> alors que <code>dashboard_publish</code> présente
+        <code>kind: 'dashboard'</code>, et son test passait avec une charge que l'outil ne produit
+        jamais : les sortes d'envoi textuel sont nommées une fois dans
+        <code>shared</code> (<code>SENT_TEXT_KINDS</code>), à côté du schéma, et le test emploie la
+        charge réelle. Passe 55 : aucun constat neuf — <b>session 1 close</b>.</span
       >
     </div>
     <div class="ligne">
