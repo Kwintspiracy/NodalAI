@@ -387,8 +387,8 @@ function linesOf(text: string): string[] {
 }
 
 function lastProseContains(items: readonly FeedItem[], answer: string): boolean {
-  const wanted = linesOf(answer);
-  if (wanted.length === 0) return true;
+  const needle = normalizeText(answer);
+  if (needle === '') return true;
   for (let i = items.length - 1; i >= 0; i -= 1) {
     const item = items[i];
     if (item === undefined) continue;
@@ -397,17 +397,21 @@ function lastProseContains(items: readonly FeedItem[], answer: string): boolean 
     const proses = item.blocks.filter((b) => b.kind === 'prose');
     const last = proses[proses.length - 1];
     if (last === undefined) continue;
-    // La réponse est « déjà dite » si ses LIGNES sont les dernières lignes de
-    // la prose, une à une (« Voici le bilan : ⏎ Tout est prêt. » puis `result`
-    // = « Tout est prêt. »). Ni `includes` (une réponse courte trouvée au
-    // milieu, passe 49) ni un suffixe de caractères (« Résultat : PAS OK. » se
-    // termine par « OK. » et dit le contraire, passe 50) ni le seul paragraphe
-    // (un simple saut de ligne suffit au modèle, passe 51) : la ligne est la
-    // frontière.
+    // La réponse est « déjà dite » si elle est la FIN de la prose à partir
+    // d'un début de ligne : les k dernières lignes, jointes et normalisées,
+    // égalent la réponse normalisée pour un k. Une prose enveloppée (« Tout
+    // est ⏎ prêt. ») compte comme dite ; « Voici le bilan : ⏎ Tout est prêt. »
+    // aussi. Ni `includes` (une réponse courte trouvée au milieu, passe 49) ni
+    // un suffixe de caractères (« Résultat : PAS OK. » se termine par « OK. »
+    // et dit le contraire, passe 50) ni le seul paragraphe (un simple saut de
+    // ligne suffit au modèle, passe 51) : le début de ligne est la frontière.
     const said = linesOf(last.text);
-    if (said.length < wanted.length) return false;
-    const tail = said.slice(said.length - wanted.length);
-    return tail.every((p, k) => p === wanted[k]);
+    for (let k = 1; k <= said.length; k += 1) {
+      const tail = normalizeText(said.slice(said.length - k).join(' '));
+      if (tail === needle) return true;
+      if (tail.length > needle.length) return false;
+    }
+    return false;
   }
   return false;
 }
