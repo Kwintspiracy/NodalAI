@@ -28,6 +28,8 @@ export default function ProjectThread({
   conversationId,
   thread,
   agentName,
+  placeholder,
+  note,
 }: {
   projectId: string;
   /**
@@ -38,8 +40,20 @@ export default function ProjectThread({
   conversationId: string | null;
   /** `null` quand il n'y avait rien à lire. */
   thread: ProjectThreadResult | null;
-  /** L'agent du projet, pour que la saisie dise à qui on écrit même sans fil. */
+  /**
+   * À qui la saisie écrit VRAIMENT — l'agent du fil qu'elle prolonge, ou le
+   * ROOT qui recevra la conversation qu'elle va créer. La page le décide : le
+   * composant ne le déduit plus du fil affiché, qui peut être celui d'un autre
+   * agent (revue Codex, passe 60).
+   */
   agentName?: string | null;
+  /** Le placeholder en toutes lettres quand la saisie va OUVRIR une conversation. */
+  placeholder?: string;
+  /**
+   * Ce que la saisie va faire, quand ce n'est pas répondre au fil affiché :
+   * dit AVANT l'envoi, au-dessus du champ.
+   */
+  note?: string;
 }) {
   if (thread !== null && !thread.ok) {
     return (
@@ -72,14 +86,14 @@ export default function ProjectThread({
           </div>
         )}
       </div>
+      {note !== undefined && (
+        <p className="mx-auto mt-8 -mb-6 max-w-[760px] text-body-13 text-ink-3">{note}</p>
+      )}
       <ProjectComposer
         projectId={projectId}
         conversationId={conversationId}
-        {...(thread !== null
-          ? { agentName: thread.data.conversation.agentName }
-          : agentName !== undefined
-            ? { agentName }
-            : {})}
+        {...(agentName !== undefined ? { agentName } : {})}
+        {...(placeholder !== undefined ? { placeholder } : {})}
       />
     </>
   );

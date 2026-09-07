@@ -30,11 +30,18 @@ function fitToContent(el: HTMLTextAreaElement): void {
 export default function ThreadComposer({
   conversationId,
   agentName,
+  placeholder,
   onBeforeSend,
 }: {
   conversationId: string;
   /** À qui on écrit — le placeholder le dit. Absent : « Reply… ». */
   agentName?: string | null;
+  /**
+   * Le placeholder en toutes lettres, quand « Reply to X… » serait faux :
+   * la page d'un projet dont la saisie va OUVRIR une conversation dit
+   * « Write to X… » (revue Codex, passe 60).
+   */
+  placeholder?: string;
   /**
    * P8 — la page d'un projet sans conversation. Appelé AVANT l'envoi, il rend
    * l'id de la conversation qui doit recevoir le message (elle vient d'être
@@ -108,9 +115,11 @@ export default function ThreadComposer({
           }
         }}
         placeholder={
-          agentName !== undefined && agentName !== null && agentName !== ''
-            ? `Reply to ${agentName}…`
-            : 'Reply…'
+          placeholder !== undefined
+            ? placeholder
+            : agentName !== undefined && agentName !== null && agentName !== ''
+              ? `Reply to ${agentName}…`
+              : 'Reply…'
         }
         disabled={isPending}
         containerClassName="min-w-0 flex-1"

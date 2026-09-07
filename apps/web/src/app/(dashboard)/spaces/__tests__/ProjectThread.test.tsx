@@ -66,11 +66,35 @@ describe('ProjectThread', () => {
 
   it('le fil est là : il est dessiné, et on peut écrire', () => {
     const html = renderToStaticMarkup(
-      <ProjectThread projectId="p-1" conversationId="c-1" thread={filLu} />,
+      <ProjectThread projectId="p-1" conversationId="c-1" thread={filLu} agentName="Alfred" />,
     );
     expect(html).toContain('Range le dossier');
-    // P2bis — la saisie dit À QUI on écrit.
+    // P2bis — la saisie dit À QUI on écrit : ce que la page a décidé.
     expect(html).toContain('placeholder="Reply to Alfred…"');
     expect(html).not.toContain('Nothing said here yet');
+  });
+
+  it('un fil d’un AUTRE agent qu’on lit, et une saisie qui va créer la conversation du projet : elle nomme le vrai destinataire, et le dit avant l’envoi (passe 60)', () => {
+    const filTelegram = {
+      ...filLu,
+      data: {
+        ...filLu.data,
+        conversation: { agentName: 'Lead-Dev', channel: 'telegram', chatId: '42' },
+      } as unknown as ConversationThreadView,
+    };
+    const html = renderToStaticMarkup(
+      <ProjectThread
+        projectId="p-1"
+        conversationId={null}
+        thread={filTelegram}
+        agentName="Alfred"
+        placeholder="Write to Alfred…"
+        note="You're reading a conversation via Telegram with Lead-Dev. Writing here starts this project's own conversation with Alfred, shown here instead."
+      />,
+    );
+    expect(html).toContain('Range le dossier');
+    expect(html).toContain('placeholder="Write to Alfred…"');
+    expect(html).not.toContain('Reply to Lead-Dev');
+    expect(html).toContain('Writing here starts this project&#x27;s own conversation with Alfred');
   });
 });

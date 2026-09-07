@@ -1,6 +1,6 @@
 // ScheduledSection.test.tsx — le corps de la page /scheduled rendu en HTML :
 // une ligne par automatisation (son nom, son nombre de runs), et un run qui
-// pointe vers son fil (`/spaces/<id>` — garde du plan « un run ouvre son
+// pointe vers son fil (`/scheduled/<id>` — garde du plan « un run ouvre son
 // fil »). Le titre « Scheduled » ne doit PLUS être dans le composant : il est
 // le titre de la page.
 //

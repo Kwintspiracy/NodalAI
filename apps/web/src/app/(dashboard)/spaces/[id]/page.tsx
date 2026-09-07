@@ -15,9 +15,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import PageShell from '@/components/ui/PageShell';
 import StatusPill from '@/components/ui/StatusPill';
-import { getProjectPageAction } from '@/lib/project-actions.ts';
+import { getProjectThreadPageAction } from '@/lib/project-actions.ts';
 import { getConversationThreadAction } from '@/lib/conversation-actions.ts';
 import { projectLanding } from '@/lib/project-landing.ts';
+import { originLabel } from '../format.ts';
 import WorkHeader from '../WorkHeader.tsx';
 import { threadAgents } from '../format.ts';
 import ProjectThread from '../ProjectThread.tsx';
@@ -28,7 +29,10 @@ export const dynamic = 'force-dynamic';
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const result = await getProjectPageAction(id);
+  // Le chargeur LÉGER : ni lecture du dossier, ni preuve — la page les
+  // payait à chaque ouverture et à chaque rafraîchissement sans les montrer
+  // (revue Codex, passe 60). Ils vivent sur /spaces/[id]/files.
+  const result = await getProjectThreadPageAction(id);
   if (!result.ok) {
     if (result.code === 'not_found') notFound();
     return (
@@ -41,7 +45,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     );
   }
 
-  const { project, conversations, projectConversationId } = result.data;
+  const { project, conversations, projectConversationId, rootAgent } = result.data;
   const landing = projectLanding(conversations, projectConversationId);
 
   // Le fil de la conversation du projet — la MÊME lecture que /chat/[id] (P7).
@@ -52,6 +56,31 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const pendingDeliveries =
     view?.deliveries.filter((d) => d.outcome === 'prepared' || d.outcome === 'attempted').length ??
     0;
+
+  // À qui la saisie écrit VRAIMENT (revue Codex, passe 60). Quand elle
+  // prolonge le fil affiché : l'agent de ce fil. Quand elle va CRÉER la
+  // conversation du projet : le ROOT, celui à qui `createProjectConversationAction`
+  // l'attribue — jamais l'agent du fil lu, qui peut être un autre, ni celui du
+  // projet, qui n'est pas celui qu'on écrira. Et si un fil d'un autre canal est
+  // affiché, on le dit AVANT l'envoi : ce message n'y répond pas, il ouvre la
+  // conversation du projet, et la page la montrera à sa place.
+  const continues = landing !== null && landing.composerConversationId !== null;
+  const recipient = continues ? (view?.conversation.agentName ?? null) : (rootAgent?.name ?? null);
+  const placeholder = continues
+    ? undefined
+    : recipient !== null
+      ? `Write to ${recipient}…`
+      : 'Write…';
+  const readAgent = view?.conversation.agentName ?? null;
+  const note =
+    !continues && view !== null
+      ? `You're reading a conversation ${originLabel({ channel: view.conversation.channel, scheduleName: null, chatId: view.conversation.chatId })}${
+          readAgent !== null ? ` with ${readAgent}` : ''
+        }. Writing here starts this project's own conversation${
+          // Le nom du destinataire ne se répète que s'il CHANGE.
+          recipient !== null && recipient !== readAgent ? ` with ${recipient}` : ''
+        }, shown here instead.`
+      : undefined;
 
   return (
     <PageShell
@@ -81,7 +110,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         projectId={project.id}
         conversationId={landing?.composerConversationId ?? null}
         thread={thread}
-        {...(project.agentName !== null ? { agentName: project.agentName } : {})}
+        agentName={recipient}
+        {...(placeholder !== undefined ? { placeholder } : {})}
+        {...(note !== undefined ? { note } : {})}
       />
       {/* P4 — la barre d'état, permanente en bas de la page, sous la saisie. */}
       {view !== null && (

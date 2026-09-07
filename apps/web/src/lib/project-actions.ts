@@ -628,12 +628,210 @@ async function readProjectFolder(path: string): Promise<ProjectFilesView> {
 }
 
 /**
- * La page d'UN projet : son étagère (le dossier, ses fichiers, sa preuve), ses
- * conversations, et celle que la saisie du bas prolonge.
+ * Ce que la page d'un projet lit SANS toucher au dossier ni à la preuve : le
+ * projet, ses conversations, celle que la saisie prolonge, et l'agent ROOT —
+ * celui à qui `createProjectConversationAction` attribue la conversation du
+ * projet, donc celui que la saisie doit nommer quand elle va la créer (revue
+ * Codex, passe 60 : nommer l'agent du fil lu affirmait un faux destinataire).
+ */
+export type ProjectThreadPageView = {
+  project: ProjectPageView['project'];
+  conversations: ProjectConversationRow[];
+  projectConversationId: string | null;
+  rootAgent: { id: string; name: string } | null;
+};
+
+type ProjectCore = {
+  /** Ce que la page du dossier relit de la ligne, au-delà de `project`. */
+  row: {
+    path: string;
+    verifyCommands: VerifyCommand[] | null;
+    verifyApprovedManifestHash: string | null;
+  };
+  project: ProjectPageView['project'];
+  conversations: ProjectConversationRow[];
+  projectConversationId: string | null;
+  rootAgent: { id: string; name: string } | null;
+};
+
+/**
+ * Le cœur commun aux deux pages d'un projet — le fil (`/spaces/[id]`) et le
+ * dossier (`/spaces/[id]/files`). Ni lecture du dossier, ni séquences de
+ * preuve : la page du fil les payait à chaque ouverture et à chaque
+ * rafraîchissement sans les montrer (revue Codex, passe 60).
  *
- * Bornée à l'entité de la session ET aux lignes ENREGISTRÉES : une ligne de
- * comptabilité n'est pas un projet, et lui ouvrir une page laisserait croire
- * qu'un dossier touché une fois par un agent a été déclaré.
+ * Borné à l'entité ET aux lignes ENREGISTRÉES : une ligne de comptabilité
+ * n'est pas un projet, et lui ouvrir une page laisserait croire qu'un dossier
+ * touché une fois par un agent a été déclaré.
+ */
+async function loadProjectCore(
+  db: ReturnType<typeof getDb>,
+  entityId: string,
+  id: string,
+): Promise<ProjectCore | null> {
+  const [row] = await db
+    .select({
+      id: codeProjects.id,
+      displayName: codeProjects.displayName,
+      path: codeProjects.projectPath,
+      kind: codeProjects.kind,
+      hidden: codeProjects.hidden,
+      registeredFrom: codeProjects.registeredFrom,
+      registeredAt: codeProjects.registeredAt,
+      agentId: codeProjects.agentId,
+      agentName: agents.name,
+      agentSlug: agents.slug,
+      verifyCommands: codeProjects.verifyCommands,
+      verifyApprovedManifestHash: codeProjects.verifyApprovedManifestHash,
+    })
+    .from(codeProjects)
+    .leftJoin(agents, eq(agents.id, codeProjects.agentId))
+    .where(
+      and(
+        eq(codeProjects.id, id),
+        eq(codeProjects.entityId, entityId),
+        isNotNull(codeProjects.registeredAt),
+      ),
+    )
+    .limit(1);
+  if (!row) return null;
+  const path = row.path;
+
+  // Les conversations qui portent un TRAVAIL du projet — sous-requête plutôt
+  // qu'un aller-retour de plus, la liste ci-dessous en a besoin telle quelle.
+  const conversationIdsOfJobs = db
+    .select({ id: agentJobs.conversationId })
+    .from(agentJobs)
+    .where(
+      and(
+        eq(agentJobs.entityId, entityId),
+        eq(agentJobs.projectId, id),
+        isNotNull(agentJobs.conversationId),
+      ),
+    );
+
+  const [jobsRows, conversationRows, anchoredRows, rootRows] = await Promise.all([
+    db
+      .select({
+        jobsCount: sql<number>`count(*)`,
+        lastActivityAt: sql<Date | null>`max(${agentJobs.createdAt})`,
+      })
+      .from(agentJobs)
+      .where(and(eq(agentJobs.entityId, entityId), eq(agentJobs.projectId, id))),
+    db
+      .select({
+        id: conversations.id,
+        channel: conversations.channel,
+        title: conversations.title,
+        updatedAt: conversations.updatedAt,
+        currentProjectId: conversations.currentProjectId,
+        agentName: agents.name,
+        agentSlug: agents.slug,
+      })
+      .from(conversations)
+      .leftJoin(agents, eq(agents.id, conversations.agentId))
+      .where(
+        and(
+          eq(conversations.entityId, entityId),
+          or(
+            eq(conversations.currentProjectId, id),
+            inArray(conversations.id, conversationIdsOfJobs),
+          ),
+        ),
+      )
+      .orderBy(sql`${conversations.updatedAt} desc nulls last`)
+      .limit(50),
+    // La conversation DU projet : celle qui a été OUVERTE depuis lui
+    // (`origin = 'project'`), pas la plus récemment ancrée. Une conversation
+    // ancrée par une production qui a atterri dans le dossier finissait par
+    // évincer celle qu'on avait ouverte exprès, dès que son `updated_at`
+    // passait devant — la saisie changeait de fil toute seule (revue passe
+    // 30, doute 1). Le canal est implicite : `createProjectConversationAction`
+    // est le seul écrivain de cette origine, et il écrit `dashboard`.
+    db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.entityId, entityId),
+          eq(conversations.currentProjectId, id),
+          eq(conversations.origin, 'project'),
+        ),
+      )
+      .orderBy(sql`${conversations.updatedAt} desc nulls last`)
+      .limit(1),
+    // L'agent ROOT de l'entité — la MÊME lecture que `createProjectConversationAction`.
+    db
+      .select({ id: agents.id, name: agents.name })
+      .from(entities)
+      .innerJoin(agents, eq(agents.id, entities.rootAgentId))
+      .where(eq(entities.id, entityId))
+      .limit(1),
+  ]);
+
+  return {
+    row: {
+      path,
+      verifyCommands: row.verifyCommands ?? null,
+      verifyApprovedManifestHash: row.verifyApprovedManifestHash,
+    },
+    project: {
+      id: row.id,
+      name: row.displayName ?? basenameOf(path),
+      path,
+      kind: (row.kind === 'documents' ? 'documents' : 'code') as 'code' | 'documents',
+      agentId: row.agentId,
+      agentName: row.agentName ?? null,
+      agentSlug: row.agentSlug ?? null,
+      hidden: row.hidden,
+      registeredFrom: (row.registeredFrom ?? 'spaces') as 'spaces' | 'conversation',
+      registeredAt: row.registeredAt as Date,
+      jobsCount: Number(jobsRows[0]?.jobsCount ?? 0),
+      lastActivityAt: jobsRows[0]?.lastActivityAt ? new Date(jobsRows[0].lastActivityAt) : null,
+    },
+    conversations: conversationRows.map(
+      (c): ProjectConversationRow => ({
+        id: c.id,
+        channel: c.channel,
+        title: c.title,
+        agentName: c.agentName ?? null,
+        agentSlug: c.agentSlug ?? null,
+        updatedAt: c.updatedAt,
+        anchored: c.currentProjectId === id,
+      }),
+    ),
+    projectConversationId: anchoredRows[0]?.id ?? null,
+    rootAgent: rootRows[0] ? { id: rootRows[0].id, name: rootRows[0].name } : null,
+  };
+}
+
+/** La page du FIL d'un projet (`/spaces/[id]`) : le cœur, rien de plus. */
+export async function getProjectThreadPageAction(
+  id: string,
+): Promise<ActionResult<ProjectThreadPageView>> {
+  try {
+    const session = await getSession();
+    if (!session.entityId) return fail('no_entity', 'No active entity');
+    if (!z.string().guid().safeParse(id).success) {
+      return fail('validation_failed', 'Invalid project id');
+    }
+    const core = await loadProjectCore(getDb(), session.entityId, id);
+    if (core === null) return fail('not_found', 'Project not found');
+    return ok({
+      project: core.project,
+      conversations: core.conversations,
+      projectConversationId: core.projectConversationId,
+      rootAgent: core.rootAgent,
+    });
+  } catch (err) {
+    console.error('[projects] PROJECT_THREAD_PAGE_FAILED', err);
+    return fail('page_failed', 'Could not load the project');
+  }
+}
+
+/**
+ * La page du DOSSIER d'un projet (`/spaces/[id]/files`) : le cœur, plus le
+ * dossier lu et ses dernières séquences de preuve.
  */
 export async function getProjectPageAction(id: string): Promise<ActionResult<ProjectPageView>> {
   try {
@@ -643,49 +841,11 @@ export async function getProjectPageAction(id: string): Promise<ActionResult<Pro
       return fail('validation_failed', 'Invalid project id');
     }
     const db = getDb();
-
-    const [row] = await db
-      .select({
-        id: codeProjects.id,
-        displayName: codeProjects.displayName,
-        path: codeProjects.projectPath,
-        kind: codeProjects.kind,
-        hidden: codeProjects.hidden,
-        registeredFrom: codeProjects.registeredFrom,
-        registeredAt: codeProjects.registeredAt,
-        agentId: codeProjects.agentId,
-        agentName: agents.name,
-        agentSlug: agents.slug,
-        verifyCommands: codeProjects.verifyCommands,
-        verifyApprovedManifestHash: codeProjects.verifyApprovedManifestHash,
-      })
-      .from(codeProjects)
-      .leftJoin(agents, eq(agents.id, codeProjects.agentId))
-      .where(
-        and(
-          eq(codeProjects.id, id),
-          eq(codeProjects.entityId, session.entityId),
-          isNotNull(codeProjects.registeredAt),
-        ),
-      )
-      .limit(1);
-    if (!row) return fail('not_found', 'Project not found');
-
+    const core = await loadProjectCore(db, session.entityId, id);
+    if (core === null) return fail('not_found', 'Project not found');
+    const { row } = core;
     const path = row.path;
     const key = projectKey(path);
-
-    // Les conversations qui portent un TRAVAIL du projet — sous-requête plutôt
-    // qu'un aller-retour de plus, la liste ci-dessous en a besoin telle quelle.
-    const conversationIdsOfJobs = db
-      .select({ id: agentJobs.conversationId })
-      .from(agentJobs)
-      .where(
-        and(
-          eq(agentJobs.entityId, session.entityId),
-          eq(agentJobs.projectId, id),
-          isNotNull(agentJobs.conversationId),
-        ),
-      );
 
     // Les 3 DERNIÈRES séquences de preuve, choisies en SQL. La page n'en montre
     // que trois : charger tout l'historique de la clé pour en jeter presque
@@ -704,14 +864,7 @@ export async function getProjectPageAction(id: string): Promise<ActionResult<Pro
       .orderBy(sql`max(${verificationRuns.createdAt}) desc`)
       .limit(PROOF_SEQUENCES_MAX);
 
-    const [jobsRows, proofRows, conversationRows, anchoredRows] = await Promise.all([
-      db
-        .select({
-          jobsCount: sql<number>`count(*)`,
-          lastActivityAt: sql<Date | null>`max(${agentJobs.createdAt})`,
-        })
-        .from(agentJobs)
-        .where(and(eq(agentJobs.entityId, session.entityId), eq(agentJobs.projectId, id))),
+    const [proofRows, files] = await Promise.all([
       db
         .select({
           jobId: verificationRuns.jobId,
@@ -736,51 +889,8 @@ export async function getProjectPageAction(id: string): Promise<ActionResult<Pro
             inArray(verificationRuns.sequenceId, lastSequenceIds),
           ),
         ),
-      db
-        .select({
-          id: conversations.id,
-          channel: conversations.channel,
-          title: conversations.title,
-          updatedAt: conversations.updatedAt,
-          currentProjectId: conversations.currentProjectId,
-          agentName: agents.name,
-          agentSlug: agents.slug,
-        })
-        .from(conversations)
-        .leftJoin(agents, eq(agents.id, conversations.agentId))
-        .where(
-          and(
-            eq(conversations.entityId, session.entityId),
-            or(
-              eq(conversations.currentProjectId, id),
-              inArray(conversations.id, conversationIdsOfJobs),
-            ),
-          ),
-        )
-        .orderBy(sql`${conversations.updatedAt} desc nulls last`)
-        .limit(50),
-      // La conversation DU projet : celle qui a été OUVERTE depuis lui
-      // (`origin = 'project'`), pas la plus récemment ancrée. Une conversation
-      // ancrée par une production qui a atterri dans le dossier finissait par
-      // évincer celle qu'on avait ouverte exprès, dès que son `updated_at`
-      // passait devant — la saisie changeait de fil toute seule (revue passe
-      // 30, doute 1). Le canal est implicite : `createProjectConversationAction`
-      // est le seul écrivain de cette origine, et il écrit `dashboard`.
-      db
-        .select({ id: conversations.id })
-        .from(conversations)
-        .where(
-          and(
-            eq(conversations.entityId, session.entityId),
-            eq(conversations.currentProjectId, id),
-            eq(conversations.origin, 'project'),
-          ),
-        )
-        .orderBy(sql`${conversations.updatedAt} desc nulls last`)
-        .limit(1),
+      readProjectFolder(path),
     ]);
-
-    const files = await readProjectFolder(path);
 
     // La preuve : au plus 3 séquences, la requête s'en est chargée
     // (`groupVerificationRuns` les rend dans l'ordre chronologique, la plus
@@ -789,20 +899,7 @@ export async function getProjectPageAction(id: string): Promise<ActionResult<Pro
     const commands = row.verifyCommands ?? null;
 
     return ok({
-      project: {
-        id: row.id,
-        name: row.displayName ?? basenameOf(path),
-        path,
-        kind: (row.kind === 'documents' ? 'documents' : 'code') as 'code' | 'documents',
-        agentId: row.agentId,
-        agentName: row.agentName ?? null,
-        agentSlug: row.agentSlug ?? null,
-        hidden: row.hidden,
-        registeredFrom: (row.registeredFrom ?? 'spaces') as 'spaces' | 'conversation',
-        registeredAt: row.registeredAt as Date,
-        jobsCount: Number(jobsRows[0]?.jobsCount ?? 0),
-        lastActivityAt: jobsRows[0]?.lastActivityAt ? new Date(jobsRows[0].lastActivityAt) : null,
-      },
+      project: core.project,
       files,
       proof: {
         configured: commands !== null && commands.length > 0,
@@ -814,18 +911,8 @@ export async function getProjectPageAction(id: string): Promise<ActionResult<Pro
         }),
         sequences,
       },
-      conversations: conversationRows.map(
-        (c): ProjectConversationRow => ({
-          id: c.id,
-          channel: c.channel,
-          title: c.title,
-          agentName: c.agentName ?? null,
-          agentSlug: c.agentSlug ?? null,
-          updatedAt: c.updatedAt,
-          anchored: c.currentProjectId === id,
-        }),
-      ),
-      projectConversationId: anchoredRows[0]?.id ?? null,
+      conversations: core.conversations,
+      projectConversationId: core.projectConversationId,
     });
   } catch (err) {
     console.error('[projects] PROJECT_PAGE_FAILED', err);

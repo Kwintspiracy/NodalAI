@@ -20,11 +20,14 @@ export default function ProjectComposer({
   projectId,
   conversationId,
   agentName,
+  placeholder,
 }: {
   projectId: string;
   conversationId: string | null;
-  /** L'agent du projet, pour que la saisie dise à qui on écrit. */
+  /** À qui la saisie écrit VRAIMENT : l'agent du fil prolongé, ou le ROOT qui recevra la conversation créée. */
   agentName?: string | null;
+  /** Le placeholder en toutes lettres quand la saisie va OUVRIR une conversation. */
+  placeholder?: string;
 }) {
   const router = useRouter();
 
@@ -32,6 +35,7 @@ export default function ProjectComposer({
     <ThreadComposer
       conversationId={conversationId ?? ''}
       {...(agentName !== undefined ? { agentName } : {})}
+      {...(placeholder !== undefined ? { placeholder } : {})}
       onBeforeSend={
         conversationId !== null
           ? undefined
