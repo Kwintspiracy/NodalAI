@@ -454,8 +454,14 @@ constat bloquant, vrai** — le message sans ROOT disait « Designate one in
 Settings » alors que le ROOT naît avec le premier orchestrateur créé et que
 Settings renvoie vers Agents : l'instruction menait à une action qui n'existe
 pas. Le message dit le geste et le lien mène à Agents ; les deux autres textes
-périmés du dépôt (l'erreur de création, la bannière de Chat) suivent. Passe 63
-lancée.
+périmés du dépôt (l'erreur de création, la bannière de Chat) suivent. **Passe
+63 : deux constats, vrais.** Un dernier texte « Designate a ROOT agent in
+Settings » restait dans la création d'une conversation de Chat : aligné. Et
+un défaut plus ancien que ce plan, trouvé en cherchant où naît le ROOT : le
+premier orchestrateur le devenait par un SELECT puis un UPDATE sans condition,
+si bien que deux orchestrateurs créés en même temps pouvaient tous deux rester
+de tête — le choix est atomique désormais, un test de création concurrente le
+prouve (rouge sans la condition). Passe 64 lancée.
 
 **Ce que la vérification a corrigé dans le plan lui-même.** La ligne « la
 maquette est une intention, pas une spécification au pixel » des limites

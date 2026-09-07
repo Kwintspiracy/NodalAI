@@ -1017,7 +1017,16 @@
         son premier message : la conversation neuve vide remplaçait un instant le fil lu — cette
         relecture tombe. Recommandé et fait : le calcul du destinataire, du placeholder et de la
         note est un module pur, sept cas testés ; la page du fil ne compte plus les travaux du
-        projet. Passe 62 lancée.</span
+        projet. <b>Passe 62 : un constat bloquant, vrai</b> — le message sans ROOT disait «
+        Designate one in Settings » alors que le ROOT naît avec le premier orchestrateur créé et que
+        Settings renvoie vers Agents : l'instruction menait à une action qui n'existe pas. Le
+        message dit le geste et le lien mène à Agents ; les deux autres textes périmés du dépôt
+        suivent. <b>Passe 63 : deux constats, vrais.</b> Un dernier texte « Designate a ROOT agent
+        in Settings » restait dans la création d'une conversation de Chat : aligné. Et un défaut
+        plus ancien que ce plan, trouvé en cherchant où naît le ROOT : le premier orchestrateur le
+        devenait par un SELECT puis un UPDATE sans condition, si bien que deux orchestrateurs créés
+        en même temps pouvaient tous deux rester de tête — le choix est atomique désormais, un test
+        de création concurrente le prouve (rouge sans la condition). Passe 64 lancée.</span
       >
     </div>
   </div>
