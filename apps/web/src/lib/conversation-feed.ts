@@ -383,7 +383,22 @@ function lastAgentTurnSpoke(items: readonly FeedItem[]): boolean {
     if (item === undefined) continue;
     if (item.kind === 'request' || item.kind === 'history') return false;
     if (item.kind !== 'turn') continue;
-    if (item.blocks.some((bl) => bl.kind === 'prose')) return true;
+    // Une prose, ou une carte d'ENVOI de MESSAGE (`dashboard_publish`,
+    // `telegram_send_message`…) : la carte `sent` montre déjà le texte livré,
+    // le répéter en `answer` l'affichait deux fois (revue Codex PR #46,
+    // passe 53). Un envoi de FICHIER ne porte pas de texte : `job.result`
+    // reste alors la seule phrase, et se montre. Toujours la structure — la
+    // sorte de carte et son `kind` —, jamais le texte.
+    if (
+      item.blocks.some(
+        (bl) =>
+          bl.kind === 'prose' ||
+          (bl.kind === 'card' &&
+            bl.step.presented?.card === 'sent' &&
+            bl.step.presented.kind === 'message'),
+      )
+    )
+      return true;
   }
   return false;
 }

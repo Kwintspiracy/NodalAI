@@ -461,6 +461,91 @@ describe('la réponse finale ne se dit pas deux fois (P2bis) — une règle de s
     const feed = buildConversationFeed(oneTurn('Je regarde.', ''), [], []);
     expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
   });
+
+  it('un tour muet qui a ENVOYÉ (carte sent) a répondu : la carte montre le texte, pas d’item answer (passe 53)', () => {
+    // Un cron « tout en outils » : dashboard_publish puis return_result, aucune
+    // prose. La carte « Sent to dashboard » porte déjà « Tout est prêt. ».
+    const feed = buildConversationFeed(
+      {
+        ...job,
+        task: 'x',
+        result: 'Tout est prêt.',
+        messages: [
+          { role: 'user', content: 'x' },
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: 'pub-1',
+                toolName: 'dashboard_publish',
+                input: { text: 'Tout est prêt.' },
+              },
+              { type: 'tool-call', toolCallId: 'ret-1', toolName: 'return_result', input: {} },
+            ],
+          },
+        ],
+      },
+      [
+        {
+          toolCallId: 'pub-1',
+          toolName: 'dashboard_publish',
+          card: 'sent',
+          presented: { card: 'sent', channel: 'dashboard', kind: 'message' },
+          durationMs: 3,
+          turn: 1,
+          toolInput: { text: 'Tout est prêt.' },
+          toolOutput: '{"ok":true}',
+          createdAt: at('2026-09-07T10:00:00Z'),
+        },
+      ],
+      [],
+    );
+    expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
+    const cards = feed.items.flatMap((i) =>
+      i.kind === 'turn' ? i.blocks.filter((b) => b.kind === 'card') : [],
+    );
+    expect(cards.map((c) => (c.kind === 'card' ? c.step.card : null))).toEqual(['sent']);
+  });
+
+  it('un tour muet qui a envoyé un FICHIER n’a pas dit sa phrase : `job.result` se montre', () => {
+    const feed = buildConversationFeed(
+      {
+        ...job,
+        task: 'x',
+        result: 'Le rapport est en pièce jointe.',
+        messages: [
+          { role: 'user', content: 'x' },
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: 'file-1',
+                toolName: 'send_file',
+                input: { path: 'rapport.pdf' },
+              },
+            ],
+          },
+        ],
+      },
+      [
+        {
+          toolCallId: 'file-1',
+          toolName: 'send_file',
+          card: 'sent',
+          presented: { card: 'sent', channel: 'telegram', kind: 'file', filename: 'rapport.pdf' },
+          durationMs: 3,
+          turn: 1,
+          toolInput: { path: 'rapport.pdf' },
+          toolOutput: '{"ok":true}',
+          createdAt: at('2026-09-07T10:00:00Z'),
+        },
+      ],
+      [],
+    );
+    expect(feed.items.at(-1)).toEqual({ kind: 'answer', text: 'Le rapport est en pièce jointe.' });
+  });
 });
 
 describe('compactTurns — les tours muets se replient (P2bis)', () => {
