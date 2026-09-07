@@ -12,6 +12,15 @@
 // second, le chemin résolu que `file_write` présente
 // (`…/workspaces/<entité>/shared/notes/x.html`) ne se ramenait jamais au
 // relatif, et le même fichier comptait deux fois (vu en vrai, passe 57).
+//
+// Ce que ça change, et ne change pas : le récapitulatif du fil canonicalise
+// tout ce qu'il compte avec ces racines. La page Code, elle, ne retient qu'un
+// changement situé dans un dossier DÉCLARÉ (`isInsideWorkspace`, avant toute
+// canonicalisation) : un fichier du dossier partagé n'y entre pas davantage
+// qu'avant (revue Codex, passe 58). Contrainte de déploiement : le web et le
+// runner doivent lire le même `NODALAI_WORKSPACES_ROOT` (ou le même dossier
+// personnel), sinon la racine ne se retire pas et un fichier peut compter
+// deux fois — rien ne le vérifie ici.
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';

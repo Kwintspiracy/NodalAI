@@ -72,7 +72,14 @@ export default function ThreadComposer({
         return;
       }
       setMessage('');
-      if (box.current) fitToContent(box.current);
+      // La zone se remesure VIDE : React ne vide le DOM qu'à la réconciliation,
+      // et mesurer avant laissait une zone haute après l'envoi (revue Codex,
+      // passes 57-58). On vide donc la valeur du DOM soi-même avant de mesurer
+      // — l'état contrôlé la remet à '' au rendu suivant, sans conflit.
+      if (box.current) {
+        box.current.value = '';
+        fitToContent(box.current);
+      }
       router.refresh();
     });
   }
