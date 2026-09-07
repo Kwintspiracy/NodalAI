@@ -211,13 +211,26 @@ export function findLineCounts(
 ): LineCounts | null {
   const direct = counts[path];
   if (direct !== undefined) return direct;
-  const want = path.replace(/\\/g, '/');
-  for (const [key, value] of Object.entries(counts)) {
-    const have = key.replace(/\\/g, '/');
-    if (have === want) return value;
-    if (have.endsWith('/' + want) || want.endsWith('/' + have)) return value;
-  }
-  return null;
+  // UN seul candidat, sinon rien : une carte qui nomme `index.ts` quand
+  // l'appel a écrit `a/index.ts` ET `b/index.ts` ne peut pas choisir, et le
+  // premier venu aurait collé à un fichier le compteur d'un autre (revue
+  // Codex, passe 56).
+  const matches = Object.entries(counts).filter(([key]) => isSameFile(key, path));
+  return matches.length === 1 ? matches[0]![1] : null;
+}
+
+/**
+ * Deux chemins nomment-ils le MÊME fichier ? La règle de `findLineCounts`,
+ * nommée pour être partagée : le récapitulatif de livraison compte les
+ * fichiers écrits, et le même `notes/bonjour.html` écrit en absolu par
+ * `file_write` puis en relatif par `file_edit` faisait « 2 files » (vu en vrai
+ * le 07/09).
+ */
+export function isSameFile(a: string, b: string): boolean {
+  const x = a.replace(/\\/g, '/');
+  const y = b.replace(/\\/g, '/');
+  if (x === y) return true;
+  return x.endsWith('/' + y) || y.endsWith('/' + x);
 }
 
 /** La somme de plusieurs jeux de compteurs — le total d'une carte, d'un travail. */

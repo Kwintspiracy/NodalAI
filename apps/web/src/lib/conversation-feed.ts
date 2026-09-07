@@ -27,7 +27,7 @@
 import { SENT_TEXT_KINDS, TOOL_CARDS } from '@nodal-agents/shared';
 import type { ToolCard, ToolCardPayload } from '@nodal-agents/shared';
 import { blocksFromContent } from '@/components/JobMessages.tsx';
-import { parsePresented, outcomeOfToolOutput } from './tool-card-payload.ts';
+import { parsePresented, outcomeOfToolOutput, callHappened } from './tool-card-payload.ts';
 import { lineCountsOfCall, type LineCounts } from './coding-changes.ts';
 import type { ProductionVerdict } from './chat-or-work.ts';
 
@@ -689,12 +689,13 @@ export function buildConversationFeed(
         const outcome = outcomeOfToolOutput(row?.toolOutput);
         // Un appel qui n'a pas ABOUTI n'a rien écrit : une édition en attente
         // d'approbation, bloquée ou en erreur garde son entrée (le fil la
-        // montre) mais aucun compteur — sinon le récapitulatif dirait « +2 −1 »
-        // sur un fichier intact (vu en vrai le 07/09 : un `file_edit` en
-        // attente comptait déjà dans « Lines »). `unknown` (ligne sans sortie,
-        // d'avant 0092) compte : ces écritures ont eu lieu.
-        const wrote =
-          outcome !== 'error' && outcome !== 'blocked' && outcome !== 'awaiting_approval';
+        // montre) mais aucun compteur — sinon la carte dirait « +2 −1 » sur un
+        // fichier intact (vu en vrai le 07/09 : un `file_edit` en attente
+        // comptait déjà). Et un appel SANS ligne d'audit ne compte pas non
+        // plus : la ligne est la trace que l'outil a tourné — `executeTool`
+        // avale l'échec de son insertion et l'appel reste dans le transcript
+        // (revue Codex, passe 56) ; sans elle, on ne sait pas.
+        const wrote = row !== undefined && callHappened(outcome);
         const step: Extract<Step, { kind: 'tool' }> = {
           kind: 'tool',
           toolName,

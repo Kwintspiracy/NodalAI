@@ -159,6 +159,16 @@ describe('findLineCounts — recoller les deux orthographes du même fichier', (
     ).toEqual({ added: 2, removed: 0 });
   });
 
+  it('un chemin court qui correspond à DEUX fichiers de l’appel ne choisit pas : null (passe 56)', () => {
+    const deux = {
+      'a/index.ts': { added: 2, removed: 0 },
+      'b/index.ts': { added: 9, removed: 1 },
+    };
+    expect(findLineCounts(deux, 'index.ts')).toBeNull();
+    // Nommé en entier, chacun se retrouve.
+    expect(findLineCounts(deux, 'b/index.ts')).toEqual({ added: 9, removed: 1 });
+  });
+
   it('ne confond pas deux homonymes de dossiers différents', () => {
     expect(findLineCounts(counts, 'src/api/session.ts')).toBeNull();
     // Un suffixe qui ne tombe pas sur une frontière de segment ne compte pas.

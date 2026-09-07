@@ -609,6 +609,15 @@ export async function getConversationThreadAction(
       }),
       project: r.job.projectId !== null ? (projectById.get(r.job.projectId) ?? null) : null,
       proof: proofByRoot.get(r.job.id) ?? [],
+      // Les lignes d'audit de la tête ET de toute sa descendance, déjà
+      // rangées sous la tête pour la frontière chat/travail : le récapitulatif
+      // y compte fichiers et lignes en entier (revue Codex, passe 56).
+      audit: (rowsByRoot.get(r.job.id) ?? []).map((row) => ({
+        toolName: row.toolName,
+        toolInput: row.toolInput,
+        toolOutput: row.toolOutput,
+        presented: row.presented,
+      })),
     }));
 
     const currentProject = projectOf(conv);

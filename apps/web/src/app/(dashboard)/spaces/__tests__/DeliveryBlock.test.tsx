@@ -12,8 +12,11 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import DeliveryBlock from '../DeliveryBlock.tsx';
-import { buildConversationThread, type ThreadJob } from '@/lib/conversation-thread.ts';
-import { lineCountsOfCall } from '@/lib/coding-changes.ts';
+import {
+  buildConversationThread,
+  type ThreadAuditRow,
+  type ThreadJob,
+} from '@/lib/conversation-thread.ts';
 import type { ConversationFeed, DeliverySummary, FeedItem, Step } from '@/lib/conversation-feed.ts';
 import type { ProductionVerdict } from '@/lib/chat-or-work.ts';
 
@@ -64,6 +67,27 @@ const tool = (over: Partial<Extract<Step, { kind: 'tool' }>>): Extract<Step, { k
   ...over,
 });
 
+/** Une ligne d'audit d'écriture, telle que `conversation-actions` la range sous la tête. */
+const ecriture = (path: string, content: string): ThreadAuditRow => ({
+  toolName: 'file_write',
+  toolInput: { path, content },
+  toolOutput: '{"ok":true}',
+  presented: { card: 'files', total: 1, truncated: false, files: [{ path, action: 'created' }] },
+});
+const edition = (path: string, oldText: string, newText: string): ThreadAuditRow => ({
+  toolName: 'file_edit',
+  toolInput: { path, old_string: oldText, new_string: newText },
+  toolOutput: '{"ok":true}',
+  presented: { card: 'files', total: 1, truncated: false, files: [{ path, action: 'modified' }] },
+});
+/** Une lecture : le fichier est `listed`, il ne compte pas. */
+const lecture = (path: string): ThreadAuditRow => ({
+  toolName: 'file_read',
+  toolInput: { path },
+  toolOutput: '{"ok":true}',
+  presented: { card: 'files', total: 1, truncated: false, files: [{ path, action: 'listed' }] },
+});
+
 const turnWith = (...cards: Array<Extract<Step, { kind: 'tool' }>>): FeedItem => ({
   kind: 'turn',
   index: 1,
@@ -83,6 +107,7 @@ function summaryOf(over: Partial<ThreadJob> & { feed: ConversationFeed }): Deliv
     verdict: travail,
     project: null,
     proof: [],
+    audit: [],
     ...over,
   };
   const { items } = buildConversationThread({
@@ -106,25 +131,18 @@ function summaryOf(over: Partial<ThreadJob> & { feed: ConversationFeed }): Deliv
 
 describe('deliverySummary — ce que le modèle compte', () => {
   it('ne compte que les fichiers ÉCRITS, dédoublonnés, du job ET de ses délégués', () => {
-    const filesCard = (paths: Array<[string, 'created' | 'modified' | 'listed']>) =>
-      tool({
-        card: 'files',
-        presented: {
-          card: 'files',
-          total: paths.length,
-          truncated: false,
-          files: paths.map(([path, action]) => ({ path, action })),
-        },
-      });
+    // Fichiers et lignes viennent des LIGNES D'AUDIT de toute la descendance
+    // (`audit`), pas du fil : le fil n'assemble qu'un niveau (passe 56).
     const summary = summaryOf({
+      audit: [
+        ecriture('src/a.ts', 'x'),
+        lecture('src/b.ts'),
+        // Le délégué : le même fichier, touché une seconde fois → un seul compte.
+        edition('src/a.ts', 'x', 'y'),
+        ecriture('src/c.ts', 'x'),
+      ],
       feed: {
         items: [
-          turnWith(
-            filesCard([
-              ['src/a.ts', 'created'],
-              ['src/b.ts', 'listed'],
-            ]),
-          ),
           {
             kind: 'child',
             job: {
@@ -137,18 +155,6 @@ describe('deliverySummary — ce que le modèle compte', () => {
               error: null,
               createdAt: null,
               completedAt: null,
-              feed: {
-                // Le même fichier, touché deux fois : un seul compte.
-                items: [
-                  turnWith(
-                    filesCard([
-                      ['src/a.ts', 'modified'],
-                      ['src/c.ts', 'created'],
-                    ]),
-                  ),
-                ],
-                totals: totals(),
-              },
             },
           },
         ],
@@ -161,78 +167,19 @@ describe('deliverySummary — ce que le modèle compte', () => {
     ]);
   });
 
-  it('les lignes se somment sur le job ET ses délégués, cartes comprises ou non', () => {
-    // Les compteurs viennent du même lecteur que la page Code : on les calcule
-    // ici depuis l'entrée de l'appel, comme `buildConversationFeed` le fait.
-    const write = (path: string, lines: string[]) =>
-      tool({
-        toolName: 'file_write',
-        input: { path, content: lines.join('\n') },
-        lineCounts: lineCountsOfCall('file_write', { path, content: lines.join('\n') }, null),
-      });
+  it('les lignes se somment sur le job ET ses délégués, à toute profondeur ; une écriture qui n’a pas eu lieu ne compte pas', () => {
+    // Les compteurs viennent du même lecteur que la page Code
+    // (`lineCountsOfCall`), appliqué à chaque ligne d'audit.
     const summary = summaryOf({
-      feed: {
-        items: [
-          {
-            kind: 'turn',
-            index: 1,
-            turn: 1,
-            turnSource: 'audit',
-            agent: { name: 'Alfred', slug: 'alfred' },
-            model: null,
-            usage: null,
-            blocks: [
-              // Une écriture MINEURE, repliée dans un bloc d'étapes : elle a
-              // écrit des lignes tout autant qu'une carte pleine.
-              { kind: 'steps', steps: [write('src/a.ts', ['l1', 'l2'])] },
-              {
-                kind: 'card',
-                step: tool({
-                  toolName: 'file_edit',
-                  card: 'files',
-                  presented: {
-                    card: 'files',
-                    total: 1,
-                    truncated: false,
-                    files: [{ path: 'src/b.ts', action: 'modified' }],
-                  },
-                  lineCounts: { 'src/b.ts': { added: 5, removed: 2 } },
-                }),
-              },
-            ],
-          },
-          {
-            kind: 'child',
-            job: {
-              id: 'j2',
-              agentName: 'Le Codeur',
-              agentSlug: 'codeur',
-              status: 'completed',
-              task: null,
-              result: 'fait',
-              error: null,
-              createdAt: null,
-              completedAt: null,
-              feed: {
-                items: [
-                  {
-                    kind: 'turn',
-                    index: 1,
-                    turn: 1,
-                    turnSource: 'audit',
-                    agent: { name: 'Le Codeur', slug: 'codeur' },
-                    model: null,
-                    usage: null,
-                    blocks: [{ kind: 'steps', steps: [write('src/c.ts', ['x', 'y', 'z'])] }],
-                  },
-                ],
-                totals: totals(),
-              },
-            },
-          },
-        ],
-        totals: totals(),
-      },
+      audit: [
+        ecriture('src/a.ts', 'l1\nl2'),
+        edition('src/b.ts', 'o1\no2', 'n1\nn2\nn3\nn4\nn5'),
+        // Un petit-enfant : son fil n'est jamais assemblé, sa ligne compte.
+        ecriture('src/c.ts', 'x\ny\nz'),
+        // En attente d'approbation : rien n'a été écrit.
+        { ...ecriture('src/d.ts', 'jamais'), toolOutput: '{"outcome":"awaiting_approval"}' },
+      ],
+      feed: { items: [], totals: totals() },
     });
     expect(summary.lines).toEqual({ added: 10, removed: 2 });
   });

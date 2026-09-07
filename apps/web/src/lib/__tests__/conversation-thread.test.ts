@@ -12,7 +12,7 @@ import {
   UNCLASSIFIED_NOTE,
   olderTurnsNote,
 } from '../conversation-thread.ts';
-import type { ThreadJob } from '../conversation-thread.ts';
+import type { ThreadAuditRow, ThreadJob } from '../conversation-thread.ts';
 import type { ConversationFeed, FeedItem, FeedTotals } from '../conversation-feed.ts';
 import type { ProductionVerdict } from '../chat-or-work.ts';
 
@@ -87,7 +87,24 @@ const job = (over: Partial<ThreadJob> & { jobId: string }): ThreadJob => ({
   verdict: chat,
   project: null,
   proof: [],
+  audit: [],
   ...over,
+});
+
+/**
+ * Une ligne d'audit d'écriture (`file_write`), telle que `conversation-actions`
+ * la range sous le job de tête — celle d'un délégué à n'importe quelle
+ * profondeur. `output` : l'enveloppe écrite par executeTool.
+ */
+const ecriture = (
+  path: string,
+  content: string,
+  output: string = '{"ok":true}',
+): ThreadAuditRow => ({
+  toolName: 'file_write',
+  toolInput: { path, content },
+  toolOutput: output,
+  presented: { card: 'files', total: 1, truncated: false, files: [{ path, action: 'created' }] },
 });
 
 const conversation = {
@@ -159,6 +176,81 @@ describe('buildConversationThread — une conversation de canal', () => {
         verdict: null,
       },
     });
+  });
+
+  it('le récapitulatif compte un fichier UNE fois, quelle que soit son orthographe, et somme ses lignes', () => {
+    // Vu en vrai le 07/09 : `file_write` présente le chemin absolu,
+    // `file_edit` le chemin relatif — « 2 files » pour notes/bonjour.html.
+    const absolu = 'C:\\Users\\q\\.nodalai\\workspaces\\shared\\notes\\bonjour.html';
+    const edition: ThreadAuditRow = {
+      toolName: 'file_edit',
+      toolInput: { path: 'notes/bonjour.html', old_string: 'a', new_string: 'b\nc' },
+      toolOutput: '{"ok":true}',
+      presented: {
+        card: 'files',
+        total: 1,
+        truncated: false,
+        files: [{ path: 'notes/bonjour.html', action: 'modified' }],
+      },
+    };
+    const { items } = buildConversationThread({
+      conversation,
+      messages: [],
+      jobs: [
+        job({
+          jobId: 'j2',
+          verdict: travail,
+          audit: [ecriture(absolu, Array.from({ length: 12 }, () => 'l').join('\n')), edition],
+        }),
+      ],
+    });
+    const produit = items.find((i) => i.kind === 'produced');
+    expect(produit?.kind === 'produced' && produit.summary.files).toBe(1);
+    expect(produit?.kind === 'produced' && produit.summary.lines).toEqual({
+      added: 14,
+      removed: 1,
+    });
+  });
+
+  it('les lignes d’audit de TOUTE la descendance comptent — pas seulement le fil assemblé (passe 56)', () => {
+    // Le fil d'un petit-enfant n'est jamais assemblé (un niveau) ; sa ligne
+    // d'audit, si. Ici le fil du job ne montre AUCUNE écriture : tout vient
+    // de `audit`.
+    const { items } = buildConversationThread({
+      conversation,
+      messages: [],
+      jobs: [
+        job({
+          jobId: 'j2',
+          verdict: travail,
+          audit: [ecriture('src/a.ts', 'x\ny\nz'), ecriture('src/b.ts', 'x')],
+        }),
+      ],
+    });
+    const produit = items.find((i) => i.kind === 'produced');
+    expect(produit?.kind === 'produced' && produit.summary.files).toBe(2);
+    expect(produit?.kind === 'produced' && produit.summary.lines).toEqual({ added: 4, removed: 0 });
+  });
+
+  it('une écriture qui n’a pas eu lieu (attente d’approbation, blocage, erreur) ne compte ni fichier ni ligne', () => {
+    const { items } = buildConversationThread({
+      conversation,
+      messages: [],
+      jobs: [
+        job({
+          jobId: 'j2',
+          verdict: travail,
+          audit: [
+            ecriture('src/a.ts', 'x\ny', '{"outcome":"awaiting_approval"}'),
+            ecriture('src/b.ts', 'x', '{"outcome":"blocked"}'),
+            ecriture('src/c.ts', 'x', '{"outcome":"error","error":"boom"}'),
+          ],
+        }),
+      ],
+    });
+    const produit = items.find((i) => i.kind === 'produced');
+    expect(produit?.kind === 'produced' && produit.summary.files).toBe(0);
+    expect(produit?.kind === 'produced' && produit.summary.lines).toBeNull();
   });
 
   it('les totaux sont la somme des jobs, modèles dédupliqués', () => {

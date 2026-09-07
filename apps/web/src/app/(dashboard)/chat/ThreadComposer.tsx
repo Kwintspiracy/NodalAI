@@ -11,12 +11,21 @@
 // Telegram ou Slack se vérifie canal par canal, et P7 ne le fait pas. La page
 // le dit en toutes lettres plutôt que d'offrir un champ qui ne partirait pas.
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import PrimaryButton from '@/components/ui/PrimaryButton';
-import TextInput from '@/components/ui/TextInput';
+import TextArea from '@/components/ui/TextArea';
 import { sendChatMessageAction } from '@/lib/actions.ts';
+
+/** Au-delà, la zone défile au lieu de grandir : le fil reste visible. */
+const COMPOSER_MAX_HEIGHT_PX = 200;
+
+/** La zone épouse son texte : une ligne à vide, autant qu'il en faut ensuite. */
+function fitToContent(el: HTMLTextAreaElement): void {
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
+}
 
 export default function ThreadComposer({
   conversationId,
@@ -38,6 +47,7 @@ export default function ThreadComposer({
   const router = useRouter();
   const [message, setMessage] = useState('');
   const [isPending, startTransition] = useTransition();
+  const box = useRef<HTMLTextAreaElement>(null);
 
   function send(): void {
     const text = message.trim();
@@ -62,19 +72,28 @@ export default function ThreadComposer({
         return;
       }
       setMessage('');
+      if (box.current) fitToContent(box.current);
       router.refresh();
     });
   }
 
   // P2bis — un CADRE, pas un champ posé à côté d'un bouton : le design pose
   // la saisie sur du papier, collée en bas de la zone de contenu, juste
-  // au-dessus de la barre d'état. Une seule ligne, comme la maquette ; Entrée
-  // envoie, puisqu'il n'y a plus de retour à la ligne à composer.
+  // au-dessus de la barre d'état. Une ligne à vide, comme la maquette — mais
+  // une ZONE de texte, pas un champ : un collage multi-ligne garde ses
+  // retours, Maj+Entrée en ajoute un, et la zone grandit avec le texte (revue
+  // Codex, passe 56 : le champ d'une ligne aplatissait tout). Entrée envoie.
   return (
-    <div className="sticky bottom-7 z-10 mx-auto mt-8 flex max-w-[760px] items-center gap-3 rounded-xl border border-rule bg-paper px-4 py-1.5">
-      <TextInput
+    <div className="sticky bottom-7 z-10 mx-auto mt-8 flex max-w-[760px] items-end gap-3 rounded-xl border border-rule bg-paper px-4 py-1.5">
+      <TextArea
+        ref={box}
+        bare
+        rows={1}
         value={message}
-        onChange={(e) => setMessage(e.target.value)}
+        onChange={(e) => {
+          setMessage(e.target.value);
+          fitToContent(e.target);
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -88,7 +107,7 @@ export default function ThreadComposer({
         }
         disabled={isPending}
         containerClassName="min-w-0 flex-1"
-        className="h-[40px] rounded-none border-0 bg-transparent px-0 py-0 text-body-15"
+        className="max-h-[200px] resize-none overflow-y-auto bg-transparent px-0 py-2.5 text-body-15 leading-[20px]"
       />
       <PrimaryButton
         variant="neutral"

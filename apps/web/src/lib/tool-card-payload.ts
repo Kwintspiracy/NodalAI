@@ -34,6 +34,16 @@ export type StepOutcome = 'success' | 'error' | 'awaiting_approval' | 'blocked' 
  * ligne de succès porte la sortie brute de l'outil. Une sortie absente est
  * `unknown` — jamais un succès par défaut.
  */
+/**
+ * L'appel a-t-il EU LIEU ? Une erreur, un blocage, une attente d'approbation
+ * n'ont rien fait : ce qu'ils auraient écrit ne compte pas (P2bis, revue
+ * Codex passe 56). `unknown` (une ligne sans sortie, d'avant les enveloppes)
+ * compte : l'appel a tourné, on ne sait juste pas comment il a fini.
+ */
+export function callHappened(outcome: StepOutcome): boolean {
+  return outcome !== 'error' && outcome !== 'blocked' && outcome !== 'awaiting_approval';
+}
+
 export function outcomeOfToolOutput(toolOutput: string | null | undefined): StepOutcome {
   if (toolOutput === null || toolOutput === undefined) return 'unknown';
   try {

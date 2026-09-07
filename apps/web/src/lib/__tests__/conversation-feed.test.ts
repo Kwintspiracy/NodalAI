@@ -806,6 +806,9 @@ describe('buildConversationFeed — lignes anciennes, échecs, enfants', () => {
             { ...edit, toolCallId: 'c2' },
             { ...edit, toolCallId: 'c3' },
             { ...edit, toolCallId: 'c4' },
+            // c5 : dans le transcript, mais SANS ligne d'audit (l'insertion a
+            // échoué, executeTool l'avale) — on ne sait pas si elle a tourné.
+            { ...edit, toolCallId: 'c5' },
           ],
         },
       ],
@@ -844,6 +847,7 @@ describe('buildConversationFeed — lignes anciennes, échecs, enfants', () => {
       ['blocked', {}],
       ['error', {}],
       ['success', { 'notes/bonjour.html': { added: 2, removed: 1 } }],
+      ['unknown', {}],
     ]);
   });
 

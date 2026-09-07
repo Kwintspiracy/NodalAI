@@ -38,7 +38,8 @@ import {
   type FeedTotals,
   type Origin,
 } from './conversation-feed.ts';
-import { sumLineCounts, type LineCounts } from './coding-changes.ts';
+import { isSameFile, lineCountsOfCall, sumLineCounts } from './coding-changes.ts';
+import { callHappened, outcomeOfToolOutput, parsePresented } from './tool-card-payload.ts';
 import type { ProductionVerdict } from './chat-or-work.ts';
 
 export type ThreadProject = { id: string; name: string; path: string };
@@ -81,6 +82,22 @@ export type ThreadJob = {
    * n'affiche alors ni « Tests » ni « Checks », plutôt que « 0 / 0 ».
    */
   proof: readonly ThreadProofRun[];
+  /**
+   * Les lignes d'audit (`tool_calls`) de CE travail et de TOUTE sa
+   * descendance, dans l'ordre. C'est de là que le récapitulatif compte les
+   * fichiers écrits et les lignes — pas du fil, qui n'assemble qu'un niveau
+   * de délégués et vingt fils au plus : un total lu sur le fil était partiel
+   * sans le dire (revue Codex, passe 56).
+   */
+  audit: readonly ThreadAuditRow[];
+};
+
+/** Une ligne d'audit, réduite à ce que le récapitulatif en lit. */
+export type ThreadAuditRow = {
+  toolName: string;
+  toolInput: unknown;
+  toolOutput: string | null;
+  presented: unknown;
 };
 
 /** Ce que le fil dit quand le travail d'un tour n'existe plus en base. */
@@ -131,28 +148,39 @@ function jobItems(job: ThreadJob, asHandoff: boolean): FeedItem[] {
  * fichiers regardés.
  */
 function deliverySummary(job: ThreadJob): DeliverySummary {
-  const files = new Set<string>();
+  // Fichiers et lignes se comptent sur les LIGNES D'AUDIT de toute la
+  // descendance (`job.audit`), jamais sur le fil : le fil n'assemble qu'un
+  // niveau de délégués et vingt fils au plus, et un petit-enfant qui écrit
+  // manquait au total. Une ligne dont l'appel n'a pas eu lieu (erreur,
+  // blocage, attente d'approbation) ne compte pas ; une écriture sans ligne
+  // d'audit n'existe pas ici.
+  //
+  // Les fichiers sont dédoublonnés par IDENTITÉ et non par orthographe :
+  // `file_write` présente le chemin absolu, `file_edit` le chemin relatif, et
+  // le même fichier faisait « 2 files » (vu en vrai le 07/09).
+  const files: string[] = [];
+  const addFile = (path: string): void => {
+    if (!files.some((f) => isSameFile(f, path))) files.push(path);
+  };
+  const counted = job.audit
+    .filter((row) => callHappened(outcomeOfToolOutput(row.toolOutput)))
+    .map((row) => {
+      const p = parsePresented(row.presented);
+      if (p !== null && p.card === 'files') {
+        for (const f of p.files) if (f.action !== 'listed') addFile(f.path);
+      }
+      return lineCountsOfCall(row.toolName, row.toolInput, row.toolOutput);
+    });
   const reviews: DeliveryReview[] = [];
-  // Les compteurs de lignes se ramassent sur TOUTES les étapes d'outil, pas
-  // seulement sur celles qui font une carte : une écriture mineure (un
-  // `file_edit` replié dans un `ToolBlock`) a bel et bien écrit des lignes.
-  const counted: Array<Record<string, LineCounts>> = [];
 
   const walk = (items: readonly FeedItem[], depth: number): void => {
     for (const item of items) {
       if (item.kind === 'turn') {
         for (const block of item.blocks) {
-          if (block.kind === 'steps') {
-            for (const st of block.steps) if (st.kind === 'tool') counted.push(st.lineCounts);
-            continue;
-          }
           if (block.kind !== 'card') continue;
-          counted.push(block.step.lineCounts);
           const p = block.step.presented;
           if (p === null) continue;
-          if (p.card === 'files') {
-            for (const f of p.files) if (f.action !== 'listed') files.add(f.path);
-          } else if (p.card === 'checks' && depth === 0) {
+          if (p.card === 'checks' && depth === 0) {
             // Les verdicts de revue du job LUI-MÊME. Ceux d'un délégué sont
             // déjà résumés par la ligne du délégué : les lister deux fois
             // gonflerait la section « Reviews » sans rien ajouter.
@@ -180,7 +208,7 @@ function deliverySummary(job: ThreadJob): DeliverySummary {
   const passed = job.proof.filter((r) => r.verdict === 'green').length;
   const lines = sumLineCounts(counted);
   return {
-    files: files.size,
+    files: files.length,
     lines: lines.added === 0 && lines.removed === 0 ? null : lines,
     tests: job.proof.length > 0 ? { passed, total: job.proof.length } : null,
     durationMs:
