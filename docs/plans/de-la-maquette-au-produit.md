@@ -410,6 +410,27 @@ correctif : aucun constat neuf — aucun écran ne dépendait du défilement
 horizontal du document, les trois éléments collants sont en flux et ne
 masquent rien de définitif ; seule réserve, Playwright ne couvre que Chromium.
 
+**Retour de Quentin, 07/09, sur la page d'un projet : « quand j'ouvre mon
+projet, je veux atterrir dans le feed de la conversation directement » ; « ce
+que je vois, c'est des réglages de mon projet » ; et la saisie « même pas
+centrée verticalement ».** La page P8 empilait le dossier, les fichiers, la
+preuve, une table « Conversations » et, en bas, une saisie qui aurait ouvert
+une conversation de plus — parce que « la conversation du projet » n'était que
+celle ouverte depuis sa page, jamais celle qui existait déjà. Refait : la page
+d'un projet EST le fil de sa conversation (celle ouverte depuis la page, sinon
+la plus récente qui porte un travail du projet, même venue de Telegram — on la
+lit, et la saisie ouvre alors celle du projet au premier envoi), saisie collée
+en bas, barre d'état dessous, comme `/chat/[id]`. Le dossier, les fichiers, la
+preuve, les autres conversations et « New conversation » sont sur
+`/spaces/[id]/files`, derrière le bouton « Files » de l'en-tête, qui y mène
+aussi depuis un fil de chat. « New conversation » est gardé là, pas sur le fil :
+Quentin en questionne l'utilité, et je ne lui vois qu'un usage, repartir de
+zéro sur le même dossier — à retirer s'il le dit. La saisie : la zone de texte
+était en ligne dans son conteneur et laissait 5 px de descente sous elle, le
+bouton se calait dessus ; en bloc, avec le bouton centré dans une boîte de la
+hauteur d'une ligne, les centres tombent au même pixel (mesuré). Passe Codex
+60 lancée.
+
 **Ce que la vérification a corrigé dans le plan lui-même.** La ligne « la
 maquette est une intention, pas une spécification au pixel » des limites
 restait vraie sur le fond mais servait d'excuse : la maquette est bien la spec
