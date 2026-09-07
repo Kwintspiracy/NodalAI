@@ -377,8 +377,7 @@
     <span class="step">0.8.8 publiée</span><span class="arrow">→</span>
     <span class="step">#44 CI 18 min → 1 min · mergée</span><span class="arrow">→</span>
     <span class="step">#45 Profils d'agents · mergée</span><span class="arrow">→</span>
-    <span class="step next">#46 Vérifier &amp; Corriger PR① · ATTEND LE MERGE</span
-    ><span class="arrow">→</span>
+    <span class="step">#46 Vérifier &amp; Corriger PR① · mergée</span><span class="arrow">→</span>
     <span class="step">0.8.9 · fix connexion LAN</span>
   </div>
   <p class="pipenote">
@@ -399,15 +398,19 @@
     local sur sa branche — le vert de la CI ne suffisait pas à le dire.
   </p>
   <p class="pipenote">
-    <b
-      >Reste ouverte : <a href="https://github.com/Kwintspiracy/nodal-agents/pull/46">#46</a>, «
-      Vérifier &amp; Corriger » PR①</b
-    >
-    — 70 000 lignes, 492 fichiers, 187 commits, et <b>soixante-cinq passes Codex</b>. Elle porte
-    tout le plan « De la maquette au produit » (lots 1 à 3, le fil refait deux fois sur le Figma, la
-    page d'un projet devenue sa conversation) plus la sélection multiple et le titre automatique des
-    conversations. <b>Elle est trop grosse</b> : une PR se relit, celle-ci ne se relit plus qu'en
-    confiance dans ses revues. La leçon est prise — une PR par lot, mergée dans la semaine.
+    <b>Plus aucune PR ouverte.</b>
+    <a href="https://github.com/Kwintspiracy/nodal-agents/pull/46">#46</a>, « Vérifier &amp;
+    Corriger » PR①, est <b>mergée le 07/09</b> (squash, <code>fa3914b8</code>) : 70 000 lignes, 492
+    fichiers, 189 commits, <b>soixante-cinq passes Codex</b>. Elle porte tout le plan « De la
+    maquette au produit » (lots 1 à 3, le fil refait deux fois sur le Figma, la page d'un projet
+    devenue sa conversation) plus la sélection multiple et le titre automatique des conversations.
+    <b>Elle était trop grosse</b> : une PR se relit, celle-ci ne se relisait plus qu'en confiance
+    dans ses revues. La leçon est prise — une PR par lot, mergée dans la semaine. La fusion de
+    <code>main</code> a d'ailleurs révélé trois défauts qu'aucune des deux branches ne montrait
+    seule : un test qui figeait l'ancienne règle de titrage, un import de pilote de base dans un
+    test de bout en bout (règle <code>only-db-imports-pg</code>), et un ménage de dossier temporaire
+    qui faisait tomber trois suites entières sous Windows alors que toutes leurs assertions
+    passaient.
   </p>
   <p class="pipenote">
     La
