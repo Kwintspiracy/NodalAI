@@ -498,11 +498,18 @@
             sûrs, identité du tour fusionné, fils d'enfants bornés, réponse finale par règle de
             structure, sortes d'envoi textuel nommées dans shared), passe 55 : aucun constat neuf —
             <b>session 1 close</b> ·
-            <span class="etat">SESSION 2 LIVRÉE le 07/09 sur le design Figma</span> : en-tête de
-            travail, appels d'outil visibles, raisonnement replié, diff review avec compteurs
-            <code>−a +b</code> par le module <code>coding-changes.ts</code>
-            partagé avec la page Code, délégation, récapitulatif de livraison, composer sur une
-            ligne — passe Codex 56 en cours ; l'œil de Quentin attendu
+            <span class="etat"
+              >SESSION 2 LIVRÉE le 07/09 sur le design Figma et CLOSE par Codex (passes 56-58)</span
+            >
+            : en-tête de travail, appels d'outil visibles, raisonnement replié, diff review avec
+            compteurs <code>−a +b</code> par le module <code>coding-changes.ts</code> partagé avec
+            la page Code, délégation, récapitulatif de livraison, composer sur une ligne ; passe
+            Codex 56 : 4 constats vrais, traités dans <code>c4936dc5</code> (total « Lines » complet
+            sur toute la descendance, rien sans ligne d'audit, suffixe ambigu → null, composer
+            multi-ligne) ; passe 57 : 1 constat vrai, traité (fichiers comptés sur leur chemin
+            canonique, dossier partagé parmi les racines) ; passe 58 : aucun constat neuf —
+            <b>l'œil de Quentin attendu</b> sur la conversation de démonstration (compteurs sur une
+            écriture réelle) et les fils Telegram
           </td>
         </tr>
         <tr>
@@ -926,6 +933,36 @@
         <code>/scheduled/[id]</code> garde sa vérification et ses livraisons à part ; couverture, «
         Prêt à fusionner », « L'application », « Open », coloration syntaxique et
         <code>effort</code> restent sans source.</span
+      >
+    </div>
+    <div class="ligne">
+      <span class="l">passe 56</span
+      ><span class="v"
+        >Quatre constats bloquants, <b>tous vrais</b>, fermés dans <code>c4936dc5</code> par un test
+        qui rougit sans le correctif : (1) un chemin court qui correspondait à deux fichiers de
+        l'appel prenait le premier compteur venu — il ne choisit plus ; (2) « Lines » était un total
+        partiel sans le dire (lu sur le fil : un niveau de délégués, vingt fils au plus) — le
+        récapitulatif compte fichiers et lignes sur les lignes d'audit de
+        <b>toute la descendance</b>, et le même fichier écrit en absolu puis en relatif compte une
+        fois (vu en vrai : « 2 files » pour un seul fichier) ; (3) une écriture sans ligne d'audit
+        passait pour exécutée, et une édition en attente d'approbation comptait déjà ses lignes (vu
+        en vrai) — seul un appel qui a eu lieu, avec sa ligne, compte ; (4) le composer d'une ligne
+        aplatissait un collage multi-ligne — zone de texte qui grandit, Entrée envoie, Maj+Entrée
+        fait un retour. <b>Passe 57</b> : un constat bloquant neuf, vrai — le dédoublonnage par
+        suffixe que j'avais introduit fusionnait <code>index.ts</code> (racine) et
+        <code>a/index.ts</code>. Corrigé sans suffixe : les fichiers se comptent sur leur chemin
+        canonique (racine du dossier retirée), la règle de la page Code sortie d'<code
+          >actions.ts</code
+        >
+        et partagée ; et les racines connues incluent désormais le dossier <b>partagé</b> de
+        l'entité, que le runner injecte sans le ranger en base — sans lui, « Files 2 » pour un seul
+        fichier (vu en vrai), « 1 » après.
+        <b>Passe 58 : aucun constat bloquant neuf — session 2 close par Codex.</b> Deux limites
+        dites, pas codées : le web et le runner doivent lire le même
+        <code>NODALAI_WORKSPACES_ROOT</code> (sinon un fichier peut compter deux fois — rien ne le
+        vérifie) ; la casse n'est ignorée que sur un chemin Windows. Traité au passage : la zone de
+        saisie se remesure vide après l'envoi ; un commentaire corrigé — la page Code ne retient que
+        les dossiers déclarés, le dossier partagé ne sert qu'au récapitulatif.</span
       >
     </div>
   </div>

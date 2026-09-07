@@ -94,7 +94,7 @@ replié — il reçoit la prose, le fichier joint, et un lien vers le projet.
 | 1 | **Rendre visible ce qui existe** | P1 contrat de rendu · P2 conversation · P3 cartes de preuve et d'envoi · P4 barre d'état et coût | Une entrée « Spaces » ouvre le nouvel espace ; sa page est la conversation dessinée, avec preuves, coûts, jetons. Runs, Code et Chat inchangés | ✅ **LOT 1 CLOS le 06/09** — P1 (passe 16), P2 (19), P3 (21), P4 (24-25 : « aucun constat neuf ») ; retours de Quentin traités (automatisations à part, fil nettoyé sur capture réelle, coût cache-aware) · ⚠️ à voir par Quentin dans son navigateur : /spaces et un fil récent |
 | 2 | **Le projet et la conversation** | P5 registre des projets · P6 conversation continue et projet courant · P7 Chat pour toutes les conversations, encart · P8 Spaces = projets, nouveau projet, chat du projet · P9 Scheduled | Chat regroupe dashboard et Telegram ; un projet naît d'un clic ou d'une production ; les automatisations ont leur page | 🟡 **go de Quentin le 06/09** — ordre : P5 · P9 (en parallèle) → P6 → P7 → P8 ; chaque pierre codée par Opus, relue par moi, puis `codex review`. ✅ P9 (`b9ff0f1b`, passe 26 traitée) · ✅ P5 (`fd2293c3`, passe 27 : 2 constats traités) · ✅ P6 (`ea984c1b`, passe 28 traitée dans `8ab609f1`) · ✅ P7 (`55ec67eb`, passe 29 traitée : issue des appels, plafonds par la fin, réponse à l'agent du fil, titres sans préfixe de groupe, fils groupés, lignes d'avant P1 dites « non classées ») · ✅ P8 (livré, passe 30 à suivre). **Lot 2 codé en entier le 06/09** ; reste la passe Codex 30 et l'œil de Quentin sur /chat, /spaces, /scheduled. La CI de la PR, rouge depuis le lot 1 (lint web, test GLM, cycle d'import P4b), est réparée au passage |
 | 3 | **L'agent qui demande et montre** | P5b registre automatique · P10 `ask_user` · P11 fichiers et diff · P12 le tableur rendu | Les projets de l'onglet Code sont dans Spaces sans un clic ; « Où écrire ? » avec boutons dans le chat et dans Telegram, pour les documents seulement ; diffs cliquables ; un classeur qui s'affiche | ✅ **CLOS côté code le 07/09 (passes Codex 32-48), CI VERTE sur `51bd3b4b` — attend l'œil de Quentin et les arbitrages ci-dessous** — ✅ P5b CLOSE (`16d1f574` ; passes 32-35 traitées dans `4491ae46`, `aefdcec3`, `934091d4`, `4f084c21`, `268f68ef` ; passe 36 : aucun constat bloquant, rien de neuf) · ✅ P10a `ask_user` (`5c7938a7` ; passes 37-38 traitées, `36dd5c92` ; P10a close sous réserve d'un arbitrage sur les textes de chrome) · ✅ P10b « où écrire ? » (`baea7599` ; passes 39-40 traitées dans `5921ba4f`, `147159ff` ; passe 41 traitée dans `5171c706` : la liaison texte tombe, `register_project` passe par l'approbation ; passe 44 : aucun constat bloquant — P10b CLOSE ; la ligne d'impact de la carte branchée dans `c301df1b`) · ✅ P11 fichiers et diff CLOSE (`e6713458` ; passes 42-43 traitées dans `ea6170ec`, `80ee7a8d` ; passe 45 : aucun constat bloquant) · ✅ P12 tableur rendu (`b4ac14b1` ; passe 46 : 3 P0 + 2 P1 vrais, traités dans `f790a051` — la même clé de document pour l'intention et la carte, texte riche lisible, largeur bornée à 20 colonnes, état lu par (job, clé), pied sans contradiction ; passe 47 : un P0 neuf, les cellules couvertes par une fusion répétaient la valeur du maître, corrigé dans `e9393c54` ; passe 48 : aucun constat neuf — **P12 CLOSE**) |
-| 3bis | **Le fil tel que la maquette** | P2bis le rendu du fil, repris composant par composant depuis `Main.dc.html` avec le design system | Le fil de conversation ressemble à la maquette : prose lisible, un tour = une voix, groupes d'étapes parlants, délégation dépliable, cartes au format maquette, sans bruit système | ✅ **Session 1 CLOSE le 07/09** (`05d95510` → `d9f1edda` ; passes Codex 49 à 55 : liens sûrs, identité du tour fusionné, fils d'enfants bornés, réponse finale par règle de structure, sortes d'envoi textuel nommées dans shared ; passe 55 : aucun constat neuf) — captures clair/sombre sur trois conversations réelles · 🔄 **Session 2 LIVRÉE le 07/09 sur le design Figma** (en-tête de travail, appels d'outil visibles, raisonnement replié, diff review avec compteurs `−a +b` par le module `coding-changes.ts` partagé avec la page Code, délégation, récapitulatif de livraison, composer sur une ligne) — passe Codex 56 en cours ; l'œil de Quentin attendu |
+| 3bis | **Le fil tel que la maquette** | P2bis le rendu du fil, repris composant par composant depuis `Main.dc.html` avec le design system | Le fil de conversation ressemble à la maquette : prose lisible, un tour = une voix, groupes d'étapes parlants, délégation dépliable, cartes au format maquette, sans bruit système | ✅ **Session 1 CLOSE le 07/09** (`05d95510` → `d9f1edda` ; passes Codex 49 à 55 : liens sûrs, identité du tour fusionné, fils d'enfants bornés, réponse finale par règle de structure, sortes d'envoi textuel nommées dans shared ; passe 55 : aucun constat neuf) — captures clair/sombre sur trois conversations réelles · ✅ **Session 2 LIVRÉE le 07/09 sur le design Figma et CLOSE par Codex (passes 56-58)** — `3da375f3` (en-tête de travail, appels d'outil visibles, raisonnement replié, diff review avec compteurs `−a +b` par le module `coding-changes.ts` partagé avec la page Code, délégation, récapitulatif de livraison, composer) ; passe 56 : 4 constats vrais, traités dans `c4936dc5` (total « Lines » complet sur toute la descendance, rien sans ligne d'audit, suffixe ambigu → null, composer multi-ligne) ; passe 57 : 1 constat vrai, traité dans `3415aab1` (fichiers comptés sur leur chemin canonique, dossier partagé parmi les racines) ; passe 58 : aucun constat neuf. **L'œil de Quentin attendu** sur `/chat/b9c6149b…` (compteurs sur une écriture réelle) et les fils Telegram |
 | 4 | **Ce qui reste cher** | P13 relecteurs (= PR④ de Vérifier & Corriger) · P14 aperçu vivant | Deux relecteurs cités ; l'application qui tourne au centre du projet | ⬜ |
 
 ## Verdict de faisabilité — vérifié dans le code le 05/09
@@ -354,6 +354,44 @@ conversation neuve a été ouverte le 07/09 pour voir les compteurs sur une
 vérification et ses livraisons à part (pas d'item `produced` sur un run) ;
 couverture, « Prêt à fusionner », « L'application », « Open » par fichier,
 coloration syntaxique et `effort` restent sans source.
+
+**Ce que la passe Codex 56 a corrigé (`c4936dc5`).** Quatre constats
+bloquants, tous vrais, chacun fermé par un test qui rougit sans le correctif :
+(1) un chemin court qui correspondait à deux fichiers de l'appel (`a/index.ts`,
+`b/index.ts`) prenait le premier compteur venu — il ne choisit plus, `null` ;
+(2) la stat « Lines » était un total partiel sans le dire : lue sur le fil, qui
+n'assemble qu'un niveau de délégués et vingt fils au plus, elle ignorait les
+petits-enfants — le récapitulatif compte désormais fichiers et lignes sur les
+lignes d'audit de TOUTE la descendance (`ThreadJob.audit`, déjà chargées pour
+la frontière chat/travail), et le même fichier écrit en absolu puis en relatif
+compte une fois (vu en vrai : « 2 files » pour un seul `notes/bonjour.html`) ;
+(3) une écriture sans ligne d'audit passait pour exécutée — `executeTool`
+avale l'échec de l'insertion et l'appel reste dans le transcript — et une
+édition en attente d'approbation comptait déjà ses lignes (vu en vrai) : seul
+un appel qui a eu lieu, avec sa ligne, compte ; (4) le composer d'une ligne
+aplatissait un collage multi-ligne : c'est une zone de texte qui grandit avec
+le texte, Entrée envoie, Maj+Entrée fait un retour. Non retenus par Codex, et
+laissés tels quels : « diff review » sur un classeur (catégorie des
+productions écrites, pas promesse d'un diff), le chevron global, `proofByRoot`
+(vérifié juste). **Passe 57** : un constat bloquant neuf, vrai — le
+dédoublonnage par suffixe que j'avais introduit fusionnait `index.ts` (racine)
+et `a/index.ts`. Corrigé sans suffixe : les fichiers se comptent sur leur
+chemin canonique (racine du dossier retirée), la règle de la page Code sortie
+d'`actions.ts` et partagée ; et les racines connues incluent désormais le
+dossier PARTAGÉ de l'entité, que le runner injecte sans le ranger en base —
+sans lui, « Files 2 » pour un seul `notes/bonjour.html` (vu en vrai), « 1 »
+après. Non retenus : `unknown` compte (ligne sans sortie = donnée ancienne,
+jamais un appel en cours) ; cartes et récapitulatif divergent à dessein (le
+récapitulatif = le travail entier). **Passe 58 : aucun constat bloquant neuf —
+session 2 CLOSE par Codex (passes 56 à 58).** Deux limites dites, pas codées :
+le web et le runner doivent lire le même `NODALAI_WORKSPACES_ROOT` (ou le même
+dossier personnel), sinon la racine ne se retire pas et un fichier peut
+compter deux fois — rien ne le vérifie ; et la casse n'est ignorée que sur un
+chemin Windows, un volume macOS insensible à la casse pourrait scinder un
+fichier en deux si un outil CLI en change la graphie. Une remarque traitée :
+la zone de saisie se remesure vide après l'envoi (le DOM est vidé avant la
+mesure). Et un commentaire corrigé : la page Code ne retient toujours que les
+dossiers déclarés — le dossier partagé ne sert qu'au récapitulatif du fil.
 
 **Ce que la vérification a corrigé dans le plan lui-même.** La ligne « la
 maquette est une intention, pas une spécification au pixel » des limites
