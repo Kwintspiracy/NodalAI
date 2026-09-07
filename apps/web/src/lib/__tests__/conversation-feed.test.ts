@@ -464,7 +464,11 @@ describe('la réponse finale ne se dit pas deux fois (P2bis) — une règle de s
 
   it('un tour muet qui a ENVOYÉ (carte sent) a répondu : la carte montre le texte, pas d’item answer (passe 53)', () => {
     // Un cron « tout en outils » : dashboard_publish puis return_result, aucune
-    // prose. La carte « Sent to dashboard » porte déjà « Tout est prêt. ».
+    // prose. La carte « Sent to dashboard » porte déjà « Tout est prêt. ». La
+    // charge est celle du VRAI présentateur de dashboard_publish
+    // (`sentCard({ channel: 'dashboard', kind: 'dashboard' })`) — une passe de
+    // revue a trouvé ce test vert avec un `kind: 'message'` que l'outil ne
+    // produit jamais.
     const feed = buildConversationFeed(
       {
         ...job,
@@ -491,7 +495,7 @@ describe('la réponse finale ne se dit pas deux fois (P2bis) — une règle de s
           toolCallId: 'pub-1',
           toolName: 'dashboard_publish',
           card: 'sent',
-          presented: { card: 'sent', channel: 'dashboard', kind: 'message' },
+          presented: { card: 'sent', channel: 'dashboard', kind: 'dashboard' },
           durationMs: 3,
           turn: 1,
           toolInput: { text: 'Tout est prêt.' },

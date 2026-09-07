@@ -187,6 +187,19 @@ export const SentCardSchema = z.object({
   bytes: z.number().int().nonnegative().optional(),
 });
 
+/**
+ * Les sortes d'envoi qui LIVRENT UN TEXTE : la carte montre alors la phrase
+ * partie (`message` d'un canal, `dashboard` de `dashboard_publish`). Un
+ * fichier, une image, un son n'en portent pas. Le fil s'en sert pour savoir
+ * si le dernier tour de l'agent a répondu sans le redire (P2bis) ; nommées
+ * ICI, à côté de l'énumération, pour qu'une sorte ajoutée demain soit rangée
+ * en connaissance de cause plutôt que devinée par un écran.
+ */
+export const SENT_TEXT_KINDS: ReadonlySet<z.infer<typeof SentCardSchema>['kind']> = new Set([
+  'message',
+  'dashboard',
+]);
+
 /** Un verdict de vérification et ses constats. */
 export const ChecksCardSchema = z.object({
   card: z.literal('checks'),

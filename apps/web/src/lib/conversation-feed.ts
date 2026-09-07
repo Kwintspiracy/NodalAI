@@ -24,7 +24,7 @@
 // réutilisé et non copié — plan, « ce qu'on garde ». Les parties `reasoning`
 // (persistées par le runner, execute.ts) sont lues ici, en amont.
 
-import { TOOL_CARDS } from '@nodal-agents/shared';
+import { SENT_TEXT_KINDS, TOOL_CARDS } from '@nodal-agents/shared';
 import type { ToolCard, ToolCardPayload } from '@nodal-agents/shared';
 import { blocksFromContent } from '@/components/JobMessages.tsx';
 import { parsePresented, outcomeOfToolOutput } from './tool-card-payload.ts';
@@ -383,19 +383,20 @@ function lastAgentTurnSpoke(items: readonly FeedItem[]): boolean {
     if (item === undefined) continue;
     if (item.kind === 'request' || item.kind === 'history') return false;
     if (item.kind !== 'turn') continue;
-    // Une prose, ou une carte d'ENVOI de MESSAGE (`dashboard_publish`,
-    // `telegram_send_message`…) : la carte `sent` montre déjà le texte livré,
-    // le répéter en `answer` l'affichait deux fois (revue Codex PR #46,
-    // passe 53). Un envoi de FICHIER ne porte pas de texte : `job.result`
-    // reste alors la seule phrase, et se montre. Toujours la structure — la
-    // sorte de carte et son `kind` —, jamais le texte.
+    // Une prose, ou une carte d'ENVOI qui livre un TEXTE (`SENT_TEXT_KINDS` :
+    // le `message` d'un canal, le `dashboard` de `dashboard_publish` — la
+    // sorte réelle du présentateur, revue Codex passe 54, pas un `message`
+    // supposé) : la carte `sent` montre déjà la phrase partie, la répéter en
+    // `answer` l'affichait deux fois (passe 53). Un envoi de FICHIER ne porte
+    // pas de texte : `job.result` reste alors la seule phrase, et se montre.
+    // Toujours la structure — la sorte de carte —, jamais le texte.
     if (
       item.blocks.some(
         (bl) =>
           bl.kind === 'prose' ||
           (bl.kind === 'card' &&
             bl.step.presented?.card === 'sent' &&
-            bl.step.presented.kind === 'message'),
+            SENT_TEXT_KINDS.has(bl.step.presented.kind)),
       )
     )
       return true;
