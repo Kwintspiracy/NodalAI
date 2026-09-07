@@ -332,6 +332,9 @@ export async function runChatTurn(opts: {
       source: 'chat',
       entityId: agentRow.entityId ?? null,
       agentId: agentRow.id,
+      // 0100 — un tour de chat n'a pas de job : c'est la CONVERSATION qui
+      // rattache ses jetons et son coût au fil qui les montre.
+      conversationId,
     }),
   );
   if (!resolved.ok) {

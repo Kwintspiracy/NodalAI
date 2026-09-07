@@ -694,6 +694,13 @@
       "when": 1786000020000,
       "tag": "0099_job_checkpoints",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1786000080000,
+      "tag": "0100_llm_calls_conversation",
+      "breakpoints": true
     }
   ]
 }

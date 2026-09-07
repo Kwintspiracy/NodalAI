@@ -23,6 +23,12 @@ export interface LlmCallSinkContext {
   agentId?: string | null;
   /** Resolved lazily — the job loop knows its jobId at sink-build time, but chat may not. */
   getJobId?: () => string | null;
+  /**
+   * La conversation d'où vient l'appel (0100). Un tour de chat n'a pas de job :
+   * sans elle, ses jetons et son coût n'étaient rattachables à rien, et le fil
+   * affichait « 0 agents, 0 tokens » sous une vraie réponse (Quentin, 07/09).
+   */
+  conversationId?: string | null;
   /** Resolved lazily — the loop's turn counter advances while the client lives. */
   getTurn?: () => number | null;
 }
@@ -69,6 +75,7 @@ export function makeLlmCallSink(db: AnyDrizzleDb, ctx: LlmCallSinkContext): LlmC
           entityId: ctx.entityId ?? null,
           agentId: ctx.agentId ?? null,
           jobId: ctx.getJobId?.() ?? null,
+          conversationId: ctx.conversationId ?? null,
           source: ctx.source,
           turn: ctx.getTurn?.() ?? null,
           modelRequested: obs.meta.modelRequested ?? null,

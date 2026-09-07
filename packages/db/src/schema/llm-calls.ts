@@ -17,6 +17,7 @@ import { pgTable, text, uuid, integer, real, boolean, timestamp, index } from 'd
 import { entities } from './entities.ts';
 import { agents } from './agents.ts';
 import { agentJobs } from './jobs.ts';
+import { conversations } from './chat-messages.ts';
 
 export const llmCalls = pgTable(
   'llm_calls',
@@ -26,6 +27,15 @@ export const llmCalls = pgTable(
     // set null: an audit row must survive the deletion of its agent/job.
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
     jobId: uuid('job_id').references(() => agentJobs.id, { onDelete: 'set null' }),
+    /**
+     * La CONVERSATION d'où vient l'appel (0100). Un tour de chat du tableau de
+     * bord ne passe pas par un job : sans cette colonne, ses appels étaient
+     * bien enregistrés mais jamais rattachables au fil, qui affichait
+     * « 0 agents, 0 tokens » sous une réponse bien réelle (Quentin, 07/09).
+     */
+    conversationId: uuid('conversation_id').references(() => conversations.id, {
+      onDelete: 'set null',
+    }),
     /** Where the call came from: 'job' | 'chat' | 'curator' | 'reflection' | 'cron' | … */
     source: text('source').notNull(),
     /** Job-loop turn number when applicable (null for chat/curator). */
@@ -64,6 +74,7 @@ export const llmCalls = pgTable(
   },
   (table) => [
     index('idx_llm_calls_job').on(table.jobId, table.createdAt),
+    index('idx_llm_calls_conversation').on(table.conversationId, table.createdAt),
     index('idx_llm_calls_entity_created').on(table.entityId, table.createdAt),
     index('idx_llm_calls_agent_created').on(table.agentId, table.createdAt),
   ],

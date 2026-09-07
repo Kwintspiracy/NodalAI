@@ -486,11 +486,40 @@ export async function getConversationThreadAction(
       rowsByRoot.set(root, bucket);
     }
 
-    // P3/P4 — la preuve, la file d'envoi et le coût de TOUT le fil : les jobs
-    // de tête et leurs délégués, jamais le réglage courant.
-    const [verificationRunRows, unconfiguredRows, deliveryRows, costRows, approvalRows] =
+    // Les appels LLM du fil : ceux de ses TRAVAUX, et ceux de la conversation
+    // elle-même (`source = 'chat'`, sans job — migration 0100). Hors du bloc
+    // ci-dessous, qui ne tourne que s'il y a au moins un job : une conversation
+    // du tableau de bord n'en a aucun, et TOUS ses compteurs étaient sautés
+    // d'un coup — « 0 agents, 0 tokens, n/a » sous une vraie réponse (Quentin,
+    // 07/09).
+    const costRows = await db
+      .select({
+        agentId: llmCalls.agentId,
+        agentName: agents.name,
+        modelEffective: llmCalls.modelEffective,
+        inputTokens: llmCalls.inputTokens,
+        outputTokens: llmCalls.outputTokens,
+        cachedTokens: llmCalls.cachedTokens,
+        cacheCreationTokens: llmCalls.cacheCreationTokens,
+        costUsd: llmCalls.costUsd,
+        durationMs: llmCalls.durationMs,
+      })
+      .from(llmCalls)
+      .leftJoin(agents, eq(agents.id, llmCalls.agentId))
+      .where(
+        and(
+          eq(llmCalls.entityId, session.entityId),
+          relevantIds.length === 0
+            ? eq(llmCalls.conversationId, id)
+            : or(inArray(llmCalls.jobId, relevantIds), eq(llmCalls.conversationId, id)),
+        ),
+      );
+
+    // P3/P4 — la preuve et la file d'envoi de TOUT le fil : les jobs de tête et
+    // leurs délégués, jamais le réglage courant.
+    const [verificationRunRows, unconfiguredRows, deliveryRows, approvalRows] =
       relevantIds.length === 0
-        ? [[], [], [], [], []]
+        ? [[], [], [], []]
         : await Promise.all([
             db
               .select({
@@ -554,23 +583,6 @@ export async function getConversationThreadAction(
               .from(jobDeliveries)
               .where(inArray(jobDeliveries.jobId, relevantIds))
               .orderBy(jobDeliveries.createdAt),
-            db
-              .select({
-                agentId: llmCalls.agentId,
-                agentName: agents.name,
-                modelEffective: llmCalls.modelEffective,
-                inputTokens: llmCalls.inputTokens,
-                outputTokens: llmCalls.outputTokens,
-                cachedTokens: llmCalls.cachedTokens,
-                cacheCreationTokens: llmCalls.cacheCreationTokens,
-                costUsd: llmCalls.costUsd,
-                durationMs: llmCalls.durationMs,
-              })
-              .from(llmCalls)
-              .leftJoin(agents, eq(agents.id, llmCalls.agentId))
-              .where(
-                and(eq(llmCalls.entityId, session.entityId), inArray(llmCalls.jobId, relevantIds)),
-              ),
             db
               .select({
                 requestedAt: approvalRequests.requestedAt,

@@ -20,6 +20,7 @@ import LiveRefresh from './LiveRefresh.tsx';
 import ProjectComposer from './ProjectComposer.tsx';
 import type { ConversationThreadView } from '@/lib/conversation-actions.ts';
 import type { ComposerPresentation } from '@/lib/project-landing.ts';
+import ThreadScreen from '@/app/(dashboard)/chat/[id]/ThreadScreen.tsx';
 
 export type ProjectThreadResult =
   | { ok: true; data: ConversationThreadView }
@@ -30,6 +31,7 @@ export default function ProjectThread({
   conversationId,
   thread,
   composer,
+  statusBar,
 }: {
   projectId: string;
   /**
@@ -47,6 +49,8 @@ export default function ProjectThread({
    * être celui d'un autre agent (revue Codex, passes 60-61).
    */
   composer: ComposerPresentation;
+  /** La barre d'état, ancrée tout en bas de l'écran. */
+  statusBar?: React.ReactNode;
 }) {
   if (thread !== null && !thread.ok) {
     return (
@@ -57,8 +61,8 @@ export default function ProjectThread({
   }
 
   return (
-    <>
-      <div className="mt-8">
+    <ThreadScreen composer={composerSlot()} {...(statusBar !== undefined ? { statusBar } : {})}>
+      <div>
         {thread !== null ? (
           <>
             {/* P10a — la page d'un projet ne se rafraîchissait pas toute seule,
@@ -79,10 +83,15 @@ export default function ProjectThread({
           </div>
         )}
       </div>
-      {composer.kind === 'blocked' ? (
-        // Pas de ROOT : rien à créer, donc pas de champ — un mot à la place,
-        // et le geste qui débloque, cliquable (le même lien que Settings).
-        <p className="mx-auto mt-8 max-w-[760px] text-body-13 text-ink-4">
+    </ThreadScreen>
+  );
+
+  function composerSlot() {
+    if (composer.kind === 'blocked') {
+      // Pas de ROOT : rien à créer, donc pas de champ — un mot à la place, et
+      // le geste qui débloque, cliquable (le même lien que Settings).
+      return (
+        <p className="mx-auto max-w-[760px] text-body-13 text-ink-4">
           {composer.message}{' '}
           <Link
             href={composer.action.href}
@@ -91,21 +100,20 @@ export default function ProjectThread({
             {composer.action.label}
           </Link>
         </p>
-      ) : (
-        <>
-          {composer.kind === 'start' && composer.note !== null && (
-            <p className="mx-auto mt-8 -mb-6 max-w-[760px] text-body-13 text-ink-3">
-              {composer.note}
-            </p>
-          )}
-          <ProjectComposer
-            projectId={projectId}
-            conversationId={conversationId}
-            agentName={composer.agentName}
-            {...(composer.kind === 'start' ? { placeholder: composer.placeholder } : {})}
-          />
-        </>
-      )}
-    </>
-  );
+      );
+    }
+    return (
+      <>
+        {composer.kind === 'start' && composer.note !== null && (
+          <p className="mx-auto mb-2 max-w-[760px] text-body-13 text-ink-3">{composer.note}</p>
+        )}
+        <ProjectComposer
+          projectId={projectId}
+          conversationId={conversationId}
+          agentName={composer.agentName}
+          {...(composer.kind === 'start' ? { placeholder: composer.placeholder } : {})}
+        />
+      </>
+    );
+  }
 }

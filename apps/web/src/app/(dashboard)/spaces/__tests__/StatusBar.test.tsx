@@ -60,16 +60,23 @@ describe('StatusBar', () => {
     />,
   );
 
-  it('dit la preuve, les modèles, les agents', () => {
+  it('dit la preuve et les modèles ; le compte d’agents est dans l’EN-TÊTE, pas ici', () => {
     expect(html).toContain('proof green');
     expect(html).toContain('claude-opus-5, gpt-5');
-    expect(html).toContain('2 agents');
+    // Deux comptes d'agents dans le même écran disaient deux nombres
+    // différents sous la même réponse (Quentin, 07/09) : celui de l'en-tête,
+    // avec les visages, est le seul.
+    expect(html).not.toContain('agents');
   });
 
   it('dit les jetons avec la part de cache, le coût avec « partial » quand un appel n’a pas de prix, la durée, l’envoi en attente', () => {
     expect(html).toContain('250,900 tokens · 39 % cached');
     expect(html).toContain('$1.09 · partial');
-    expect(html).toContain('18 min 04');
+    // Le temps que les MODÈLES ont passé à répondre (312 s), pas le temps
+    // écoulé depuis l'ouverture du fil (18 min 04) — une conversation laissée
+    // ouverte n'a rien coûté de plus (Quentin, 07/09).
+    expect(html).toContain('5 min 12 thinking');
+    expect(html).not.toContain('18 min 04');
     expect(html).toContain('1 delivery pending');
   });
 

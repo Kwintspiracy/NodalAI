@@ -16,6 +16,7 @@ import ConversationFeedView from '@/app/(dashboard)/spaces/ConversationFeedView.
 import LiveRefresh from '@/app/(dashboard)/spaces/LiveRefresh.tsx';
 import DeliveriesCard from '@/app/(dashboard)/spaces/DeliveriesCard.tsx';
 import StatusBar from '@/app/(dashboard)/spaces/StatusBar.tsx';
+import ThreadScreen from '@/app/(dashboard)/chat/[id]/ThreadScreen.tsx';
 import VerificationSection from '@/app/(dashboard)/code/[id]/VerificationSection.tsx';
 import { threadAgents } from '@/app/(dashboard)/spaces/format.ts';
 import { plainText } from '@/components/Markdown.tsx';
@@ -66,58 +67,59 @@ export default async function ScheduledRunPage({ params }: { params: Promise<{ i
   // projet il n'y a pas de dossier à ouvrir.
   return (
     <PageShell
+      fill
       header={
         <WorkHeader
+          back={{ label: 'Scheduled', href: '/scheduled' }}
           name={truncate(firstLine, 60)}
           path={job.agentName !== null && job.agentName !== '' ? `run · ${job.agentName}` : 'run'}
           agents={threadAgents(feed.items)}
+          status={<StatusPill variant={statusVariant(job.status)} />}
           proofVerdict={lastProof?.verdict ?? null}
         />
       }
-      toolbar={
-        <div className="flex items-center gap-3">
-          <Link href="/scheduled" className="text-mono-11 text-ink-4 hover:text-ink-2">
-            ← Scheduled
-          </Link>
-          <StatusPill variant={statusVariant(job.status)} />
-          {job.parentJobId && (
+    >
+      <ThreadScreen
+        statusBar={
+          // P4 — la barre d'état, ancrée tout en bas de l'écran ; ses jetons et
+          // son coût ouvrent le panneau « What this work cost ».
+          <StatusBar
+            cost={cost}
+            proofVerdict={lastProof?.verdict ?? null}
+            proofSequences={verification.sequences.length}
+            pendingDeliveries={pendingDeliveries}
+            live={live}
+          />
+        }
+      >
+        {job.parentJobId && (
+          <p className="mx-auto mb-4 max-w-[760px]">
             <Link
               href={`/scheduled/${job.parentJobId}`}
-              className="text-xs text-ink-3 hover:text-ink-2"
+              className="text-mono-11 text-ink-4 hover:text-ink-2"
             >
               ↑ parent task
             </Link>
-          )}
-          <span className="ml-auto text-mono-11 text-ink-4">{job.id}</span>
-        </div>
-      }
-    >
-      <LiveRefresh live={live} />
-      <ConversationFeedView feed={feed} deliverables={verification.deliverables} />
-      {/* P3 — la preuve, la même carte que le détail Code (elle n'est jamais
+          </p>
+        )}
+        <LiveRefresh live={live} />
+        <ConversationFeedView feed={feed} deliverables={verification.deliverables} />
+        {/* P3 — la preuve, la même carte que le détail Code (elle n'est jamais
           vide : elle dit « pas encore », « hors vérification », « rien à
           configurer »), puis la file d'envoi. */}
-      <div className="mx-auto mt-8 max-w-[760px] space-y-6">
-        {showVerification && (
-          <VerificationSection
-            sequences={verification.sequences}
-            skippedSurfaces={verification.skippedSurfaces}
-            unconfigured={verification.unconfigured}
-            stage={job.status ?? 'pending'}
-            live={live}
-          />
-        )}
-        <DeliveriesCard deliveries={deliveries} />
-      </div>
-      {/* P4 — la barre d'état, permanente en bas de la page ; ses jetons et son
-          coût ouvrent le panneau « What this work cost ». */}
-      <StatusBar
-        cost={cost}
-        proofVerdict={lastProof?.verdict ?? null}
-        proofSequences={verification.sequences.length}
-        pendingDeliveries={pendingDeliveries}
-        live={live}
-      />
+        <div className="mx-auto mt-8 max-w-[760px] space-y-6">
+          {showVerification && (
+            <VerificationSection
+              sequences={verification.sequences}
+              skippedSurfaces={verification.skippedSurfaces}
+              unconfigured={verification.unconfigured}
+              stage={job.status ?? 'pending'}
+              live={live}
+            />
+          )}
+          <DeliveriesCard deliveries={deliveries} />
+        </div>
+      </ThreadScreen>
     </PageShell>
   );
 }

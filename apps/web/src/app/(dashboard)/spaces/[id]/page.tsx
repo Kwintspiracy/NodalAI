@@ -78,22 +78,19 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
   return (
     <PageShell
+      fill
       header={
         <WorkHeader
+          back={{ label: 'Spaces', href: '/spaces' }}
           name={project.name}
           path={project.path}
           agents={view !== null ? threadAgents(view.feed.items) : []}
+          {...(view !== null
+            ? { status: <StatusPill variant={view.live ? 'run' : 'idle'} /> }
+            : {})}
           proofVerdict={lastProof?.verdict ?? null}
           filesHref={`/spaces/${project.id}/files`}
         />
-      }
-      toolbar={
-        <div className="flex items-center gap-3">
-          <Link href="/spaces" className="text-mono-11 text-ink-4 hover:text-ink-2">
-            ← Spaces
-          </Link>
-          {view !== null && <StatusPill variant={view.live ? 'run' : 'idle'} />}
-        </div>
       }
     >
       {/* Le fil et la saisie : un échec de lecture y est DIT, et retire la
@@ -105,17 +102,21 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         conversationId={landing?.composerConversationId ?? null}
         thread={thread}
         composer={composer}
+        {...(view !== null
+          ? {
+              // P4 — la barre d'état, ancrée tout en bas de l'écran.
+              statusBar: (
+                <StatusBar
+                  cost={view.cost}
+                  proofVerdict={lastProof?.verdict ?? null}
+                  proofSequences={view.verification.sequences.length}
+                  pendingDeliveries={pendingDeliveries}
+                  live={view.live}
+                />
+              ),
+            }
+          : {})}
       />
-      {/* P4 — la barre d'état, permanente en bas de la page, sous la saisie. */}
-      {view !== null && (
-        <StatusBar
-          cost={view.cost}
-          proofVerdict={lastProof?.verdict ?? null}
-          proofSequences={view.verification.sequences.length}
-          pendingDeliveries={pendingDeliveries}
-          live={view.live}
-        />
-      )}
     </PageShell>
   );
 }

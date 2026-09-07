@@ -788,6 +788,9 @@ export async function spinUpTestDb(): Promise<{ db: TestDb; pg: PGlite }> {
       entity_id uuid REFERENCES entities(id) ON DELETE CASCADE,
       agent_id uuid REFERENCES agents(id) ON DELETE SET NULL,
       job_id uuid REFERENCES agent_jobs(id) ON DELETE SET NULL,
+      -- 0100 : un tour de chat n'a pas de job ; c'est la conversation qui
+      -- rattache ses jetons au fil qui les montre.
+      conversation_id uuid REFERENCES conversations(id) ON DELETE SET NULL,
       source text NOT NULL,
       turn integer,
       model_requested text,

@@ -19,6 +19,7 @@ import { getConversationThreadAction } from '@/lib/conversation-actions.ts';
 import { plainText } from '@/components/Markdown.tsx';
 import { truncate } from '@/lib/format-time';
 import ThreadComposer from '../ThreadComposer.tsx';
+import ThreadScreen from './ThreadScreen.tsx';
 
 // Force dynamic — le fil est relu à chaque requête, et pendant qu'un travail court.
 export const dynamic = 'force-dynamic';
@@ -68,46 +69,48 @@ export default async function ChatThreadPage({ params }: { params: Promise<{ id:
 
   return (
     <PageShell
+      fill
       header={
         <WorkHeader
+          back={{ label: 'Chat', href: '/chat' }}
           name={project ? project.name : title}
           path={project ? project.path : origin}
           agents={threadAgents(feed.items)}
+          status={<StatusPill variant={live ? 'run' : 'idle'} />}
           proofVerdict={lastProof?.verdict ?? null}
           filesHref={project ? `/spaces/${project.id}/files` : null}
         />
       }
-      toolbar={
-        <div className="flex items-center gap-3">
-          <Link href="/chat" className="text-mono-11 text-ink-4 hover:text-ink-2">
-            ← Chat
-          </Link>
-          <StatusPill variant={live ? 'run' : 'idle'} />
-        </div>
-      }
     >
-      <LiveRefresh live={live} />
-      <ConversationFeedView feed={feed} deliverables={verification.deliverables} />
-      {/* P2bis — la preuve et la file d'envoi ne sont plus EN BAS de la page.
-          La preuve vit dans le récapitulatif de livraison du travail qui l'a
-          fait tourner (« Checks »), et la file d'envoi dans la barre d'état,
-          qui compte déjà les messages en attente. Une section de plus, trois
-          écrans sous le tour qu'elle décrivait, ne se lisait jamais. */}
-      {canReply ? (
-        <ThreadComposer conversationId={conversation.id} agentName={conversation.agentName} />
-      ) : (
-        <p className="mx-auto mt-8 max-w-[760px] text-body-13 text-ink-4">
-          This conversation lives in {origin.replace(/^via /, '')}. Reply from there.
-        </p>
-      )}
-      {/* P4 — la barre d'état, permanente en bas de la page. */}
-      <StatusBar
-        cost={cost}
-        proofVerdict={lastProof?.verdict ?? null}
-        proofSequences={verification.sequences.length}
-        pendingDeliveries={pendingDeliveries}
-        live={live}
-      />
+      <ThreadScreen
+        composer={
+          canReply ? (
+            <ThreadComposer conversationId={conversation.id} agentName={conversation.agentName} />
+          ) : (
+            <p className="mx-auto max-w-[760px] text-body-13 text-ink-4">
+              This conversation lives in {origin.replace(/^via /, '')}. Reply from there.
+            </p>
+          )
+        }
+        statusBar={
+          // P4 — la barre d'état, ancrée tout en bas de l'écran.
+          <StatusBar
+            cost={cost}
+            proofVerdict={lastProof?.verdict ?? null}
+            proofSequences={verification.sequences.length}
+            pendingDeliveries={pendingDeliveries}
+            live={live}
+          />
+        }
+      >
+        <LiveRefresh live={live} />
+        <ConversationFeedView feed={feed} deliverables={verification.deliverables} />
+        {/* P2bis — la preuve et la file d'envoi ne sont plus EN BAS de la page.
+            La preuve vit dans le récapitulatif de livraison du travail qui l'a
+            fait tourner (« Checks »), et la file d'envoi dans la barre d'état,
+            qui compte déjà les messages en attente. Une section de plus, trois
+            écrans sous le tour qu'elle décrivait, ne se lisait jamais. */}
+      </ThreadScreen>
     </PageShell>
   );
 }

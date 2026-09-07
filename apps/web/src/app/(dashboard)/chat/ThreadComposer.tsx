@@ -98,7 +98,10 @@ export default function ThreadComposer({
   // retours, Maj+Entrée en ajoute un, et la zone grandit avec le texte (revue
   // Codex, passe 56 : le champ d'une ligne aplatissait tout). Entrée envoie.
   return (
-    <div className="sticky bottom-7 z-10 mx-auto mt-8 flex max-w-[760px] items-end gap-3 rounded-xl border border-rule bg-paper px-4 py-1">
+    // Ancrée, pas collante : la page de conversation est un écran de hauteur
+    // fixe (PageShell `fill`) — la saisie est hors de la zone qui défile, donc
+    // toujours en bas, avec deux lignes de fil comme avec deux cents.
+    <div className="mx-auto flex w-full max-w-[760px] items-end gap-3 rounded-xl border border-rule bg-paper px-4 py-1">
       <TextArea
         ref={box}
         bare

@@ -76,7 +76,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <ApprovalsProvider initial={initialPending}>
       <SkillUpdatesProvider initial={initialUpdates}>
-        <div className="flex min-h-screen bg-canvas text-ink">
+        {/*
+          `h-screen` + `overflow-hidden` : la FENÊTRE ne défile jamais, seule
+          la zone de contenu défile (`main > div`). C'est ce que fait toute
+          application où la saisie reste en bas — Claude Code, une messagerie.
+          Avec `min-h-screen`, le document défilait ; un fil court laissait la
+          saisie et la barre d'état au MILIEU de l'écran, là où le contenu
+          s'arrêtait (Quentin, 07/09 : « le champ de texte est en plein
+          milieu, il descend au fur et à mesure que j'écris »).
+        */}
+        <div className="flex h-screen overflow-hidden bg-canvas text-ink">
           <Sidebar workspaces={workspaces} userMenu={<UserMenu />} />
 
           {/*
@@ -96,7 +105,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
               devait descendre en bas de page pour écrire (Quentin, 07/09).
               `clip` coupe le débordement horizontal sans créer de conteneur.
             */}
-            <div className="flex-1 overflow-x-clip">{children}</div>
+            {/*
+              La zone qui DÉFILE. `overflow-x-clip` et non `-hidden` : masquer
+              un axe force l'autre à `auto`, ce qui ferait de ce bloc un
+              conteneur de défilement pour tout `position: sticky` en dessous —
+              ici c'en est un exprès, et le collant s'y réfère, ce qui est
+              justement voulu.
+            */}
+            <div className="min-h-0 flex-1 overflow-x-clip overflow-y-auto">{children}</div>
           </main>
 
           <ThemedToaster />

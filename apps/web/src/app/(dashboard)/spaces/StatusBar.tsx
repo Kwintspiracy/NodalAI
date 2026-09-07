@@ -48,7 +48,10 @@ export default function StatusBar({
   return (
     <>
       {open && <CostPanel cost={cost} onClose={() => setOpen(false)} />}
-      <div className="sticky bottom-0 z-10 -mx-8 mt-8 flex h-7 items-center gap-1 border-t border-rule-2 bg-sidebar px-5 text-mono-11 text-ink-3">
+      {/* Ancrée en bas de l'écran et PLEINE LARGEUR, comme l'en-tête en haut :
+          elle s'arrêtait à la largeur du contenu et flottait au milieu quand le
+          fil était court (Quentin, 07/09). */}
+      <div className="flex h-7 shrink-0 items-center gap-1 border-t border-rule-2 bg-sidebar px-5 text-mono-11 text-ink-3">
         <Seg>
           {proofSequences === 0 ? (
             <span>no proof</span>
@@ -67,9 +70,10 @@ export default function StatusBar({
           )}
         </Seg>
         {modelLabel !== '' && <Seg>{modelLabel}</Seg>}
-        <Seg>
-          {cost.byAgent.length} {cost.byAgent.length === 1 ? 'agent' : 'agents'}
-        </Seg>
+        {/* Le compte d'agents n'est PLUS ici : l'en-tête le dit déjà, avec les
+            visages, et les deux ne comptaient pas la même chose — « 1 agent »
+            en haut, « 0 agents » en bas sous la même réponse (Quentin, 07/09).
+            Un seul endroit le dit, celui qui a les visages. */}
         {live && <Seg>running…</Seg>}
         <span className="ml-auto flex items-center">
           <Seg onClick={() => setOpen((v) => !v)} active={open}>
@@ -79,7 +83,12 @@ export default function StatusBar({
             {formatCost(t.costUsd)}
             {t.unpricedCalls > 0 ? ' · partial' : ''}
           </Seg>
-          <Seg>{formatMs(t.durationMs)}</Seg>
+          {/* Le temps que les modèles ont passé à répondre — pas le temps
+              écoulé depuis l'ouverture du fil, qui affichait « 8 min 36 » sous
+              une réponse de sept secondes parce que la conversation était
+              ouverte depuis huit minutes (Quentin, 07/09). Le temps écoulé
+              n'apprend rien : une conversation laissée ouverte ne coûte rien. */}
+          <Seg title="Time the models spent answering">{formatMs(t.llmDurationMs)} thinking</Seg>
           {pendingDeliveries > 0 && (
             <Seg>
               <span className="text-warn">●</span> {pendingDeliveries}{' '}
@@ -97,11 +106,14 @@ function Seg({
   onClick,
   active = false,
   strong = false,
+  title,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   active?: boolean;
   strong?: boolean;
+  /** Ce que le segment mesure, en toutes lettres, au survol. */
+  title?: string;
 }) {
   const cls = `inline-flex h-5 items-center gap-1.5 rounded-[6px] px-2.5 ${
     active ? 'bg-ink text-canvas' : strong ? 'text-ink' : ''
@@ -118,7 +130,11 @@ function Seg({
       </TextButton>
     );
   }
-  return <span className={cls}>{children}</span>;
+  return (
+    <span className={cls} {...(title !== undefined ? { title } : {})}>
+      {children}
+    </span>
+  );
 }
 
 // ─── Le panneau « What this work cost » ─────────────────────────────────────

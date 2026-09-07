@@ -21,6 +21,7 @@ import {
   conversations,
   entities,
   jobDeliverableVerificationState,
+  llmCalls,
   toolCalls,
   users,
 } from '@nodal-agents/db';
@@ -42,6 +43,8 @@ const pileConv = { id: '' };
 /** Un fil OUVERT DEPUIS UN PROJET (`origin = 'project'`, 0097). */
 const projetConv = { id: '' };
 const groupeConv = { id: '' };
+/** Un fil de chat PUR : aucun job, deux appels LLM rattachés par 0100. */
+const chatPurConv = { id: '' };
 
 vi.mock('@/lib/server.ts', () => ({
   getDb: () => testDb,
@@ -239,6 +242,74 @@ beforeAll(async () => {
     toolInput: { path: 'bilan-septembre.md' },
     toolOutput: 'written',
   });
+
+  // ── Un fil de chat PUR : l'agent répond sans jamais créer de job ──────────
+  // C'est le cas le plus courant (« tu es la ? »), et celui dont TOUS les
+  // compteurs étaient sautés : la barre d'état disait « 0 tokens, n/a » sous
+  // une vraie réponse (Quentin, 07/09).
+  const [convChat] = await testDb
+    .insert(conversations)
+    .values({
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      title: 'tu es la ?',
+      origin: 'user',
+      channel: 'dashboard',
+      createdAt: new Date('2026-09-07T14:49:00Z'),
+      updatedAt: new Date('2026-09-07T14:49:52Z'),
+    })
+    .returning({ id: conversations.id });
+  chatPurConv.id = convChat!.id;
+  await testDb.insert(chatMessages).values([
+    {
+      entityId: seed.entityId,
+      conversationId: chatPurConv.id,
+      agentId: seed.agentId,
+      role: 'user',
+      content: 'tu es la ?',
+      createdAt: new Date('2026-09-07T14:49:45Z'),
+    },
+    {
+      entityId: seed.entityId,
+      conversationId: chatPurConv.id,
+      agentId: seed.agentId,
+      role: 'assistant',
+      content: 'Ouais, je suis là !',
+      createdAt: new Date('2026-09-07T14:49:52Z'),
+    },
+  ]);
+  // Les deux appels du tour de chat : `source = 'chat'`, AUCUN job — rattachés
+  // à la conversation par la colonne de la migration 0100.
+  await testDb.insert(llmCalls).values([
+    {
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      jobId: null,
+      conversationId: chatPurConv.id,
+      source: 'chat',
+      modelEffective: 'z-ai/glm-5.3',
+      provider: 'openrouter',
+      inputTokens: 9130,
+      outputTokens: 22,
+      cachedTokens: 4000,
+      costUsd: 0.0103,
+      durationMs: 3349,
+    },
+    {
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      jobId: null,
+      conversationId: chatPurConv.id,
+      source: 'chat',
+      modelEffective: 'z-ai/glm-5.3',
+      provider: 'openrouter',
+      inputTokens: 9254,
+      outputTokens: 41,
+      cachedTokens: 5000,
+      costUsd: 0.0022,
+      durationMs: 2838,
+    },
+  ]);
 
   // ── La conversation du dashboard : un tour parlé, un tour escaladé ─────────
   const [conv2] = await testDb
@@ -715,6 +786,27 @@ describe('getConversationThreadAction — une conversation du dashboard', () => 
     expect(consigne.text).toBe('Compter les lignes du bilan');
     // Aucun travail n'est sorti du chat : pas d'encart.
     expect(r.data.feed.items.some((i) => i.kind === 'produced')).toBe(false);
+  });
+});
+
+describe('getConversationThreadAction — un fil de chat PUR, sans aucun job', () => {
+  it('compte quand même ses jetons, son coût et son agent (migration 0100)', async () => {
+    const { getConversationThreadAction } = await actions();
+    const r = await getConversationThreadAction(chatPurConv.id);
+    if (!r.ok) throw new Error(`échec inattendu : ${r.code} ${r.message}`);
+
+    // Les deux appels du tour de chat, additionnés — c'est ce que la barre
+    // d'état affiche. Zéro ici voulait dire « une réponse gratuite et
+    // instantanée », ce qui était faux (Quentin, 07/09).
+    expect(r.data.cost.totals.inputTokens).toBe(18_384);
+    expect(r.data.cost.totals.outputTokens).toBe(63);
+    expect(r.data.cost.totals.costUsd).toBeCloseTo(0.0125, 5);
+    // Le temps de CALCUL, pas le temps écoulé depuis l'ouverture du fil.
+    expect(r.data.cost.totals.llmDurationMs).toBe(6187);
+    // Et l'agent qui a répondu est compté : « 0 agents » sous un tour d'Alfred
+    // contredisait l'en-tête, qui en annonçait un.
+    expect(r.data.cost.byAgent).toHaveLength(1);
+    expect(r.data.cost.byAgent[0]?.models).toEqual(['z-ai/glm-5.3']);
   });
 });
 

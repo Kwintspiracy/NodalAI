@@ -9,6 +9,9 @@
 // qui ouvrirait l'app produite — rien en base ne sait où elle tourne (P14).
 // Un bouton qui n'ouvre rien est pire que pas de bouton (inv. #4).
 
+import Link from 'next/link';
+import { CaretLeft } from '@phosphor-icons/react/dist/ssr';
+import type { ReactNode } from 'react';
 import AvatarStack from '@/components/ui/AvatarStack';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import StatusPill from '@/components/ui/StatusPill';
@@ -23,12 +26,23 @@ import type { ThreadAgent } from './format.ts';
 export type ProofVerdict = string | null;
 
 export default function WorkHeader({
+  back,
   name,
   path,
   agents,
+  status,
   proofVerdict = null,
   filesHref = null,
 }: {
+  /**
+   * D'où l'on vient, à gauche du nom : une seule ligne d'identité pour tout
+   * l'écran. La flèche vivait sous l'en-tête, dans une seconde ligne qui ne
+   * ressemblait à rien d'autre dans l'application (Quentin, 07/09 : « la
+   * flèche de retour ne correspond pas aux autres »).
+   */
+  back?: { label: string; href: string };
+  /** L'état du travail (Idle, Running…), à droite — plus sur une ligne à part. */
+  status?: ReactNode;
   /** Le nom du projet courant, sinon le titre de la conversation. */
   name: string;
   /** Le dossier du projet, sinon d'où vient la conversation. */
@@ -45,11 +59,21 @@ export default function WorkHeader({
 }) {
   return (
     <div className="flex w-full min-w-0 items-center gap-4">
+      {back !== undefined && (
+        <Link
+          href={back.href}
+          className="flex shrink-0 items-center gap-1.5 text-mono-11 text-ink-4 hover:text-ink-2"
+        >
+          <CaretLeft size={12} weight="bold" />
+          {back.label}
+        </Link>
+      )}
       <div className="flex min-w-0 items-baseline gap-3">
         <span className="truncate text-title-15 text-ink">{name}</span>
         {path !== '' && <span className="truncate text-mono-11 text-ink-4">{path}</span>}
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-3">
+        {status}
         {agents.length > 0 && (
           <span className="flex items-center gap-2.5">
             <AvatarStack avatars={agents.map((a) => ({ id: a.key, name: a.name }))} max={4} />

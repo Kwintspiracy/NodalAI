@@ -12,6 +12,15 @@ type Common = {
   fluid?: boolean;
   /** Extra classes on the body wrapper. */
   bodyClassName?: string;
+  /**
+   * Un écran qui REMPLIT la hauteur au lieu de défiler avec le document : le
+   * corps devient une colonne de hauteur pleine, et c'est l'enfant qui décide
+   * ce qui défile. C'est ce qu'il faut pour un fil de conversation — la saisie
+   * reste en bas de l'ÉCRAN, qu'il y ait deux lignes ou deux cents (Quentin,
+   * 07/09 : « le champ de texte est en plein milieu »). Les pages de liste
+   * n'en veulent pas : elles défilent normalement.
+   */
+  fill?: boolean;
 };
 
 type Props =
@@ -54,14 +63,29 @@ type Props =
  *   └──────────────────────────────────────────────┘
  */
 export default function PageShell(props: Props) {
-  const { toolbar, children, fluid = false, bodyClassName = '' } = props;
+  const { toolbar, children, fluid = false, fill = false, bodyClassName = '' } = props;
+  const head =
+    props.header !== undefined ? (
+      <PageHeader header={props.header} />
+    ) : (
+      <PageHeader title={props.title} subtitle={props.subtitle} />
+    );
+  if (fill) {
+    // L'en-tête ne défile pas, le corps prend le reste de la hauteur, et
+    // l'enfant place lui-même ce qui défile et ce qui reste ancré.
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        {head}
+        <div className={`flex min-h-0 flex-1 flex-col ${bodyClassName}`}>
+          {toolbar && <div className="px-5 pt-4 sm:px-8 lg:px-9">{toolbar}</div>}
+          {children}
+        </div>
+      </div>
+    );
+  }
   return (
     <>
-      {props.header !== undefined ? (
-        <PageHeader header={props.header} />
-      ) : (
-        <PageHeader title={props.title} subtitle={props.subtitle} />
-      )}
+      {head}
       <div
         className={`px-5 pt-6 pb-10 sm:px-8 lg:px-9 ${fluid ? '' : 'max-w-6xl'} ${bodyClassName}`}
       >
