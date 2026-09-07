@@ -173,21 +173,43 @@ export async function startRealPostgres(): Promise<RealPostgres> {
 }
 
 /** La poignée rendue à l'appelant : l'arrêt du postmaster et le ménage. */
+/**
+ * Une erreur de MÉNAGE, pas de test : le système refuse de supprimer un
+ * fichier encore ouvert. Tout le reste (un postmaster qui refuse de s'arrêter,
+ * par exemple) doit continuer de remonter.
+ */
+function isBusyError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === 'EBUSY' || code === 'ENOTEMPTY' || code === 'EPERM' || code === 'EACCES';
+}
+
 function makeHandle(pg: EmbeddedPostgresLike, dataDir: string, port: number): RealPostgres {
   let stopped = false;
   const stop = async (): Promise<void> => {
     if (stopped) return;
     stopped = true;
     try {
+      // `persistent: false` fait supprimer le dossier de données PAR la
+      // bibliothèque, à l'arrêt. Sous Windows et sous charge, le postmaster
+      // garde ses fichiers ouverts quelques instants de plus, et ce ménage
+      // lève `EBUSY` — une suite entière tombait alors, alors que TOUTES ses
+      // assertions étaient passées (vu le 07/09 : les trois suites `.pg` en
+      // échec dans la suite complète, vertes une par une). Un dossier
+      // temporaire qui résiste n'est pas un résultat de test : le système
+      // nettoie son propre `%TEMP%`, et la boucle ci-dessous réessaie.
       await pg.stop();
+    } catch (err) {
+      if (!isBusyError(err)) throw err;
     } finally {
-      // Windows garde parfois un handle quelques centaines de ms après l'arrêt.
-      for (let i = 0; i < 5; i++) {
+      // Windows garde parfois un handle quelques centaines de ms après
+      // l'arrêt — sous charge, bien plus : on réessaie jusqu'à ~6 s, puis on
+      // abandonne EN SILENCE.
+      for (let i = 0; i < 12; i++) {
         try {
-          await rm(dataDir, { recursive: true, force: true });
+          await rm(dataDir, { recursive: true, force: true, maxRetries: 3 });
           break;
         } catch {
-          await new Promise((r) => setTimeout(r, 300));
+          await new Promise((r) => setTimeout(r, 500));
         }
       }
     }

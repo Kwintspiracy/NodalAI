@@ -19,8 +19,18 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { eq, sql } from 'drizzle-orm';
-import { agents, agentSkills, agentSkillAssignments, approvalRules } from '@nodal-agents/db';
+// `eq`/`sql` viennent de `@nodal-agents/db`, qui les réexporte : seul ce paquet
+// importe le pilote (règle `only-db-imports-pg` de dependency-cruiser). La
+// violation n'est apparue qu'à la fusion des deux PR, le scan couvrant alors
+// ce fichier.
+import {
+  eq,
+  sql,
+  agents,
+  agentSkills,
+  agentSkillAssignments,
+  approvalRules,
+} from '@nodal-agents/db';
 import { requireLiveStack, makeDbClient, testSlugSuffix } from './helpers';
 
 test.describe('agent recipes', () => {

@@ -975,7 +975,7 @@ describe('executeJob', () => {
 
   // ─── Conversation-first chat: runChatTurn never creates a job ─────────────
 
-  it('runChatTurn: replies in text, persists 2 chat_messages + titles the conversation, and creates ZERO agent_jobs', async () => {
+  it('runChatTurn: replies in text, persists 2 chat_messages + the MODEL names the conversation, and creates ZERO agent_jobs', async () => {
     const jobsBefore = await db
       .select({ id: agentJobs.id })
       .from(agentJobs)
@@ -1010,12 +1010,16 @@ describe('executeJob', () => {
     expect(msgs.some((m) => m.role === 'user' && m.content === 'salut')).toBe(true);
     expect(msgs.some((m) => m.role === 'assistant' && (m.content?.length ?? 0) > 0)).toBe(true);
 
-    // The first message auto-titles the conversation.
+    // Le titre vient du MODÈLE après le premier échange (07/09) : la première
+    // phrase de l'utilisateur ne le nomme plus — « salut » ne dit rien du
+    // sujet. Ici le client factice rend le même texte aux deux appels (la
+    // réponse, puis le titre), nettoyé de sa ponctuation finale.
     const [titled] = await db
       .select({ title: conversations.title })
       .from(conversations)
       .where(eq(conversations.id, conv.id));
-    expect(titled?.title).toBe('salut');
+    expect(titled?.title).toBe('Salut Quentin, je suis là');
+    expect(titled?.title).not.toBe('salut');
 
     // Crucially: NO agent_jobs row was created — chat is conversation, not a job.
     const jobsAfter = await db
