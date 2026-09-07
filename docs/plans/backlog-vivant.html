@@ -351,9 +351,12 @@
 <div class="wrap">
   <h1>Backlog vivant</h1>
   <p class="stamp">
-    Nodal-Agents · mis à jour le 05/09/2026 · une PR par chantier, remis à jour à chaque session ·
+    Nodal-Agents · mis à jour le 07/09/2026 · une PR par chantier, remis à jour à chaque session ·
     cap :
-    <b>merger la #45 puis la #46, publier la 0.8.9, développer v7 « vérifier sans configurer »</b>
+    <b
+      >publier la 0.8.9, alléger le coût d'un tour de chat, développer v7 « vérifier sans configurer
+      »</b
+    >
   </p>
 
   <h2>Plus aucun P0</h2>
@@ -523,10 +526,10 @@
     </p>
   </div>
 
-  <div class="card next">
+  <div class="card">
     <h3>
       <span class="num">②</span> PR #45 — profils d'agents
-      <span class="pill amber">ATTEND LE MERGE</span>
+      <span class="pill ok">MERGÉE</span>
       <span class="pill plain size">la plus grosse</span>
     </h3>
     <p>
@@ -545,10 +548,10 @@
     </p>
   </div>
 
-  <div class="card next">
+  <div class="card">
     <h3>
       <span class="num">③</span> Vérifier &amp; Corriger — la loop de vérification
-      <span class="pill amber">PR① + v7-A + DÉCOUVERTE · PR #46 · 10 PASSES CODEX</span>
+      <span class="pill ok">MERGÉE · 65 PASSES CODEX</span>
       <span class="pill plain size">la plus grosse</span>
     </h3>
     <p>
@@ -633,6 +636,43 @@
   </div>
 
   <h2>Fait récemment</h2>
+  <p class="daylabel">Dimanche 07/09 · les deux PR fermées</p>
+  <ul class="done">
+    <li>
+      <b>#45 et #46 mergées, plus rien d'ouvert</b> — la #45 attendait depuis dix jours, la #46
+      portait 70 000 lignes. Chacune a été <b>testée en local sur sa propre branche</b> avant le
+      merge, pas seulement en CI : suite complète, typecheck, lint, architecture. Un premier essai
+      de la #45 avait donné cinq échecs — mon arbre de test était dans le dossier temporaire, qui
+      est justement une racine autorisée par les tests en question ; refait ailleurs, tout passe.
+    </li>
+    <li>
+      <b>La fusion a révélé trois défauts qu'aucune branche ne montrait seule</b> — un test qui
+      figeait l'ancienne règle de titrage ; un test de bout en bout qui importait le pilote de base
+      directement (règle <code>only-db-imports-pg</code>) ; et surtout un
+      <b>ménage de dossier temporaire qui faisait tomber trois suites entières sous Windows</b>
+      alors que toutes leurs assertions passaient — <code>persistent: false</code> fait supprimer le
+      dossier par la bibliothèque à l'arrêt, et le postmaster garde ses fichiers ouverts un instant
+      de plus.
+    </li>
+    <li>
+      <b>Le fil de conversation est devenu un écran</b> — la fenêtre ne défile plus, la saisie est
+      ancrée en bas, la barre d'état pleine largeur ; l'agent parle à gauche, l'utilisateur à droite
+      dans une bulle. Et l'en-tête est revenu au design system : le nom est le titre de la page, le
+      retour vit sous l'en-tête comme sur « Edit agent ».
+    </li>
+    <li>
+      <b>Les compteurs d'un fil disent enfin la vérité</b> — un tour de chat ne passe pas par un
+      job, donc ses appels au modèle n'étaient rattachables à rien : le fil affichait « 0 tokens ·
+      n/a » sous une vraie réponse. Migration 0100. Le compte d'agents ne vit plus qu'en haut (deux
+      endroits disaient deux nombres), et la durée est le temps de calcul, pas le temps écoulé.
+    </li>
+    <li>
+      <b>Sélection multiple pour supprimer, et un titre écrit par l'IA</b> — un bouton « Select »
+      fait apparaître les cases (la première version les montrait en permanence : mauvaise idée) ;
+      le titre d'une conversation vient du modèle après le premier échange, au lieu d'être la
+      première phrase de l'utilisateur.
+    </li>
+  </ul>
   <p class="daylabel">Mardi 26/08 → mercredi 27/08 · la branche #39</p>
   <ul class="done">
     <li>
