@@ -122,6 +122,16 @@ export async function collectDescendants(
  */
 const CHILD_FEED_DEPTH = 1;
 
+/**
+ * Combien de délégations d'une page ouvrent leur fil. Le fil d'un enfant se
+ * lit dans sa ligne `agent_jobs` entière (`messages` JSONB compris) : cent
+ * têtes à cinq délégués relieraient des centaines de transcripts pour une
+ * seule page (revue Codex PR #46, passe 49). Les délégations les plus
+ * RÉCENTES ouvrent leur fil ; les plus anciennes gardent la tâche, le résultat
+ * et le lien vers leur run.
+ */
+export const CHILD_FEEDS_MAX = 20;
+
 export async function assembleJobFeeds(
   db: Db,
   entityId: string,
@@ -225,20 +235,15 @@ export async function assembleJobFeeds(
   // classeur qu'il avait écrit, avec son aperçu et son état, restait invisible
   // depuis la conversation (capture du 07/09).
   const childFeedById = new Map<string, ConversationFeed>();
-  if (depth < CHILD_FEED_DEPTH && childRows.length > 0) {
+  // Les CHILD_FEEDS_MAX enfants les plus récents de la page, toutes têtes
+  // confondues (`childRows` arrive trié par `created_at` croissant).
+  const openable = childRows.slice(-CHILD_FEEDS_MAX).map((r) => r.id);
+  if (depth < CHILD_FEED_DEPTH && openable.length > 0) {
     const childJobs = await db
       .select({ job: agentJobs, agentName: agents.name, agentSlug: agents.slug })
       .from(agentJobs)
       .leftJoin(agents, eq(agents.id, agentJobs.agentId))
-      .where(
-        and(
-          inArray(
-            agentJobs.id,
-            childRows.map((r) => r.id),
-          ),
-          eq(agentJobs.entityId, entityId),
-        ),
-      )
+      .where(and(inArray(agentJobs.id, openable), eq(agentJobs.entityId, entityId)))
       .orderBy(agentJobs.createdAt);
     const childFeeds = await assembleJobFeeds(db, entityId, childJobs, depth + 1);
     childJobs.forEach((c, i) => {

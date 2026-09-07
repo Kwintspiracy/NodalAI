@@ -418,6 +418,15 @@ describe('la réponse finale ne se dit pas deux fois (P2bis)', () => {
     );
     expect(proses).toHaveLength(1);
   });
+
+  it('une réponse COURTE trouvée au milieu d’une longue prose n’est pas « déjà dite » (passe 49)', () => {
+    const feed = buildConversationFeed(
+      oneTurn('La vérification est OK. Je poursuis l’analyse.', 'OK.'),
+      [],
+      [],
+    );
+    expect(feed.items.at(-1)).toEqual({ kind: 'answer', text: 'OK.' });
+  });
 });
 
 describe('compactTurns — les tours muets se replient (P2bis)', () => {
@@ -474,6 +483,44 @@ describe('compactTurns — les tours muets se replient (P2bis)', () => {
     expect(merged.usage?.inputTokens).toBe(30);
     expect(merged.usage?.costUsd).toBeCloseTo(0.3, 6);
     expect(merged.usage?.calls).toBe(2);
+  });
+
+  it('un tour DÉDUIT qui absorbe un tour AUDITÉ prend son identité avec ses jetons (passe 49)', () => {
+    const out = compactTurns([
+      turn({ turn: 1, turnSource: 'inferred', model: null, usage: null, blocks: [] }),
+      turn({
+        turn: 2,
+        turnSource: 'audit',
+        model: 'm2',
+        usage: usage(2000, 0.01),
+        blocks: [{ kind: 'steps', steps: [step('return_result')] }],
+      }),
+    ]);
+    expect(out).toHaveLength(1);
+    const only = out[0];
+    if (only?.kind !== 'turn') throw new Error('tour attendu');
+    // Les 2 000 jetons sont ceux du tour 2, audité : c'est lui que le fil
+    // désigne maintenant — pas un tour 1 « déduit » qui porterait des métriques.
+    expect(only.turn).toBe(2);
+    expect(only.turnSource).toBe('audit');
+    expect(only.usage?.inputTokens).toBe(2000);
+    expect(only.model).toBe('m2');
+  });
+
+  it('deux tours AUDITÉS fusionnés gardent l’identité du premier', () => {
+    const out = compactTurns([
+      turn({ turn: 3, turnSource: 'audit', usage: usage(10, null), blocks: [] }),
+      turn({
+        turn: 4,
+        turnSource: 'audit',
+        usage: usage(20, null),
+        blocks: [{ kind: 'steps', steps: [step('x')] }],
+      }),
+    ]);
+    const only = out[0];
+    if (only?.kind !== 'turn') throw new Error('tour attendu');
+    expect(only.turn).toBe(3);
+    expect(only.usage?.inputTokens).toBe(30);
   });
 
   it('un coût inconnu reste inconnu, et un coût connu survit à un inconnu', () => {

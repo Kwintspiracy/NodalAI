@@ -384,7 +384,12 @@ function lastProseContains(items: readonly FeedItem[], answer: string): boolean 
     const proses = item.blocks.filter((b) => b.kind === 'prose');
     const last = proses[proses.length - 1];
     if (last === undefined) continue;
-    return normalizeText(last.text).includes(needle);
+    // Égalité, ou la prose SE TERMINE par la réponse (« Voici le bilan : …
+    // Tout est prêt. » puis `result` = « Tout est prêt. »). Pas `includes` :
+    // une réponse courte (« OK. ») trouvée au milieu d'une longue prose n'est
+    // pas cette prose (revue Codex PR #46, passe 49).
+    const said = normalizeText(last.text);
+    return said === needle || said.endsWith(needle);
   }
   return false;
 }
@@ -454,8 +459,18 @@ export function compactTurns(items: readonly FeedItem[]): FeedItem[] {
         blocks.push({ kind: 'steps', steps });
       }
     }
+    // L'identité du tour fusionné : un tour DÉDUIT ne porte ni modèle ni
+    // jetons (passe 18) ; s'il absorbe un tour AUDITÉ, il prend son identité
+    // (`turn`, `turnSource: 'audit'`) avec ses métriques — sinon des jetons
+    // réels seraient attribués à un tour que le fil déclare non audité (revue
+    // Codex PR #46, passe 49). Deux tours audités gardent le premier.
+    const identity =
+      prev.turnSource === 'inferred' && item.turnSource === 'audit'
+        ? { turn: item.turn, turnSource: item.turnSource }
+        : { turn: prev.turn, turnSource: prev.turnSource };
     out[out.length - 1] = {
       ...prev,
+      ...identity,
       blocks,
       model: prev.model ?? item.model,
       usage: addUsage(prev.usage, item.usage),

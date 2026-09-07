@@ -179,6 +179,29 @@ beforeAll(async () => {
     toolOutput: '# notes',
   });
 
+  // P2bis, passe 49 — vingt et un délégués PLUS ANCIENS du même job A, sans
+  // production : seuls les CHILD_FEEDS_MAX (20) plus récents de la page
+  // ouvrent leur fil ; le délégué de 10:00:20 ci-dessus est le plus récent.
+  for (let i = 0; i < 21; i++) {
+    await testDb.insert(agentJobs).values({
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      channel: 'internal',
+      chatId: null,
+      conversationId: telegramConv.id,
+      parentJobId: telegramConv.jobA,
+      task: `Relecture ${i}`,
+      status: 'completed',
+      result: `Relu ${i}.`,
+      messages: [
+        { role: 'user', content: `Relecture ${i}` },
+        { role: 'assistant', content: `Relu ${i}.` },
+      ],
+      createdAt: new Date(`2026-09-01T09:${String(i).padStart(2, '0')}:00Z`),
+      completedAt: new Date(`2026-09-01T09:${String(i).padStart(2, '0')}:30Z`),
+    });
+  }
+
   const [jobB] = await testDb
     .insert(agentJobs)
     .values({
@@ -581,9 +604,10 @@ describe('getConversationThreadAction — une conversation de canal', () => {
     const r = await getConversationThreadAction(telegramConv.id);
     if (!r.ok) throw new Error(`échec inattendu : ${r.code} ${r.message}`);
 
-    const child = r.data.feed.items.find((i) => i.kind === 'child');
+    const child = r.data.feed.items.find(
+      (i) => i.kind === 'child' && i.job.id === telegramConv.child,
+    );
     if (child?.kind !== 'child') throw new Error('item child attendu');
-    expect(child.job.id).toBe(telegramConv.child);
     // Le fil de l'enfant est assemblé : sa prose ET l'étape de lecture, avec
     // la carte persistée sur sa ligne d'audit — pas seulement son texte.
     const nested = child.job.feed;
@@ -600,6 +624,30 @@ describe('getConversationThreadAction — une conversation de canal', () => {
     // Un seul niveau : le délégué n'a pas d'enfant ici, et s'il en avait, leur
     // fil ne serait pas assemblé (CHILD_FEED_DEPTH).
     expect(nested.items.filter((i) => i.kind === 'child')).toHaveLength(0);
+  });
+
+  it('seules les 20 délégations les plus récentes ouvrent leur fil ; les plus anciennes gardent leur texte (passe 49)', async () => {
+    const { getConversationThreadAction } = await actions();
+    const r = await getConversationThreadAction(telegramConv.id);
+    if (!r.ok) throw new Error(`échec inattendu : ${r.code} ${r.message}`);
+    const children = r.data.feed.items.filter((i) => i.kind === 'child');
+    // 22 délégués du job A : le récent (10:00:20) et 21 anciens (09:00 → 09:20).
+    expect(children).toHaveLength(22);
+    const withFeed = children.filter((c) => c.kind === 'child' && c.job.feed !== undefined);
+    expect(withFeed).toHaveLength(20);
+    // Les deux plus anciens (09:00, 09:01) n'ont pas de fil, mais gardent
+    // tâche et résultat — la carte a toujours quelque chose à montrer.
+    const oldest = children.slice(0, 2);
+    for (const c of oldest) {
+      if (c.kind !== 'child') throw new Error('child attendu');
+      expect(c.job.feed).toBeUndefined();
+      expect(c.job.result).toMatch(/^Relu [01]\.$/);
+    }
+    // Le plus récent, lui, a son fil.
+    const newest = children.at(-1);
+    if (newest?.kind !== 'child') throw new Error('child attendu');
+    expect(newest.job.id).toBe(telegramConv.child);
+    expect(newest.job.feed).toBeDefined();
   });
 
   it('rend les deux travaux en un seul fil, avec l’encart de production et son projet', async () => {
