@@ -376,7 +376,8 @@
     <span class="step">#40 secrets au repos · mergée</span><span class="arrow">→</span>
     <span class="step">0.8.8 publiée</span><span class="arrow">→</span>
     <span class="step">#44 CI 18 min → 1 min · mergée</span><span class="arrow">→</span>
-    <span class="step next">#45 Profils d'agents · CI verte, revue close · ATTEND LE MERGE</span
+    <span class="step">#45 Profils d'agents · mergée</span><span class="arrow">→</span>
+    <span class="step next">#46 Vérifier &amp; Corriger PR① · ATTEND LE MERGE</span
     ><span class="arrow">→</span>
     <span class="step">0.8.9 · fix connexion LAN</span>
   </div>
@@ -392,17 +393,21 @@
     transaction, skills système hors du premier workspace, slug libre pour un second agent,
     catalogue hors du bundle client), un refusé et documenté (recettes en base). Trois correctifs
     ont suivi la 9<sup>e</sup> passe : la maquette Figma appliquée (« Create New Agent »), read-only
-    requalifié en règle d'autonomie, et le rollback explicite sur slug déjà pris. Elle embarque
-    aussi le fix de la <b>connexion LAN en 500 depuis #38</b> → 0.8.9 à publier après merge.
+    requalifié en règle d'autonomie, et le rollback explicite sur slug déjà pris. Elle embarquait
+    aussi le fix de la <b>connexion LAN en 500 depuis #38</b> → 0.8.9 à publier.
+    <b>Mergée le 07/09</b> (squash, <code>d0fb2dde</code>), après une suite complète relancée en
+    local sur sa branche — le vert de la CI ne suffisait pas à le dire.
   </p>
   <p class="pipenote">
-    <b>Rien d'autre n'est ouvert.</b> Les cinq checks CI sont verts sur <code>2551cf5e</code>, le
-    dernier commit de la branche — <code>ci</code>, <code>ci-windows</code>,
-    <code>pack-smoke</code>, <code>e2e-smoke</code>, snyk — et la PR est <code>MERGEABLE</code>.
-    <code>main</code> est sur <code>4bb9b6c4</code>, zéro issue, <code>0.8.8</code> est
-    <code>latest</code> sur npm (les <code>0.8.0</code> / <code>0.8.1</code> cassées sont
-    dépréciées), tag <code>v0.8.8</code> poussé.
-    <b>Le seul geste qui manque est le tien : merger.</b>
+    <b
+      >Reste ouverte : <a href="https://github.com/Kwintspiracy/nodal-agents/pull/46">#46</a>, «
+      Vérifier &amp; Corriger » PR①</b
+    >
+    — 70 000 lignes, 492 fichiers, 187 commits, et <b>soixante-cinq passes Codex</b>. Elle porte
+    tout le plan « De la maquette au produit » (lots 1 à 3, le fil refait deux fois sur le Figma, la
+    page d'un projet devenue sa conversation) plus la sélection multiple et le titre automatique des
+    conversations. <b>Elle est trop grosse</b> : une PR se relit, celle-ci ne se relit plus qu'en
+    confiance dans ses revues. La leçon est prise — une PR par lot, mergée dans la semaine.
   </p>
   <p class="pipenote">
     La
