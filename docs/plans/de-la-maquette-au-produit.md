@@ -449,7 +449,13 @@ plus rendue, un mot dit pourquoi. Et la page se relisait entre la création de
 la conversation et son premier message : la conversation neuve VIDE remplaçait
 un instant le fil lu — cette relecture tombe. Recommandé et fait : le calcul du
 destinataire, du placeholder et de la note est un module pur, sept cas testés ;
-la page du fil ne compte plus les travaux du projet. Passe 62 lancée.
+la page du fil ne compte plus les travaux du projet. **Passe 62 : un
+constat bloquant, vrai** — le message sans ROOT disait « Designate one in
+Settings » alors que le ROOT naît avec le premier orchestrateur créé et que
+Settings renvoie vers Agents : l'instruction menait à une action qui n'existe
+pas. Le message dit le geste et le lien mène à Agents ; les deux autres textes
+périmés du dépôt (l'erreur de création, la bannière de Chat) suivent. Passe 63
+lancée.
 
 **Ce que la vérification a corrigé dans le plan lui-même.** La ligne « la
 maquette est une intention, pas une spécification au pixel » des limites
