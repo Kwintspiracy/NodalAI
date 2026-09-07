@@ -18,6 +18,7 @@ import ConversationFeedView from './ConversationFeedView.tsx';
 import LiveRefresh from './LiveRefresh.tsx';
 import ProjectComposer from './ProjectComposer.tsx';
 import type { ConversationThreadView } from '@/lib/conversation-actions.ts';
+import type { ComposerPresentation } from '@/lib/project-landing.ts';
 
 export type ProjectThreadResult =
   | { ok: true; data: ConversationThreadView }
@@ -27,9 +28,7 @@ export default function ProjectThread({
   projectId,
   conversationId,
   thread,
-  agentName,
-  placeholder,
-  note,
+  composer,
 }: {
   projectId: string;
   /**
@@ -41,19 +40,12 @@ export default function ProjectThread({
   /** `null` quand il n'y avait rien à lire. */
   thread: ProjectThreadResult | null;
   /**
-   * À qui la saisie écrit VRAIMENT — l'agent du fil qu'elle prolonge, ou le
-   * ROOT qui recevra la conversation qu'elle va créer. La page le décide : le
-   * composant ne le déduit plus du fil affiché, qui peut être celui d'un autre
-   * agent (revue Codex, passe 60).
+   * Ce que la saisie dit d'elle-même — à qui elle écrit VRAIMENT, ce qu'elle
+   * va faire, ou pourquoi elle n'est pas là. Calculé par `composerPresentation`
+   * (pur, testé) : le composant ne déduit plus rien du fil affiché, qui peut
+   * être celui d'un autre agent (revue Codex, passes 60-61).
    */
-  agentName?: string | null;
-  /** Le placeholder en toutes lettres quand la saisie va OUVRIR une conversation. */
-  placeholder?: string;
-  /**
-   * Ce que la saisie va faire, quand ce n'est pas répondre au fil affiché :
-   * dit AVANT l'envoi, au-dessus du champ.
-   */
-  note?: string;
+  composer: ComposerPresentation;
 }) {
   if (thread !== null && !thread.ok) {
     return (
@@ -86,15 +78,24 @@ export default function ProjectThread({
           </div>
         )}
       </div>
-      {note !== undefined && (
-        <p className="mx-auto mt-8 -mb-6 max-w-[760px] text-body-13 text-ink-3">{note}</p>
+      {composer.kind === 'blocked' ? (
+        // Pas de ROOT : rien à créer, donc pas de champ — un mot à la place.
+        <p className="mx-auto mt-8 max-w-[760px] text-body-13 text-ink-4">{composer.message}</p>
+      ) : (
+        <>
+          {composer.kind === 'start' && composer.note !== null && (
+            <p className="mx-auto mt-8 -mb-6 max-w-[760px] text-body-13 text-ink-3">
+              {composer.note}
+            </p>
+          )}
+          <ProjectComposer
+            projectId={projectId}
+            conversationId={conversationId}
+            agentName={composer.agentName}
+            {...(composer.kind === 'start' ? { placeholder: composer.placeholder } : {})}
+          />
+        </>
       )}
-      <ProjectComposer
-        projectId={projectId}
-        conversationId={conversationId}
-        {...(agentName !== undefined ? { agentName } : {})}
-        {...(placeholder !== undefined ? { placeholder } : {})}
-      />
     </>
   );
 }

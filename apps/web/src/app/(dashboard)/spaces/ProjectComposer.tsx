@@ -12,7 +12,6 @@
 // peut pas passer une fonction à un composant client. Le `onBeforeSend` est
 // donc noué ici, du côté client, autour de l'action serveur.
 
-import { useRouter } from 'next/navigation';
 import ThreadComposer from '@/app/(dashboard)/chat/ThreadComposer.tsx';
 import { createProjectConversationAction } from '@/lib/project-actions.ts';
 
@@ -29,8 +28,6 @@ export default function ProjectComposer({
   /** Le placeholder en toutes lettres quand la saisie va OUVRIR une conversation. */
   placeholder?: string;
 }) {
-  const router = useRouter();
-
   return (
     <ThreadComposer
       conversationId={conversationId ?? ''}
@@ -44,9 +41,11 @@ export default function ProjectComposer({
               // Échec FORT (inv. #4) : le composeur remonte le message tel
               // quel plutôt que d'envoyer le texte on ne sait où.
               if (!r.ok) throw new Error(r.message);
-              // La page relit le projet : la conversation neuve devient LA
-              // conversation du projet, et le fil apparaît au-dessus.
-              router.refresh();
+              // PAS de `router.refresh()` ici : `ThreadComposer` relit la page
+              // après l'ENVOI. Une relecture entre la création et le premier
+              // message montrait la conversation neuve VIDE à la place du fil
+              // qu'on lisait, un instant, avec la note en moins (revue Codex,
+              // passe 61).
               return r.data.id;
             }
       }

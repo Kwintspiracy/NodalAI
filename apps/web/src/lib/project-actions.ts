@@ -634,8 +634,11 @@ async function readProjectFolder(path: string): Promise<ProjectFilesView> {
  * projet, donc celui que la saisie doit nommer quand elle va la créer (revue
  * Codex, passe 60 : nommer l'agent du fil lu affirmait un faux destinataire).
  */
+/** Le projet sans son activité : la page du fil n'affiche ni compte de travaux ni dernière date. */
+export type ProjectSummary = Omit<ProjectPageView['project'], 'jobsCount' | 'lastActivityAt'>;
+
 export type ProjectThreadPageView = {
-  project: ProjectPageView['project'];
+  project: ProjectSummary;
   conversations: ProjectConversationRow[];
   projectConversationId: string | null;
   rootAgent: { id: string; name: string } | null;
@@ -648,7 +651,7 @@ type ProjectCore = {
     verifyCommands: VerifyCommand[] | null;
     verifyApprovedManifestHash: string | null;
   };
-  project: ProjectPageView['project'];
+  project: ProjectSummary;
   conversations: ProjectConversationRow[];
   projectConversationId: string | null;
   rootAgent: { id: string; name: string } | null;
@@ -710,14 +713,10 @@ async function loadProjectCore(
       ),
     );
 
-  const [jobsRows, conversationRows, anchoredRows, rootRows] = await Promise.all([
-    db
-      .select({
-        jobsCount: sql<number>`count(*)`,
-        lastActivityAt: sql<Date | null>`max(${agentJobs.createdAt})`,
-      })
-      .from(agentJobs)
-      .where(and(eq(agentJobs.entityId, entityId), eq(agentJobs.projectId, id))),
+  // Pas de compte de travaux ici : la page du fil ne l'affiche pas, et
+  // l'agrégat sur `agent_jobs` se payait à chaque ouverture (passe 61). La
+  // page du dossier le lit à part.
+  const [conversationRows, anchoredRows, rootRows] = await Promise.all([
     db
       .select({
         id: conversations.id,
@@ -786,8 +785,6 @@ async function loadProjectCore(
       hidden: row.hidden,
       registeredFrom: (row.registeredFrom ?? 'spaces') as 'spaces' | 'conversation',
       registeredAt: row.registeredAt as Date,
-      jobsCount: Number(jobsRows[0]?.jobsCount ?? 0),
-      lastActivityAt: jobsRows[0]?.lastActivityAt ? new Date(jobsRows[0].lastActivityAt) : null,
     },
     conversations: conversationRows.map(
       (c): ProjectConversationRow => ({
@@ -864,7 +861,7 @@ export async function getProjectPageAction(id: string): Promise<ActionResult<Pro
       .orderBy(sql`max(${verificationRuns.createdAt}) desc`)
       .limit(PROOF_SEQUENCES_MAX);
 
-    const [proofRows, files] = await Promise.all([
+    const [proofRows, files, jobsRows] = await Promise.all([
       db
         .select({
           jobId: verificationRuns.jobId,
@@ -890,6 +887,15 @@ export async function getProjectPageAction(id: string): Promise<ActionResult<Pro
           ),
         ),
       readProjectFolder(path),
+      // L'activité du projet (compte de travaux, dernière date) : l'étagère
+      // l'affiche, la page du fil non — elle ne la lit donc pas.
+      db
+        .select({
+          jobsCount: sql<number>`count(*)`,
+          lastActivityAt: sql<Date | null>`max(${agentJobs.createdAt})`,
+        })
+        .from(agentJobs)
+        .where(and(eq(agentJobs.entityId, session.entityId), eq(agentJobs.projectId, id))),
     ]);
 
     // La preuve : au plus 3 séquences, la requête s'en est chargée
@@ -899,7 +905,11 @@ export async function getProjectPageAction(id: string): Promise<ActionResult<Pro
     const commands = row.verifyCommands ?? null;
 
     return ok({
-      project: core.project,
+      project: {
+        ...core.project,
+        jobsCount: Number(jobsRows[0]?.jobsCount ?? 0),
+        lastActivityAt: jobsRows[0]?.lastActivityAt ? new Date(jobsRows[0].lastActivityAt) : null,
+      },
       files,
       proof: {
         configured: commands !== null && commands.length > 0,

@@ -17,7 +17,7 @@ import PageShell from '@/components/ui/PageShell';
 import StatusPill from '@/components/ui/StatusPill';
 import { getProjectThreadPageAction } from '@/lib/project-actions.ts';
 import { getConversationThreadAction } from '@/lib/conversation-actions.ts';
-import { projectLanding } from '@/lib/project-landing.ts';
+import { composerPresentation, projectLanding } from '@/lib/project-landing.ts';
 import { originLabel } from '../format.ts';
 import WorkHeader from '../WorkHeader.tsx';
 import { threadAgents } from '../format.ts';
@@ -57,30 +57,24 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     view?.deliveries.filter((d) => d.outcome === 'prepared' || d.outcome === 'attempted').length ??
     0;
 
-  // À qui la saisie écrit VRAIMENT (revue Codex, passe 60). Quand elle
-  // prolonge le fil affiché : l'agent de ce fil. Quand elle va CRÉER la
-  // conversation du projet : le ROOT, celui à qui `createProjectConversationAction`
-  // l'attribue — jamais l'agent du fil lu, qui peut être un autre, ni celui du
-  // projet, qui n'est pas celui qu'on écrira. Et si un fil d'un autre canal est
-  // affiché, on le dit AVANT l'envoi : ce message n'y répond pas, il ouvre la
-  // conversation du projet, et la page la montrera à sa place.
-  const continues = landing !== null && landing.composerConversationId !== null;
-  const recipient = continues ? (view?.conversation.agentName ?? null) : (rootAgent?.name ?? null);
-  const placeholder = continues
-    ? undefined
-    : recipient !== null
-      ? `Write to ${recipient}…`
-      : 'Write…';
-  const readAgent = view?.conversation.agentName ?? null;
-  const note =
-    !continues && view !== null
-      ? `You're reading a conversation ${originLabel({ channel: view.conversation.channel, scheduleName: null, chatId: view.conversation.chatId })}${
-          readAgent !== null ? ` with ${readAgent}` : ''
-        }. Writing here starts this project's own conversation${
-          // Le nom du destinataire ne se répète que s'il CHANGE.
-          recipient !== null && recipient !== readAgent ? ` with ${recipient}` : ''
-        }, shown here instead.`
-      : undefined;
+  // Ce que la saisie dit d'elle-même (revue Codex, passes 60-61) : à qui elle
+  // écrit VRAIMENT — l'agent du fil prolongé, ou le ROOT à qui
+  // `createProjectConversationAction` attribue une conversation créée —, ce
+  // qu'elle va faire si un fil d'un autre canal est affiché (dit AVANT
+  // l'envoi), ou pourquoi elle n'est pas là (pas de ROOT). Pur et testé.
+  const composer = composerPresentation({
+    continues: landing !== null && landing.composerConversationId !== null,
+    threadAgentName: view?.conversation.agentName ?? null,
+    threadOrigin:
+      view !== null
+        ? originLabel({
+            channel: view.conversation.channel,
+            scheduleName: null,
+            chatId: view.conversation.chatId,
+          })
+        : null,
+    rootAgentName: rootAgent?.name ?? null,
+  });
 
   return (
     <PageShell
@@ -110,9 +104,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         projectId={project.id}
         conversationId={landing?.composerConversationId ?? null}
         thread={thread}
-        agentName={recipient}
-        {...(placeholder !== undefined ? { placeholder } : {})}
-        {...(note !== undefined ? { note } : {})}
+        composer={composer}
       />
       {/* P4 — la barre d'état, permanente en bas de la page, sous la saisie. */}
       {view !== null && (

@@ -45,6 +45,7 @@ describe('ProjectThread', () => {
         projectId="p-1"
         conversationId="c-1"
         thread={{ ok: false, code: 'db_error', message: 'Failed to load the conversation' }}
+        composer={{ kind: 'reply', agentName: 'Alfred' }}
       />,
     );
     expect(html).toContain('Failed to load the conversation');
@@ -55,18 +56,51 @@ describe('ProjectThread', () => {
     expect(html).not.toContain('Nothing said here yet');
   });
 
-  it('pas encore de conversation : on le dit, et on peut écrire', () => {
+  it('pas encore de conversation : on le dit, et on peut écrire — au ROOT, qui la recevra', () => {
     const html = renderToStaticMarkup(
-      <ProjectThread projectId="p-1" conversationId={null} thread={null} />,
+      <ProjectThread
+        projectId="p-1"
+        conversationId={null}
+        thread={null}
+        composer={{
+          kind: 'start',
+          agentName: 'Alfred',
+          placeholder: 'Write to Alfred…',
+          note: null,
+        }}
+      />,
     );
     expect(html).toContain('Nothing said here yet');
-    // Sans agent connu, la saisie reste sobre — elle n'invente pas de nom.
-    expect(html).toContain('placeholder="Reply…"');
+    expect(html).toContain('placeholder="Write to Alfred…"');
+    // Aucun fil affiché : rien à annoncer avant l'envoi.
+    expect(html).not.toContain('Writing here starts');
+  });
+
+  it('pas de ROOT : pas de saisie du tout, un mot qui dit pourquoi (passe 61)', () => {
+    const html = renderToStaticMarkup(
+      <ProjectThread
+        projectId="p-1"
+        conversationId={null}
+        thread={null}
+        composer={{
+          kind: 'blocked',
+          message: 'No ROOT agent yet. Designate one in Settings to write here.',
+        }}
+      />,
+    );
+    expect(html).toContain('No ROOT agent yet');
+    expect(html).not.toContain('<textarea');
+    expect(html).not.toContain('Send');
   });
 
   it('le fil est là : il est dessiné, et on peut écrire', () => {
     const html = renderToStaticMarkup(
-      <ProjectThread projectId="p-1" conversationId="c-1" thread={filLu} agentName="Alfred" />,
+      <ProjectThread
+        projectId="p-1"
+        conversationId="c-1"
+        thread={filLu}
+        composer={{ kind: 'reply', agentName: 'Alfred' }}
+      />,
     );
     expect(html).toContain('Range le dossier');
     // P2bis — la saisie dit À QUI on écrit : ce que la page a décidé.
@@ -87,9 +121,12 @@ describe('ProjectThread', () => {
         projectId="p-1"
         conversationId={null}
         thread={filTelegram}
-        agentName="Alfred"
-        placeholder="Write to Alfred…"
-        note="You're reading a conversation via Telegram with Lead-Dev. Writing here starts this project's own conversation with Alfred, shown here instead."
+        composer={{
+          kind: 'start',
+          agentName: 'Alfred',
+          placeholder: 'Write to Alfred…',
+          note: "You're reading a conversation via Telegram with Lead-Dev. Writing here starts this project's own conversation with Alfred, shown here instead.",
+        }}
       />,
     );
     expect(html).toContain('Range le dossier');

@@ -30,6 +30,49 @@ export function canReplyFromWeb(channel: string): boolean {
   return channel === 'dashboard';
 }
 
+/**
+ * Ce que la saisie DIT d'elle-même, dérivé du choix ci-dessus (revue Codex,
+ * passes 60-61) :
+ *   - `reply`   — elle prolonge le fil affiché : « Reply to <son agent>… » ;
+ *   - `start`   — elle va CRÉER la conversation du projet, attribuée au ROOT :
+ *                 « Write to <ROOT>… », et si un fil d'un autre canal est
+ *                 affiché, une note le dit AVANT l'envoi (le nom du ROOT ne se
+ *                 répète que s'il diffère de l'agent du fil lu) ;
+ *   - `blocked` — pas de ROOT : toute création échouerait (`no_root_agent`),
+ *                 donc pas de saisie du tout, un mot à la place — un champ
+ *                 « Write… » qui échoue à l'envoi mentirait.
+ */
+export type ComposerPresentation =
+  | { kind: 'reply'; agentName: string | null }
+  | { kind: 'start'; agentName: string; placeholder: string; note: string | null }
+  | { kind: 'blocked'; message: string };
+
+export const NO_ROOT_MESSAGE = 'No ROOT agent yet. Designate one in Settings to write here.';
+
+export function composerPresentation(input: {
+  /** La saisie prolonge-t-elle le fil affiché ? (`composerConversationId !== null`) */
+  continues: boolean;
+  /** L'agent du fil affiché, s'il y a un fil. */
+  threadAgentName: string | null;
+  /** D'où vient le fil affiché (« via Telegram »), s'il y a un fil. */
+  threadOrigin: string | null;
+  /** Le ROOT de l'entité, celui qui recevra une conversation créée. */
+  rootAgentName: string | null;
+}): ComposerPresentation {
+  if (input.continues) return { kind: 'reply', agentName: input.threadAgentName };
+  if (input.rootAgentName === null) return { kind: 'blocked', message: NO_ROOT_MESSAGE };
+  const root = input.rootAgentName;
+  const note =
+    input.threadOrigin === null
+      ? null
+      : `You're reading a conversation ${input.threadOrigin}${
+          input.threadAgentName !== null ? ` with ${input.threadAgentName}` : ''
+        }. Writing here starts this project's own conversation${
+          root !== input.threadAgentName ? ` with ${root}` : ''
+        }, shown here instead.`;
+  return { kind: 'start', agentName: root, placeholder: `Write to ${root}…`, note };
+}
+
 export function projectLanding(
   rows: readonly LandingCandidate[],
   projectConversationId: string | null,
