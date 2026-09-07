@@ -481,6 +481,24 @@
           </td>
         </tr>
         <tr>
+          <td class="k">3bis · Le fil tel que la maquette</td>
+          <td>
+            P2bis le rendu du fil, repris composant par composant depuis <code>Main.dc.html</code>
+            avec le design system
+          </td>
+          <td>
+            Le fil de conversation ressemble à la maquette : prose lisible, un tour = une voix,
+            groupes d'étapes parlants, délégation dépliable avec le fil du délégué, cartes au format
+            maquette, sans bruit système.
+          </td>
+          <td>
+            <span class="etat">SESSION 1 LIVRÉE le 07/09</span> — go de Quentin le 07/09 («
+            l'interface livrée est ignoble ») ; <code>05d95510</code> + <code>61a85710</code>,
+            captures clair/sombre sur trois conversations réelles ; passe Codex 49 en cours ;
+            session 2 à venir (en-tête d'espace, preuve dans le fil, cartes au pixel)
+          </td>
+        </tr>
+        <tr>
           <td class="k">4 · Ce qui reste cher</td>
           <td>P13 relecteurs · P14 aperçu vivant</td>
           <td>Deux relecteurs cités ; l'application qui tourne au centre du projet.</td>
@@ -763,6 +781,80 @@
       ><span class="v"
         >Le diff cliquable, le tableur rendu, la question à boutons : leurs cartes affichent un état
         « pas encore rendu » honnête en attendant leur pierre.</span
+      >
+    </div>
+  </div>
+
+  <div class="pierre">
+    <div class="tete">
+      <span class="num">P2bis</span>
+      <h3>Le fil tel que la maquette</h3>
+      <span class="taille">L</span>
+    </div>
+    <div class="ligne">
+      <span class="l">pourquoi</span
+      ><span class="v"
+        >Le 07/09, Quentin a vu le fil rendu et l'a jugé « ignoble » : il attendait la maquette
+        <code>Main.dc.html</code>, avec notre design system. Les lots 1 à 3 avaient construit les
+        DONNÉES du fil sans jamais confronter le rendu à la maquette par une capture : la règle «
+        Playwright avant fini » n'a pas été tenue. Diagnostic sur deux conversations réelles : le
+        markdown n'était pas rendu (astérisques, dièses et backticks bruts jusque dans le titre de
+        page) ; la réponse finale paraissait deux fois ; une plaque blanche par appel d'outil, sans
+        ligne de résultat, avec un avatar et un nom même pour un tour muet ; le bruit système répété
+        sous chaque tour ; la délégation réduite à une ligne tronquée ; la carte de preuve vide
+        isolée en bas.</span
+      >
+    </div>
+    <div class="ligne">
+      <span class="l">ça pose</span
+      ><span class="v"
+        >La maquette devient la spec, composant par composant, sur l'échelle du design system
+        (aucune taille fractionnée). <b>Session 1</b> : un rendu markdown sans HTML brut (mdast →
+        React, blocs de code avec en-tête et « Copy ») partout ; une réponse, une fois — la prose du
+        dernier tour EST la réponse ; la compaction des tours muets dans le précédent, l'en-tête du
+        groupe qui dit « N steps · durée · jetons · coût » ; le bruit système hors du fil (une note
+        par fil, plus de carte de preuve vide) ; la délégation dépliable avec le fil du délégué ; la
+        question au format maquette ; le composer « Reply to Alfred… ». <b>Session 2</b> : l'en-tête
+        d'espace (« Verified · The app · Files »), la preuve dans le fil au tour où elle a lieu, les
+        cartes fichiers/diff et relecture au pixel.</span
+      >
+    </div>
+    <div class="ligne">
+      <span class="l">preuve</span
+      ><span class="v"
+        >Captures Playwright de trois conversations réelles (l'app single-screen Telegram, le PRD
+        Podium, et la conversation neuve <code>c1367d54…</code> ouverte le 07/09 avec l'accord de
+        Quentin pour voir les cartes du lot 3 en vrai), en clair ET en sombre, face à la maquette ;
+        tests de rendu et du modèle ; lint, typecheck, prettier ; l'œil de Quentin ensuite.</span
+      >
+    </div>
+    <div class="ligne">
+      <span class="l">livré</span
+      ><span class="v"
+        ><b>Le 07/09, session 1</b> (<code>05d95510</code>, par opus-p2bis sur spec puis complété ;
+        liens durcis dans <code>61a85710</code>). Vu sur trois conversations, en clair et en sombre
+        : le markdown est rendu partout, le titre de page aussi ; la réponse finale paraît une fois,
+        comme un tour de l'agent ; les tours muets se replient et l'en-tête du groupe dit « N steps
+        · durée · jetons · coût » ; la note d'avant-cartes paraît une fois par fil ; la carte de
+        preuve vide a disparu ; la délégation est un groupe dépliable qui contient le fil du
+        délégué, un niveau — le classeur écrit par l'Officier, son aperçu, sa formule montrée telle
+        qu'écrite et son état de vérification se lisent depuis la conversation ; la question a la
+        forme de la maquette ; le composer dit « Reply to Alfred… ». Corrigé au passage sur le banc
+        d'essai : la table d'un <code>xlsx_read</code> rendait « [object Object] » pour une formule
+        fraîche, <code>xlsx_create</code> nommait le fichier par son chemin absolu, une feuille vide
+        demandait si sa première ligne était un en-tête. Un lien <code>javascript:</code> ou
+        <code>data:</code> écrit par un agent n'est plus un lien. <i>Non fait, et dit</i> : la
+        demande dupliquée de la conversation Telegram est un vrai renvoi de l'utilisateur (deux jobs
+        de tête, 75 minutes d'écart) — pas de dédoublonnage ; le fil d'un petit-enfant ne s'assemble
+        pas (un niveau). Passe Codex 49 en cours.</span
+      >
+    </div>
+    <div class="ligne">
+      <span class="l">le plan corrigé</span
+      ><span class="v"
+        >La ligne « la maquette est une intention, pas une spécification au pixel » des limites
+        restait vraie sur le fond mais servait d'excuse : la maquette est bien la spec du rendu,
+        seules ses tailles se rabattent sur l'échelle.</span
       >
     </div>
   </div>

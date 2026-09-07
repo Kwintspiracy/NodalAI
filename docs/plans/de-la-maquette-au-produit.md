@@ -94,6 +94,7 @@ replié — il reçoit la prose, le fichier joint, et un lien vers le projet.
 | 1 | **Rendre visible ce qui existe** | P1 contrat de rendu · P2 conversation · P3 cartes de preuve et d'envoi · P4 barre d'état et coût | Une entrée « Spaces » ouvre le nouvel espace ; sa page est la conversation dessinée, avec preuves, coûts, jetons. Runs, Code et Chat inchangés | ✅ **LOT 1 CLOS le 06/09** — P1 (passe 16), P2 (19), P3 (21), P4 (24-25 : « aucun constat neuf ») ; retours de Quentin traités (automatisations à part, fil nettoyé sur capture réelle, coût cache-aware) · ⚠️ à voir par Quentin dans son navigateur : /spaces et un fil récent |
 | 2 | **Le projet et la conversation** | P5 registre des projets · P6 conversation continue et projet courant · P7 Chat pour toutes les conversations, encart · P8 Spaces = projets, nouveau projet, chat du projet · P9 Scheduled | Chat regroupe dashboard et Telegram ; un projet naît d'un clic ou d'une production ; les automatisations ont leur page | 🟡 **go de Quentin le 06/09** — ordre : P5 · P9 (en parallèle) → P6 → P7 → P8 ; chaque pierre codée par Opus, relue par moi, puis `codex review`. ✅ P9 (`b9ff0f1b`, passe 26 traitée) · ✅ P5 (`fd2293c3`, passe 27 : 2 constats traités) · ✅ P6 (`ea984c1b`, passe 28 traitée dans `8ab609f1`) · ✅ P7 (`55ec67eb`, passe 29 traitée : issue des appels, plafonds par la fin, réponse à l'agent du fil, titres sans préfixe de groupe, fils groupés, lignes d'avant P1 dites « non classées ») · ✅ P8 (livré, passe 30 à suivre). **Lot 2 codé en entier le 06/09** ; reste la passe Codex 30 et l'œil de Quentin sur /chat, /spaces, /scheduled. La CI de la PR, rouge depuis le lot 1 (lint web, test GLM, cycle d'import P4b), est réparée au passage |
 | 3 | **L'agent qui demande et montre** | P5b registre automatique · P10 `ask_user` · P11 fichiers et diff · P12 le tableur rendu | Les projets de l'onglet Code sont dans Spaces sans un clic ; « Où écrire ? » avec boutons dans le chat et dans Telegram, pour les documents seulement ; diffs cliquables ; un classeur qui s'affiche | ✅ **CLOS côté code le 07/09 (passes Codex 32-48), CI VERTE sur `51bd3b4b` — attend l'œil de Quentin et les arbitrages ci-dessous** — ✅ P5b CLOSE (`16d1f574` ; passes 32-35 traitées dans `4491ae46`, `aefdcec3`, `934091d4`, `4f084c21`, `268f68ef` ; passe 36 : aucun constat bloquant, rien de neuf) · ✅ P10a `ask_user` (`5c7938a7` ; passes 37-38 traitées, `36dd5c92` ; P10a close sous réserve d'un arbitrage sur les textes de chrome) · ✅ P10b « où écrire ? » (`baea7599` ; passes 39-40 traitées dans `5921ba4f`, `147159ff` ; passe 41 traitée dans `5171c706` : la liaison texte tombe, `register_project` passe par l'approbation ; passe 44 : aucun constat bloquant — P10b CLOSE ; la ligne d'impact de la carte branchée dans `c301df1b`) · ✅ P11 fichiers et diff CLOSE (`e6713458` ; passes 42-43 traitées dans `ea6170ec`, `80ee7a8d` ; passe 45 : aucun constat bloquant) · ✅ P12 tableur rendu (`b4ac14b1` ; passe 46 : 3 P0 + 2 P1 vrais, traités dans `f790a051` — la même clé de document pour l'intention et la carte, texte riche lisible, largeur bornée à 20 colonnes, état lu par (job, clé), pied sans contradiction ; passe 47 : un P0 neuf, les cellules couvertes par une fusion répétaient la valeur du maître, corrigé dans `e9393c54` ; passe 48 : aucun constat neuf — **P12 CLOSE**) |
+| 3bis | **Le fil tel que la maquette** | P2bis le rendu du fil, repris composant par composant depuis `Main.dc.html` avec le design system | Le fil de conversation ressemble à la maquette : prose lisible, un tour = une voix, groupes d'étapes parlants, délégation dépliable, cartes au format maquette, sans bruit système | 🔄 **go de Quentin le 07/09** (« l'interface livrée est ignoble ») — session 1 en cours (opus-p2bis) |
 | 4 | **Ce qui reste cher** | P13 relecteurs (= PR④ de Vérifier & Corriger) · P14 aperçu vivant | Deux relecteurs cités ; l'application qui tourne au centre du projet | ⬜ |
 
 ## Verdict de faisabilité — vérifié dans le code le 05/09
@@ -226,6 +227,73 @@ retirer une carte du dispatch fait rougir le test sur la partie correspondante.
 **Ce qui reste hors de P2.** Le diff cliquable (P11), le tableur rendu (P12), la
 question à boutons (P10) : leurs cartes affichent un état « pas encore rendu »
 honnête en attendant.
+
+### P2bis · Le fil tel que la maquette — L
+
+**Pourquoi cette pierre existe.** Le 07/09, Quentin a vu le fil rendu et l'a
+jugé « ignoble » : il attendait la maquette `Main.dc.html`, avec notre design
+system. Les lots 1 à 3 avaient construit les DONNÉES du fil (cartes persistées,
+modèle, diff, aperçu, question) sans jamais confronter le rendu à la maquette
+par une capture : la règle « Playwright avant fini » n'a pas été tenue, et le
+plan disait pourtant « chaque pierre sera validée à l'écran ». Diagnostic fait
+sur deux conversations réelles : le markdown n'était pas rendu (`**gras**`,
+`## titres`, backticks bruts jusque dans le titre de page) ; la réponse finale
+paraissait deux fois (prose du tour + bloc « ANSWER ») ; une plaque blanche par
+appel d'outil, sans ligne de résultat, avec un avatar et un nom même pour un
+tour muet ; le bruit système (« Nodal reminded the agent · Older activity…
+cannot be classified ») répété sous chaque tour ; la délégation réduite à une
+ligne tronquée ; la carte « VERIFICATION · No proof ran » isolée en bas.
+
+**Ce que ça pose.** La maquette devient la spec, composant par composant, sur
+l'échelle du design system (aucune taille fractionnée : la correspondance est
+écrite dans la spec de la session). Session 1 : (1) un rendu markdown sans HTML
+brut (mdast → React, `unified` + `remark-gfm`, blocs de code avec en-tête et
+« Copy ») appliqué à la prose, aux demandes, aux réponses, aux cartes et au
+titre de page ; (2) une réponse, une fois — la prose du dernier tour EST la
+réponse ; une demande dupliquée par deux jobs de même tâche n'est montrée qu'une
+fois, après diagnostic dans les données ; (3) la compaction des tours : un tour
+sans prose ni carte fusionne dans le précédent, l'en-tête du groupe porte
+« N steps · durée · jetons · coût », le nom du tour ne porte que le modèle ;
+(4) le bruit système hors du fil : une note « thread » paraît une fois par fil,
+la section de preuve vide n'est plus rendue (la barre d'état dit déjà « no
+proof ») ; (5) la délégation dépliable, au format groupe, avec la tâche et le
+résultat en markdown et un lien vers le run ; (6) les cartes au format maquette
+(question à bordure encre et boutons, échec, produit en lignes clé-valeur,
+envoi) ; (7) le composer « Reply to Alfred… ». Session 2 : l'en-tête d'espace
+(« Verified · The app · Files »), la preuve dans le fil au tour où elle a lieu,
+les cartes fichiers/diff et relecture au pixel de la maquette.
+
+**Preuve exigée avant « fini ».** Captures Playwright des trois conversations
+de référence (l'app single-screen Telegram `a6d23d0a…`, le PRD Podium
+`d19ba7dc…`, et la conversation neuve `c1367d54…` ouverte le 07/09 avec l'accord
+de Quentin pour voir les cartes du lot 3 en vrai), en clair ET en sombre, mises
+face à la maquette ; tests de rendu (`renderToStaticMarkup`) et du modèle ;
+lint, typecheck, prettier ; l'œil de Quentin ensuite.
+
+**Livré le 07/09 (session 1 : `05d95510`, par opus-p2bis sur spec puis
+complété ; liens durcis dans le commit suivant).** Vu sur trois conversations
+réelles, en clair et en sombre : le markdown est rendu partout (titres, gras,
+code, tables, listes), le titre de page aussi ; la réponse finale paraît une
+fois, comme un tour de l'agent ; les tours muets se replient dans le précédent
+et l'en-tête du groupe dit « N steps · durée · jetons · coût » ; la note
+d'avant-cartes paraît une fois par fil ; la carte de preuve vide a disparu ;
+la délégation est un groupe dépliable qui contient le fil du délégué, un
+niveau — le classeur écrit par l'Officier, son aperçu, sa formule montrée
+telle qu'écrite et son état de vérification se lisent depuis la conversation ;
+la question a la forme de la maquette ; le composer dit « Reply to Alfred… ».
+Corrigé au passage sur le banc d'essai : la table d'un `xlsx_read` rendait
+« [object Object] » pour une formule fraîche (lecture alignée sur l'aperçu),
+`xlsx_create` nommait le fichier par son chemin absolu, une feuille vide
+demandait si sa première ligne était un en-tête. Un lien `javascript:` ou
+`data:` écrit par un agent n'est plus un lien. *Non fait, et dit* : la demande
+dupliquée de la conversation Telegram est un vrai renvoi de l'utilisateur
+(deux jobs de tête, 75 minutes d'écart) — pas de dédoublonnage ; le fil d'un
+petit-enfant ne s'assemble pas (un niveau). Passe Codex 49 en cours.
+
+**Ce que la vérification a corrigé dans le plan lui-même.** La ligne « la
+maquette est une intention, pas une spécification au pixel » des limites
+restait vraie sur le fond mais servait d'excuse : la maquette est bien la spec
+du rendu, seules ses tailles se rabattent sur l'échelle.
 
 ### P3 · Les cartes de preuve et d'envoi — S
 
