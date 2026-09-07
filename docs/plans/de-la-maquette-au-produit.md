@@ -428,8 +428,22 @@ Quentin en questionne l'utilité, et je ne lui vois qu'un usage, repartir de
 zéro sur le même dossier — à retirer s'il le dit. La saisie : la zone de texte
 était en ligne dans son conteneur et laissait 5 px de descente sous elle, le
 bouton se calait dessus ; en bloc, avec le bouton centré dans une boîte de la
-hauteur d'une ligne, les centres tombent au même pixel (mesuré). Passe Codex
-60 lancée.
+hauteur d'une ligne, les centres tombent au même pixel (mesuré). **Passe
+Codex 60 : deux constats bloquants, vrais.** (1) La saisie nommait l'agent du
+fil affiché alors que, quand elle va créer la conversation du projet, celle-ci
+est attribuée au ROOT de l'entité — sous un fil Telegram de Lead-Dev, « Reply
+to Lead-Dev… » aurait ouvert une conversation avec Alfred. La page décide
+désormais du destinataire (l'agent du fil prolongé, ou le ROOT lu à la même
+source que la création), le placeholder dit « Write to Alfred… » quand elle
+crée, et une ligne au-dessus du champ le dit avant l'envoi : « You're reading
+a conversation via Telegram with Lead-Dev. Writing here starts this project's
+own conversation with Alfred, shown here instead. » (2) La page du fil lisait
+encore le dossier et la preuve à chaque ouverture et à chaque rafraîchissement
+sans les montrer : le chargeur est scindé, un cœur commun (projet,
+conversations, conversation propre, ROOT) pour le fil, le dossier et la preuve
+en plus pour `/files` seulement. Codex garde la conversation propre en priorité
+(« la plus récente » ferait changer le fil tout seul), ce que le plan retient.
+Passe 61 lancée sur ces correctifs.
 
 **Ce que la vérification a corrigé dans le plan lui-même.** La ligne « la
 maquette est une intention, pas une spécification au pixel » des limites
