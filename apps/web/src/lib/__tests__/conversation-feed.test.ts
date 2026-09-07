@@ -332,8 +332,20 @@ describe('buildConversationFeed — un job cron réel', () => {
     expect(card?.kind === 'card' && card.step.durationMs).toBe(24359);
   });
 
-  it('se ferme sur la réponse finale du job, et les totaux viennent des appels LLM', () => {
-    expect(feed.items.at(-1)).toEqual({ kind: 'answer', text: 'No new entries.' });
+  it('se ferme sur la PAROLE de l’agent (pas sur `job.result`), et les totaux viennent des appels LLM', () => {
+    // L'agent a parlé (« Rien de neuf dans le changelog aujourd’hui. ») avant
+    // le tour muet d'envoi : sa prose est la réponse ; le `job.result`
+    // machine (« No new entries. ») ne s'y ajoute pas (règle de structure,
+    // passe 52).
+    const last = feed.items.at(-1);
+    expect(last?.kind).toBe('turn');
+    expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
+    expect(
+      last?.kind === 'turn' &&
+        last.blocks.some(
+          (b) => b.kind === 'prose' && b.text === 'Rien de neuf dans le changelog aujourd’hui.',
+        ),
+    ).toBe(true);
     expect(feed.totals).toEqual({
       turns: 4,
       toolCalls: 5,
@@ -348,7 +360,7 @@ describe('buildConversationFeed — un job cron réel', () => {
   });
 });
 
-describe('la réponse finale ne se dit pas deux fois (P2bis)', () => {
+describe('la réponse finale ne se dit pas deux fois (P2bis) — une règle de structure, pas de texte', () => {
   const oneTurn = (prose: string, result: string): FeedJob => ({
     ...job,
     task: 'x',
@@ -359,26 +371,31 @@ describe('la réponse finale ne se dit pas deux fois (P2bis)', () => {
     ],
   });
 
-  it('une réponse déjà dite par la dernière prose ne produit AUCUN item answer', () => {
+  it('quand le dernier tour a PARLÉ, sa prose est la réponse : aucun item answer', () => {
     const feed = buildConversationFeed(oneTurn('Tout est prêt.', 'Tout est prêt.'), [], []);
     expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
   });
 
-  it('la comparaison ignore les espaces : la prose enveloppée compte pour dite', () => {
-    const feed = buildConversationFeed(
-      oneTurn('Voici le bilan :\n\nTout   est\nprêt.', 'Tout est prêt.'),
-      [],
-      [],
-    );
-    expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
+  it('même quand `job.result` dit AUTRE chose ou l’écrit autrement : la parole de l’agent prime', () => {
+    // Quatre comparaisons de texte (passes 49 à 52) ont chacune laissé passer
+    // un cas ; la dernière parce que « **Tout est prêt.** » et « Tout est
+    // prêt. » diffèrent à l'octet et sont identiques à l'écran. Plus aucune
+    // comparaison : ce que l'agent a écrit EST sa réponse.
+    for (const [prose, result] of [
+      ['Je regarde.', 'Tout est prêt.'],
+      ['Voici le bilan :\n**Tout est prêt.**', 'Tout est prêt.'],
+      ['Résultat : PAS OK.', 'OK.'],
+      ['La vérification est OK. Je poursuis l’analyse.', 'OK.'],
+    ] as const) {
+      const feed = buildConversationFeed(oneTurn(prose, result), [], []);
+      expect(
+        feed.items.some((i) => i.kind === 'answer'),
+        prose,
+      ).toBe(false);
+    }
   });
 
-  it('une réponse qui dit AUTRE chose est gardée', () => {
-    const feed = buildConversationFeed(oneTurn('Je regarde.', 'Tout est prêt.'), [], []);
-    expect(feed.items.at(-1)).toEqual({ kind: 'answer', text: 'Tout est prêt.' });
-  });
-
-  it('la prose déjà dite AVANT un rappel du runner et un tour muet d’envoi ne se répète pas', () => {
+  it('la prose dite AVANT un rappel du runner et un tour muet d’envoi ne se répète pas', () => {
     // Le cas de la capture du 07/09 : l'agent écrit sa réponse, le runner lui
     // rappelle de l'envoyer, un tour muet appelle telegram_send_message puis
     // return_result — et la même phrase paraissait une seconde fois en bas.
@@ -412,47 +429,36 @@ describe('la réponse finale ne se dit pas deux fois (P2bis)', () => {
       [],
     );
     expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
-    // Et la phrase n'est rendue qu'une fois dans les proses du fil.
     const proses = feed.items.flatMap((i) =>
       i.kind === 'turn' ? i.blocks.filter((b) => b.kind === 'prose') : [],
     );
     expect(proses).toHaveLength(1);
   });
 
-  it('une réponse COURTE trouvée au milieu d’une longue prose n’est pas « déjà dite » (passe 49)', () => {
+  it('quand l’agent a fini SANS un mot, `job.result` est la réponse et se montre', () => {
     const feed = buildConversationFeed(
-      oneTurn('La vérification est OK. Je poursuis l’analyse.', 'OK.'),
+      {
+        ...job,
+        task: 'x',
+        result: 'Tout est prêt.',
+        messages: [
+          { role: 'user', content: 'x' },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'tool-call', toolCallId: 'ret-1', toolName: 'return_result', input: {} },
+            ],
+          },
+        ],
+      },
       [],
       [],
     );
-    expect(feed.items.at(-1)).toEqual({ kind: 'answer', text: 'OK.' });
+    expect(feed.items.at(-1)).toEqual({ kind: 'answer', text: 'Tout est prêt.' });
   });
 
-  it('une prose qui FINIT par les mêmes caractères mais dit le contraire garde la réponse (passe 50)', () => {
-    // « Résultat : PAS OK. » se termine par « OK. » — un suffixe de caractères
-    // aurait effacé une réponse opposée. Le paragraphe est la frontière.
-    const feed = buildConversationFeed(oneTurn('Résultat : PAS OK.', 'OK.'), [], []);
-    expect(feed.items.at(-1)).toEqual({ kind: 'answer', text: 'OK.' });
-  });
-
-  it('une réponse qui est la dernière LIGNE de la prose, après un simple saut de ligne, ne se répète pas (passe 51)', () => {
-    const feed = buildConversationFeed(
-      oneTurn('Voici le bilan :\nTout est prêt.', 'Tout est prêt.'),
-      [],
-      [],
-    );
-    expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
-  });
-
-  it('une réponse de plusieurs paragraphes déjà dite en fin de prose ne se répète pas', () => {
-    const feed = buildConversationFeed(
-      oneTurn(
-        'Je résume.\n\nLe classeur est écrit.\n\nLa formule est en B5.',
-        'Le classeur est écrit.\n\nLa formule est en B5.',
-      ),
-      [],
-      [],
-    );
+  it('un job terminé sans résultat ne produit pas d’item answer', () => {
+    const feed = buildConversationFeed(oneTurn('Je regarde.', ''), [], []);
     expect(feed.items.some((i) => i.kind === 'answer')).toBe(false);
   });
 });

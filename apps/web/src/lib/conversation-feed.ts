@@ -362,56 +362,28 @@ export function normalizeText(text: string): string {
 }
 
 /**
- * La réponse finale est-elle DÉJÀ dite par l'agent ? On remonte le fil
- * jusqu'à la DERNIÈRE PROSE de l'agent : si elle contient le texte de la
- * réponse, la répéter n'ajoute rien.
+ * Le dernier tour de l'agent a-t-il PARLÉ ? On remonte le fil jusqu'au
+ * dernier tour qui porte une prose, à travers ce qui n'est pas une parole :
+ * un tour MUET (l'appel `telegram_send_message` puis `return_result` qui
+ * suivent la phrase), un rappel du runner, une délégation, un encart. On
+ * s'arrête à la demande de l'utilisateur : au-delà, ce serait la conversation
+ * d'avant.
  *
- * On remonte à travers ce qui n'est pas une parole : un tour MUET (l'appel
- * `telegram_send_message` puis `return_result` qui suivent la phrase), un
- * rappel du runner, une délégation. Sur la capture du 07/09, la phrase
- * « C'est fait ✅ … » paraissait deux fois précisément parce que le tour
- * d'envoi s'intercalait entre elle et la fin du fil. On s'arrête à la demande
- * de l'utilisateur : au-delà, ce serait la conversation d'avant.
+ * C'est une règle de STRUCTURE, pas de texte. Quatre formes de comparaison
+ * (`includes`, suffixe, paragraphe, lignes jointes — revue Codex PR #46,
+ * passes 49 à 52) ont chacune laissé passer un cas où le lecteur voyait deux
+ * fois la même phrase, la dernière parce que la prose est du MARKDOWN
+ * (« **Tout est prêt.** » ≠ « Tout est prêt. » à l'octet, égaux à l'écran).
+ * Ce que l'agent a écrit EST sa réponse ; `job.result` n'est montré que
+ * lorsque l'agent a fini sans un mot.
  */
-/**
- * Les LIGNES d'un texte, normalisées, sans les vides. La ligne est la
- * frontière de comparaison : un modèle sépare souvent sa conclusion d'un seul
- * saut de ligne (« Voici le bilan :⏎Tout est prêt. »), et une frontière au
- * paragraphe (ligne vide) la manquait (revue Codex PR #46, passe 51).
- */
-function linesOf(text: string): string[] {
-  return text
-    .split('\n')
-    .map(normalizeText)
-    .filter((p) => p !== '');
-}
-
-function lastProseContains(items: readonly FeedItem[], answer: string): boolean {
-  const needle = normalizeText(answer);
-  if (needle === '') return true;
+function lastAgentTurnSpoke(items: readonly FeedItem[]): boolean {
   for (let i = items.length - 1; i >= 0; i -= 1) {
     const item = items[i];
     if (item === undefined) continue;
     if (item.kind === 'request' || item.kind === 'history') return false;
     if (item.kind !== 'turn') continue;
-    const proses = item.blocks.filter((b) => b.kind === 'prose');
-    const last = proses[proses.length - 1];
-    if (last === undefined) continue;
-    // La réponse est « déjà dite » si elle est la FIN de la prose à partir
-    // d'un début de ligne : les k dernières lignes, jointes et normalisées,
-    // égalent la réponse normalisée pour un k. Une prose enveloppée (« Tout
-    // est ⏎ prêt. ») compte comme dite ; « Voici le bilan : ⏎ Tout est prêt. »
-    // aussi. Ni `includes` (une réponse courte trouvée au milieu, passe 49) ni
-    // un suffixe de caractères (« Résultat : PAS OK. » se termine par « OK. »
-    // et dit le contraire, passe 50) ni le seul paragraphe (un simple saut de
-    // ligne suffit au modèle, passe 51) : le début de ligne est la frontière.
-    const said = linesOf(last.text);
-    for (let k = 1; k <= said.length; k += 1) {
-      const tail = normalizeText(said.slice(said.length - k).join(' '));
-      if (tail === needle) return true;
-      if (tail.length > needle.length) return false;
-    }
-    return false;
+    if (item.blocks.some((bl) => bl.kind === 'prose')) return true;
   }
   return false;
 }
@@ -711,12 +683,11 @@ export function buildConversationFeed(
   for (const child of job.children) items.push({ kind: 'child', job: child });
 
   if (job.status === 'completed' && job.result && job.result.trim() !== '') {
-    // La réponse finale est le plus souvent la DERNIÈRE PHRASE de l'agent,
-    // recopiée dans `job.result` par `return_result`. La pousser en plus
-    // affichait deux fois le même texte — la prose du dernier tour, puis une
-    // plaque « Answer » (constat de Quentin sur captures, 07/09). Elle n'est
-    // gardée que quand elle DIT autre chose.
-    if (!lastProseContains(items, job.result)) items.push({ kind: 'answer', text: job.result });
+    // `job.result` (ce que `dashboard_publish` / `return_result` ont posé) n'est
+    // montré que si l'agent a fini SANS un mot : quand il a parlé, sa prose est
+    // la réponse, et la répéter en plaque affichait deux fois le même texte
+    // (constat de Quentin sur captures, 07/09 ; règle de structure, passe 52).
+    if (!lastAgentTurnSpoke(items)) items.push({ kind: 'answer', text: job.result });
   } else if ((job.status === 'failed' || job.status === 'cancelled') && (job.error || job.result)) {
     items.push({ kind: 'failure', text: job.error ?? job.result ?? '' });
   }
