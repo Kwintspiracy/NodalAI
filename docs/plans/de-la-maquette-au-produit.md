@@ -443,7 +443,13 @@ sans les montrer : le chargeur est scindé, un cœur commun (projet,
 conversations, conversation propre, ROOT) pour le fil, le dossier et la preuve
 en plus pour `/files` seulement. Codex garde la conversation propre en priorité
 (« la plus récente » ferait changer le fil tout seul), ce que le plan retient.
-Passe 61 lancée sur ces correctifs.
+**Passe 61 : deux constats bloquants, vrais.** Sans agent ROOT, la saisie
+« Write… » paraissait utilisable alors que toute création échoue : elle n'est
+plus rendue, un mot dit pourquoi. Et la page se relisait entre la création de
+la conversation et son premier message : la conversation neuve VIDE remplaçait
+un instant le fil lu — cette relecture tombe. Recommandé et fait : le calcul du
+destinataire, du placeholder et de la note est un module pur, sept cas testés ;
+la page du fil ne compte plus les travaux du projet. Passe 62 lancée.
 
 **Ce que la vérification a corrigé dans le plan lui-même.** La ligne « la
 maquette est une intention, pas une spécification au pixel » des limites
