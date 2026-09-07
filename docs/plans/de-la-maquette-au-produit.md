@@ -469,6 +469,33 @@ orchestrateur de tête ni ROOT ni rattaché), et supprimer le ROOT remet
 l'entité sans ROOT et libère ses orchestrateurs rattachés, sans règle de
 succession. Ils sont au backlog du harnais.
 
+**Retour de Quentin, 07/09 au soir, capture à l'appui : « est-ce que t'as
+sincèrement déjà vu une application fonctionner comme ça ? »** Sur une
+conversation courte, la saisie était au MILIEU de l'écran et descendait à
+mesure qu'on écrivait ; la barre d'état flottait au milieu, à la largeur du
+contenu ; l'en-tête disait « 1 agent » et la barre « 0 agents » ; « 41,6 s »
+pour une réponse de deux lignes qui affichait « 0 tokens ». Réponse honnête à
+sa dernière question : non, je n'avais pas regardé — mes captures étaient en
+pleine page, ce qui déroule le fil et masque exactement cela.
+
+*La charpente.* La fenêtre ne défile plus : seule la zone de contenu défile.
+Les trois écrans de fil sont une colonne de hauteur pleine — en-tête, fil qui
+défile, saisie ancrée, barre d'état pleine largeur. `sticky` ne collait que si
+le fil dépassait l'écran, ce qui n'arrive jamais sur une conversation qui
+commence.
+
+*L'identité.* Une seule ligne : retour, nom, chemin, état, agents, preuve. La
+flèche vivait sur une seconde ligne qui ne ressemblait à rien d'autre.
+
+*Les chiffres.* Un tour de chat du tableau de bord ne passe pas par un job :
+ses appels LLM étaient bien enregistrés mais rattachables à rien, et le fil
+sautait tous ses compteurs d'un bloc dès qu'il n'y avait aucun job. Migration
+0100 (`llm_calls.conversation_id`), écrite par le runner, lue par le fil. Le
+compte d'agents ne vit plus qu'en haut, avec les visages. La durée est le
+temps de calcul, pas le temps écoulé depuis l'ouverture du fil — une
+conversation laissée ouverte ne coûte rien.
+
+
 **Ce que la vérification a corrigé dans le plan lui-même.** La ligne « la
 maquette est une intention, pas une spécification au pixel » des limites
 restait vraie sur le fond mais servait d'excuse : la maquette est bien la spec
