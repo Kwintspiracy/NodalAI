@@ -11,12 +11,13 @@ import { notFound } from 'next/navigation';
 import { getSpaceConversationAction } from '@/lib/actions.ts';
 import PageShell from '@/components/ui/PageShell';
 import StatusPill, { type StatusVariant } from '@/components/ui/StatusPill';
+import WorkHeader from '@/app/(dashboard)/spaces/WorkHeader.tsx';
 import ConversationFeedView from '@/app/(dashboard)/spaces/ConversationFeedView.tsx';
 import LiveRefresh from '@/app/(dashboard)/spaces/LiveRefresh.tsx';
 import DeliveriesCard from '@/app/(dashboard)/spaces/DeliveriesCard.tsx';
 import StatusBar from '@/app/(dashboard)/spaces/StatusBar.tsx';
 import VerificationSection from '@/app/(dashboard)/code/[id]/VerificationSection.tsx';
-import { formatCost, formatTokens } from '@/app/(dashboard)/spaces/format.ts';
+import { threadAgents } from '@/app/(dashboard)/spaces/format.ts';
 import { plainText } from '@/components/Markdown.tsx';
 import { truncate } from '@/lib/format-time';
 
@@ -60,22 +61,22 @@ export default async function ScheduledRunPage({ params }: { params: Promise<{ i
     verification.skippedSurfaces.length > 0 ||
     live;
   const firstLine = plainText(job.task);
-  const subtitle = [
-    job.agentName,
-    `${feed.totals.turns} ${feed.totals.turns === 1 ? 'turn' : 'turns'}`,
-    `${formatTokens(feed.totals.inputTokens + feed.totals.outputTokens)} tokens`,
-    feed.totals.costUsd !== null ? formatCost(feed.totals.costUsd) : null,
-  ]
-    .filter((x): x is string => typeof x === 'string' && x !== '')
-    .join(' · ');
-
+  // P2bis — le fil d'un run n'a pas de projet : son « lieu » est le run
+  // lui-même, dit par l'agent qui l'a porté. Pas de bouton « Files » : sans
+  // projet il n'y a pas de dossier à ouvrir.
   return (
     <PageShell
-      title={truncate(firstLine, 90)}
-      subtitle={subtitle}
+      header={
+        <WorkHeader
+          name={truncate(firstLine, 60)}
+          path={job.agentName !== null && job.agentName !== '' ? `run · ${job.agentName}` : 'run'}
+          agents={threadAgents(feed.items)}
+          proofVerdict={lastProof?.verdict ?? null}
+        />
+      }
       toolbar={
         <div className="flex items-center gap-3">
-          <Link href="/scheduled" className="text-xs text-ink-3 hover:text-ink-2">
+          <Link href="/scheduled" className="text-mono-11 text-ink-4 hover:text-ink-2">
             ← Scheduled
           </Link>
           <StatusPill variant={statusVariant(job.status)} />
@@ -96,7 +97,7 @@ export default async function ScheduledRunPage({ params }: { params: Promise<{ i
       {/* P3 — la preuve, la même carte que le détail Code (elle n'est jamais
           vide : elle dit « pas encore », « hors vérification », « rien à
           configurer »), puis la file d'envoi. */}
-      <div className="mx-auto mt-8 max-w-[840px] space-y-6">
+      <div className="mx-auto mt-8 max-w-[760px] space-y-6">
         {showVerification && (
           <VerificationSection
             sequences={verification.sequences}

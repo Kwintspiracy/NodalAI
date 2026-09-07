@@ -60,6 +60,7 @@ const toolStep = (
   toolName: 'file_write',
   toolCallId: 'call-1',
   jobId: '11111111-1111-4111-8111-111111111111',
+  lineCounts: {},
   card: 'files',
   presented: null,
   input: {},

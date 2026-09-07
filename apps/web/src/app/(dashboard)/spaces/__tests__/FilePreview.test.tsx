@@ -37,6 +37,7 @@ function feedWith(payload: CardPayloadFor<'files'>): ConversationFeed {
     toolName: 'xlsx_set_range',
     toolCallId: 'call-1',
     jobId: JOB,
+    lineCounts: {},
     card: 'files',
     presented: payload,
     input: {},

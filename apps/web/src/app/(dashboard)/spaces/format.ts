@@ -3,8 +3,7 @@
 // devient un mot, et un nombre un chiffre lisible. Copy courte, en anglais
 // comme le reste du tableau de bord.
 
-import type { ToolCard } from '@nodal-agents/shared';
-import type { Origin, Step } from '@/lib/conversation-feed.ts';
+import type { FeedItem, Origin } from '@/lib/conversation-feed.ts';
 
 export function formatMs(ms: number): string {
   if (ms < 1000) return `${ms} ms`;
@@ -36,21 +35,6 @@ export function originLabel(origin: Origin): string {
   return `via ${origin.channel.charAt(0).toUpperCase()}${origin.channel.slice(1)}`;
 }
 
-/** Le mot d'une carte, pour compter ce qu'un groupe contient. */
-const CARD_WORDS: Record<ToolCard, [string, string]> = {
-  text: ['note', 'notes'],
-  read: ['read', 'reads'],
-  search: ['search', 'searches'],
-  files: ['file change', 'file changes'],
-  table: ['table', 'tables'],
-  terminal: ['command', 'commands'],
-  sent: ['message sent', 'messages sent'],
-  checks: ['check', 'checks'],
-  delegation: ['delegation', 'delegations'],
-  question: ['question', 'questions'],
-  generic: ['raw result', 'raw results'],
-};
-
 /**
  * Le nom d'un outil tel qu'un humain le lit : sans le préfixe de serveur MCP
  * (`mcp_fetch__fetch_markdown` → `fetch_markdown`), sans le `cli:` du harnais.
@@ -62,47 +46,39 @@ export function shortToolName(name: string): string {
   return name;
 }
 
+/** Un agent du fil, tel que l'en-tête de travail l'affiche. */
+export type ThreadAgent = { key: string; name: string };
+
 /**
- * Le titre d'un groupe replié, déduit de ses cartes : « reasoning · 2 reads ·
- * 1 search ». Quand la carte ne dit rien (`generic`, ou pas de carte), le nom
- * court de l'outil prend sa place — c'est la seule information honnête ; un
- * échec compte comme « failed ».
+ * Les agents qui ont travaillé dans ce fil, dans l'ordre où ils y paraissent :
+ * ceux qui ont pris un tour, puis ceux à qui on a délégué (et les leurs, quand
+ * l'appelant a construit leur fil). Dédoublonnés par SLUG — deux agents
+ * peuvent porter le même nom d'affichage, et le même agent peut changer de nom
+ * entre deux jobs ; le slug est ce qui l'identifie. Sans slug, le nom sert de
+ * clé, faute de mieux.
+ *
+ * Un agent sans nom NI slug n'est pas compté : « 3 agents » dont un anonyme
+ * serait un compte inventé.
  */
-export function summarizeSteps(steps: readonly Step[]): string {
-  const counts = new Map<string, number>();
-  const named = new Set<string>();
-  let reasoning = 0;
-  let failed = 0;
-  for (const s of steps) {
-    if (s.kind === 'reasoning') {
-      reasoning += 1;
-      continue;
+export function threadAgents(items: readonly FeedItem[]): ThreadAgent[] {
+  const out: ThreadAgent[] = [];
+  const seen = new Set<string>();
+  const push = (name: string | null, slug: string | null): void => {
+    const key = slug ?? name;
+    if (key === null || key === '') return;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ key, name: name ?? key });
+  };
+  const walk = (list: readonly FeedItem[]): void => {
+    for (const item of list) {
+      if (item.kind === 'turn') push(item.agent.name, item.agent.slug);
+      else if (item.kind === 'child') {
+        push(item.job.agentName, item.job.agentSlug);
+        if (item.job.feed) walk(item.job.feed.items);
+      }
     }
-    if (s.outcome === 'error' || s.outcome === 'blocked') {
-      failed += 1;
-      continue;
-    }
-    // Une carte qui ne dit rien (`generic`, ou pas de carte) : le NOM de
-    // l'outil est la seule information honnête — « 1 raw result » n'en est pas.
-    if (s.card === null || s.card === 'generic') {
-      named.add(shortToolName(s.toolName));
-      continue;
-    }
-    counts.set(s.card, (counts.get(s.card) ?? 0) + 1);
-  }
-  const parts: string[] = [];
-  if (reasoning > 0) parts.push('reasoning');
-  for (const [key, n] of counts) {
-    const words = CARD_WORDS[key as ToolCard];
-    parts.push(`${n} ${n === 1 ? words[0] : words[1]}`);
-  }
-  // Jusqu'à deux outils sont nommés ; au-delà, le titre ne tiendrait plus sur
-  // une ligne (« reasoning · assign_lead · send_file · telegram_send_message ·
-  // return_result » débordait sur la capture du 07/09) et ne dirait rien de
-  // plus qu'un compte. Les noms restent lisibles, un à un, dans les lignes du
-  // groupe déplié.
-  if (named.size <= 2) for (const name of named) parts.push(name);
-  else parts.push(`${named.size} tool calls`);
-  if (failed > 0) parts.push(`${failed} failed`);
-  return parts.length > 0 ? parts.join(' · ') : 'no action';
+  };
+  walk(items);
+  return out;
 }

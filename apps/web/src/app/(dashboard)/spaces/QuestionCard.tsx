@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { resolveApprovalAction } from '@/lib/actions.ts';
 import PrimaryButton from '@/components/ui/PrimaryButton';
-import StatusPill from '@/components/ui/StatusPill';
 
 export interface QuestionCardProps {
   /**
@@ -72,10 +71,19 @@ export default function QuestionCard({ prompt, options, question }: QuestionCard
   }
 
   return (
-    <div className="max-w-[620px] rounded-xl border border-ink bg-paper px-[18px] py-4">
+    <div className="rounded-xl border border-run bg-canvas px-4 py-3.5">
       <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1 text-body-14 text-ink">{prompt}</div>
-        {waiting && <StatusPill variant="run" label="Waiting" />}
+        <div className="min-w-0 flex-1 text-medium-14 text-ink">{prompt}</div>
+        {/* L'état est dit en capitales, pas en pastille (P2bis) : la question
+            est déjà cerclée de bleu — une seconde pastille bleue par-dessus
+            criait deux fois la même chose. */}
+        {waiting && (
+          <span className="flex shrink-0 items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-run" />
+            <span className="text-mono-11-caps text-run">Waiting</span>
+          </span>
+        )}
+        {answer !== null && <span className="shrink-0 text-mono-11-caps text-ok">Answered</span>}
       </div>
 
       {waiting ? (

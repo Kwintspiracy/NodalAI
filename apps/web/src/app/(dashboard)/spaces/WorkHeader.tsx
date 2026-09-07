@@ -1,0 +1,66 @@
+// WorkHeader — l'en-tête d'un fil (P2bis, plan « De la maquette au produit »).
+//
+// Il remplace le gros titre de page et son sous-titre sur les trois écrans qui
+// montrent un fil. Un fil n'a pas de titre : il a un LIEU (le projet, son
+// dossier), des GENS (les agents qui y ont travaillé) et un ÉTAT (la
+// vérification a-t-elle passé). C'est ce que cette ligne dit, et rien d'autre.
+//
+// Ce qu'elle ne dit PAS, faute de source : « L'application » de la maquette,
+// qui ouvrirait l'app produite — rien en base ne sait où elle tourne (P14).
+// Un bouton qui n'ouvre rien est pire que pas de bouton (inv. #4).
+
+import AvatarStack from '@/components/ui/AvatarStack';
+import PrimaryButton from '@/components/ui/PrimaryButton';
+import StatusPill from '@/components/ui/StatusPill';
+import type { ThreadAgent } from './format.ts';
+
+/**
+ * Le verdict de la preuve pour TOUT le fil : celui de la dernière séquence.
+ * `null` = aucune preuve n'a tourné — la pastille ne paraît pas, elle ne dit
+ * pas « non vérifié » (l'en-tête n'est pas le lieu de cet aveu, le
+ * récapitulatif de livraison le porte).
+ */
+export type ProofVerdict = string | null;
+
+export default function WorkHeader({
+  name,
+  path,
+  agents,
+  proofVerdict = null,
+  projectId = null,
+}: {
+  /** Le nom du projet courant, sinon le titre de la conversation. */
+  name: string;
+  /** Le dossier du projet, sinon d'où vient la conversation. */
+  path: string;
+  agents: readonly ThreadAgent[];
+  proofVerdict?: ProofVerdict;
+  /** Le projet où le travail vit, s'il y en a un : le bouton « Files » l'ouvre. */
+  projectId?: string | null;
+}) {
+  return (
+    <div className="flex w-full min-w-0 items-center gap-4">
+      <div className="flex min-w-0 items-baseline gap-3">
+        <span className="truncate text-title-15 text-ink">{name}</span>
+        {path !== '' && <span className="truncate text-mono-11 text-ink-4">{path}</span>}
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-3">
+        {agents.length > 0 && (
+          <span className="flex items-center gap-2.5">
+            <AvatarStack avatars={agents.map((a) => ({ id: a.key, name: a.name }))} max={4} />
+            <span className="text-mono-11 text-ink-3">
+              {agents.length} {agents.length === 1 ? 'agent' : 'agents'}
+            </span>
+          </span>
+        )}
+        {proofVerdict === 'green' && <StatusPill variant="done" label="Verified" />}
+        {proofVerdict === 'red' && <StatusPill variant="warn" label="Checks failed" />}
+        {projectId !== null && (
+          <PrimaryButton variant="neutral" size="sm" href={`/spaces/${projectId}`}>
+            Files
+          </PrimaryButton>
+        )}
+      </div>
+    </div>
+  );
+}

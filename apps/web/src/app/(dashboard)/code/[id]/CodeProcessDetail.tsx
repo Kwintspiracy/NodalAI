@@ -23,6 +23,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { diffLines } from '@/lib/line-diff';
+import type { CodingChangeView } from '@/lib/coding-changes.ts';
 import {
   getCodingProcessDetailAction,
   listApprovalsAction,
@@ -31,7 +32,6 @@ import {
   type CodingToolCallView,
   type CodingActivityItem,
   type CodingFileChangeGroup,
-  type CodingChangeView,
   type CodingVerdictView,
 } from '@/lib/actions.ts';
 import ApprovalActions from '@/app/(dashboard)/approvals/ApprovalActions.tsx';

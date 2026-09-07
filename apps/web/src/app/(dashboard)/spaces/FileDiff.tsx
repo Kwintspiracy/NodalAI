@@ -17,8 +17,8 @@
 
 import { useState } from 'react';
 import DisclosureButton from '@/components/ui/DisclosureButton';
-import { MonoMicroTag } from '@/components/ui/MonoMicroTag';
 import { fragmentDiff } from '@nodal-agents/shared';
+import type { LineCounts } from '@/lib/coding-changes.ts';
 import { getFileDiffAction, type FileDiffView } from '@/lib/file-diff-actions.ts';
 
 /** Les raisons du runner, dites en une ligne lisible. */
@@ -28,6 +28,34 @@ const NO_DIFF: Readonly<Record<string, string>> = {
   workspace_unreachable: 'folder no longer reachable',
   not_in_snapshot: "file is ignored by the folder's .gitignore",
 };
+
+/**
+ * Ce qu'un fichier a subi, en une pastille de 6 px (P2bis). Écrit vert, touché
+ * ambre, seulement listé gris : le design du fil ne met pas de mot là où une
+ * couleur suffit, et le mot (`created`, `modified`) revenait sur chaque ligne.
+ */
+export const FILE_DOT: Readonly<Record<string, string>> = {
+  created: 'bg-ok',
+  modified: 'bg-warn',
+  listed: 'bg-ink-4',
+};
+
+/**
+ * Les lignes écrites et remplacées, dites comme la page Code les dit : « −2 »
+ * en rouge, « +27 » en vert. Un zéro se TAIT — « −0 » n'apprend rien, et sur
+ * une liste de fichiers créés la colonne de « −0 » n'est que du bruit.
+ * `null` (l'outil n'écrit pas de texte : un classeur) ne rend rien du tout.
+ */
+export function LineDelta({ counts }: { counts: LineCounts | null }) {
+  if (counts === null || (counts.added === 0 && counts.removed === 0)) return null;
+  return (
+    <span className="shrink-0 text-mono-11">
+      {counts.removed > 0 && <span className="text-err">−{counts.removed}</span>}
+      {counts.removed > 0 && counts.added > 0 && ' '}
+      {counts.added > 0 && <span className="text-ok">+{counts.added}</span>}
+    </span>
+  );
+}
 
 type Line = { kind: '+' | '-' | ' ' | '@'; text: string };
 
@@ -138,6 +166,7 @@ export default function FileDiff({
   toolCallId,
   path,
   action,
+  lineCounts = null,
   bytes,
   detail,
   preview,
@@ -146,6 +175,8 @@ export default function FileDiff({
   toolCallId: string;
   path: string;
   action: string;
+  /** P2bis — ce que l'appel a écrit dans CE fichier. null : rien de textuel. */
+  lineCounts?: LineCounts | null;
   bytes?: string;
   detail?: string;
   /**
@@ -176,12 +207,15 @@ export default function FileDiff({
   };
 
   return (
-    <li>
-      <DisclosureButton open={open} onClick={toggle} className="py-1.5 text-mono-12 text-ink-2">
-        <span className="min-w-0 flex-1 truncate text-left">{path}</span>
-        <MonoMicroTag tone="agent">{action}</MonoMicroTag>
-        {bytes !== undefined && <span className="text-ink-4">{bytes}</span>}
-        {detail !== undefined && <span className="truncate text-ink-4">{detail}</span>}
+    <li className="border-t border-rule-2 first:border-t-0">
+      <DisclosureButton open={open} onClick={toggle} className="h-[42px] py-0 px-3.5">
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${FILE_DOT[action] ?? 'bg-ink-4'}`} />
+        <span className="min-w-0 flex-1 truncate text-left text-mono-12 text-ink">{path}</span>
+        <LineDelta counts={lineCounts} />
+        {bytes !== undefined && <span className="shrink-0 text-mono-11 text-ink-4">{bytes}</span>}
+        {detail !== undefined && (
+          <span className="max-w-[40%] shrink-0 truncate text-mono-11 text-ink-4">{detail}</span>
+        )}
       </DisclosureButton>
       {preview}
       {open && loading && <Note>Loading the diff…</Note>}

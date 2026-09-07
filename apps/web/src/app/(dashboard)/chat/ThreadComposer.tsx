@@ -15,7 +15,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import PrimaryButton from '@/components/ui/PrimaryButton';
-import TextArea from '@/components/ui/TextArea';
+import TextInput from '@/components/ui/TextInput';
 import { sendChatMessageAction } from '@/lib/actions.ts';
 
 export default function ThreadComposer({
@@ -66,21 +66,36 @@ export default function ThreadComposer({
     });
   }
 
+  // P2bis — un CADRE, pas un champ posé à côté d'un bouton : le design pose
+  // la saisie sur du papier, collée en bas de la zone de contenu, juste
+  // au-dessus de la barre d'état. Une seule ligne, comme la maquette ; Entrée
+  // envoie, puisqu'il n'y a plus de retour à la ligne à composer.
   return (
-    <div className="mx-auto mt-8 flex max-w-[840px] items-end gap-3">
-      <TextArea
+    <div className="sticky bottom-7 z-10 mx-auto mt-8 flex max-w-[760px] items-center gap-3 rounded-xl border border-rule bg-paper px-4 py-1.5">
+      <TextInput
         value={message}
         onChange={(e) => setMessage(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            send();
+          }
+        }}
         placeholder={
           agentName !== undefined && agentName !== null && agentName !== ''
             ? `Reply to ${agentName}…`
             : 'Reply…'
         }
-        rows={2}
         disabled={isPending}
-        containerClassName="flex-1"
+        containerClassName="min-w-0 flex-1"
+        className="h-[40px] rounded-none border-0 bg-transparent px-0 py-0 text-body-15"
       />
-      <PrimaryButton onClick={send} disabled={isPending || message.trim() === ''}>
+      <PrimaryButton
+        variant="neutral"
+        size="sm"
+        onClick={send}
+        disabled={isPending || message.trim() === ''}
+      >
         {isPending ? 'Sending…' : 'Send'}
       </PrimaryButton>
     </div>

@@ -558,6 +558,7 @@ describe('compactTurns — les tours muets se replient (P2bis)', () => {
     toolName: name,
     toolCallId: name,
     jobId: 'j',
+    lineCounts: {},
     card: null,
     presented: null,
     input: {},
@@ -784,6 +785,66 @@ describe('buildConversationFeed — lignes anciennes, échecs, enfants', () => {
     const step = block?.kind === 'steps' ? block.steps[0] : undefined;
     expect(step?.kind === 'tool' && step.outcome).toBe('error');
     expect(STANDALONE_CARDS.has('terminal')).toBe(true); // la carte l'aurait montré, l'échec l'a retenu
+  });
+
+  it('une écriture qui n’a pas ABOUTI (en attente d’approbation, bloquée, en erreur) n’a aucun compteur de lignes', () => {
+    // Vu en vrai le 07/09 : un `file_edit` en attente d'approbation comptait
+    // déjà « +2 −1 » dans le récapitulatif, sur un fichier intact.
+    const edit = {
+      type: 'tool-call',
+      toolName: 'file_edit',
+      input: { path: 'notes/bonjour.html', old_string: 'a', new_string: 'b\nc' },
+    };
+    const j: FeedJob = {
+      ...job,
+      messages: [
+        { role: 'user', content: 'x' },
+        {
+          role: 'assistant',
+          content: [
+            { ...edit, toolCallId: 'c1' },
+            { ...edit, toolCallId: 'c2' },
+            { ...edit, toolCallId: 'c3' },
+            { ...edit, toolCallId: 'c4' },
+          ],
+        },
+      ],
+    };
+    const row = (toolCallId: string, toolOutput: string | null): FeedToolCallRow => ({
+      toolCallId,
+      toolName: 'file_edit',
+      card: 'files',
+      presented: null,
+      durationMs: 1,
+      turn: 1,
+      toolInput: {},
+      toolOutput,
+      createdAt: null,
+    });
+    const feed = buildConversationFeed(
+      j,
+      [
+        row('c1', '{"outcome":"awaiting_approval"}'),
+        row('c2', '{"outcome":"blocked"}'),
+        row('c3', '{"outcome":"error","error":"boom"}'),
+        row('c4', '{"ok":true,"path":"notes/bonjour.html"}'),
+      ],
+      [],
+    );
+    const turn = feed.items[1];
+    const steps =
+      turn?.kind === 'turn'
+        ? turn.blocks.flatMap((b) =>
+            b.kind === 'steps' ? b.steps : b.kind === 'card' ? [b.step] : [],
+          )
+        : [];
+    const counts = steps.map((s) => (s.kind === 'tool' ? [s.outcome, s.lineCounts] : null));
+    expect(counts).toEqual([
+      ['awaiting_approval', {}],
+      ['blocked', {}],
+      ['error', {}],
+      ['success', { 'notes/bonjour.html': { added: 2, removed: 1 } }],
+    ]);
   });
 
   it('une ligne sans tool_call_id (avant l’étape D) se joint par nom, dans l’ordre', () => {

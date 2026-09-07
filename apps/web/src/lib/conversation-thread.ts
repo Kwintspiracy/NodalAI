@@ -32,10 +32,13 @@ import {
   compactTurns,
   normalizeText,
   type ConversationFeed,
+  type DeliveryReview,
+  type DeliverySummary,
   type FeedItem,
   type FeedTotals,
   type Origin,
 } from './conversation-feed.ts';
+import { sumLineCounts, type LineCounts } from './coding-changes.ts';
 import type { ProductionVerdict } from './chat-or-work.ts';
 
 export type ThreadProject = { id: string; name: string; path: string };
@@ -60,13 +63,24 @@ export type ThreadMessage = {
   createdAt: Date | null;
 };
 
+/** Une commande de preuve d'un job (ou d'un de ses délégués) et son verdict. */
+export type ThreadProofRun = { command: string; verdict: string };
+
 /** Un job de TÊTE de la conversation, avec son fil P2 déjà assemblé. */
 export type ThreadJob = {
   jobId: string;
   feed: ConversationFeed;
   createdAt: Date | null;
+  /** Quand le travail s'est refermé. null : il court encore. */
+  completedAt: Date | null;
   verdict: ProductionVerdict;
   project: ThreadProject | null;
+  /**
+   * Les commandes de preuve de CE travail et de ses délégués, dans l'ordre.
+   * `[]` quand aucune preuve n'a tourné — et le récapitulatif de livraison
+   * n'affiche alors ni « Tests » ni « Checks », plutôt que « 0 / 0 ».
+   */
+  proof: readonly ThreadProofRun[];
 };
 
 /** Ce que le fil dit quand le travail d'un tour n'existe plus en base. */
@@ -103,6 +117,86 @@ function jobItems(job: ThreadJob, asHandoff: boolean): FeedItem[] {
 }
 
 /**
+ * Ce que le travail a touché, relu, et prouvé — la matière du récapitulatif de
+ * livraison (P2bis).
+ *
+ * Le fil du job porte déjà tout : ses cartes `files` disent les fichiers, ses
+ * cartes `checks` et ses délégués disent les relectures. On les ramasse ici,
+ * une fois, plutôt que de laisser l'écran refaire ce parcours à chaque rendu —
+ * et surtout pour qu'un test puisse EXIGER qu'un travail sans preuve n'ait ni
+ * « Tests » ni « Checks ».
+ *
+ * Les fichiers seulement LUS (`listed`) ne comptent pas : « 12 fichiers » sous
+ * un récapitulatif de livraison veut dire douze fichiers livrés, pas douze
+ * fichiers regardés.
+ */
+function deliverySummary(job: ThreadJob): DeliverySummary {
+  const files = new Set<string>();
+  const reviews: DeliveryReview[] = [];
+  // Les compteurs de lignes se ramassent sur TOUTES les étapes d'outil, pas
+  // seulement sur celles qui font une carte : une écriture mineure (un
+  // `file_edit` replié dans un `ToolBlock`) a bel et bien écrit des lignes.
+  const counted: Array<Record<string, LineCounts>> = [];
+
+  const walk = (items: readonly FeedItem[], depth: number): void => {
+    for (const item of items) {
+      if (item.kind === 'turn') {
+        for (const block of item.blocks) {
+          if (block.kind === 'steps') {
+            for (const st of block.steps) if (st.kind === 'tool') counted.push(st.lineCounts);
+            continue;
+          }
+          if (block.kind !== 'card') continue;
+          counted.push(block.step.lineCounts);
+          const p = block.step.presented;
+          if (p === null) continue;
+          if (p.card === 'files') {
+            for (const f of p.files) if (f.action !== 'listed') files.add(f.path);
+          } else if (p.card === 'checks' && depth === 0) {
+            // Les verdicts de revue du job LUI-MÊME. Ceux d'un délégué sont
+            // déjà résumés par la ligne du délégué : les lister deux fois
+            // gonflerait la section « Reviews » sans rien ajouter.
+            reviews.push({
+              name: block.step.toolName,
+              text: p.summary,
+              ok: p.verdict === 'pass',
+              isAgent: false,
+            });
+          }
+        }
+      } else if (item.kind === 'child') {
+        reviews.push({
+          name: item.job.agentName ?? 'an agent',
+          text: item.job.result ?? item.job.task ?? '',
+          ok: item.job.status === 'completed',
+          isAgent: true,
+        });
+        if (item.job.feed) walk(item.job.feed.items, depth + 1);
+      }
+    }
+  };
+  walk(job.feed.items, 0);
+
+  const passed = job.proof.filter((r) => r.verdict === 'green').length;
+  const lines = sumLineCounts(counted);
+  return {
+    files: files.size,
+    lines: lines.added === 0 && lines.removed === 0 ? null : lines,
+    tests: job.proof.length > 0 ? { passed, total: job.proof.length } : null,
+    durationMs:
+      job.completedAt !== null && job.createdAt !== null
+        ? job.completedAt.getTime() - job.createdAt.getTime()
+        : null,
+    costUsd: job.feed.totals.costUsd,
+    reviews,
+    checks: job.proof.map((r) => ({ command: r.command, ok: r.verdict === 'green' })),
+    // Un `infra_error` n'est pas un succès : tout ce qui n'est pas vert fait
+    // « Checks failed ». La section « Checks » montre laquelle a lâché.
+    verdict: job.proof.length === 0 ? null : passed === job.proof.length ? 'green' : 'red',
+  };
+}
+
+/**
  * Ce qui suit les items d'un job : l'encart quand il a produit, sinon l'aveu
  * d'ignorance quand ses lignes ne se classent pas. Jamais les deux — l'encart
  * porte déjà son propre compte d'incertitude.
@@ -115,6 +209,7 @@ function afterJobItems(job: ThreadJob): FeedItem[] {
         jobId: job.jobId,
         verdict: job.verdict,
         project: job.project,
+        summary: deliverySummary(job),
       },
     ];
   }

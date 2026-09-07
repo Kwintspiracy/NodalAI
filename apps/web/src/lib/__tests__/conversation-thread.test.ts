@@ -83,8 +83,10 @@ const feedDeJob = (demande: string, reponse: string): ConversationFeed => ({
 const job = (over: Partial<ThreadJob> & { jobId: string }): ThreadJob => ({
   feed: feedDeJob('fais ceci', 'voilà'),
   createdAt: null,
+  completedAt: null,
   verdict: chat,
   project: null,
+  proof: [],
   ...over,
 });
 
@@ -143,6 +145,19 @@ describe('buildConversationThread — une conversation de canal', () => {
       jobId: 'j2',
       verdict: travail,
       project: { id: 'p1', name: 'Bilans', path: '/w/bilans' },
+      // P2bis — l'item porte de quoi dessiner le récapitulatif. Ce job n'a
+      // ni preuve ni délégué : les champs le DISENT (null, []), ils ne
+      // rendent pas un « 0 / 0 » ou un « $0.00 » qui n'existent pas.
+      summary: {
+        files: 0,
+        lines: null,
+        tests: null,
+        durationMs: null,
+        costUsd: 0.01,
+        reviews: [],
+        checks: [],
+        verdict: null,
+      },
     });
   });
 

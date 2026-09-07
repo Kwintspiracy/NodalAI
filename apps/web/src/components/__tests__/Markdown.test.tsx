@@ -44,7 +44,9 @@ describe('Markdown', () => {
     expect(html).toContain('<pre');
     expect(html).toContain('const x = 1;');
     expect(html).toContain('>ts<');
-    expect(html).toContain('text-mono-12');
+    // P2bis — le corps est en mono 13, avec sa gouttière de numéros de ligne.
+    expect(html).toContain('text-mono-13');
+    expect(html).toContain('>1</div>');
   });
 
   it('une table GFM devient une vraie table avec ses en-têtes', () => {
@@ -108,9 +110,13 @@ describe('Markdown', () => {
     expect(html).toContain('<hr class="my-4 border-rule-2"');
   });
 
-  it('la prose de l’utilisateur est plus encrée que celle de l’agent', () => {
+  it('les deux voix sont à la MÊME encre : le design ne les distingue pas par la couleur', () => {
+    // P2bis — la prose de l'agent était en `ink-2`, c'est-à-dire en note de
+    // bas de page, alors qu'elle est le fond du fil. Ce qui distingue les deux
+    // voix, c'est l'avatar et la carte autour de la demande, pas la teinte.
     expect(render('salut', 'user')).toContain('text-ink"');
-    expect(render('salut', 'agent')).toContain('text-ink-2');
+    expect(render('salut', 'agent')).toContain('text-ink"');
+    expect(render('salut', 'agent')).not.toContain('text-ink-2');
   });
 
   it('aucune taille en pixels ne sort du composant', () => {

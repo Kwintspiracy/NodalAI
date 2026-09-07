@@ -9,8 +9,8 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ConversationFeedView from '../ConversationFeedView.tsx';
-import { summarizeSteps } from '../format.ts';
 import { compactTurns } from '@/lib/conversation-feed.ts';
+import { lineCountsOfCall } from '@/lib/coding-changes.ts';
 import type { ConversationFeed, Step } from '@/lib/conversation-feed.ts';
 
 const tool = (over: Partial<Extract<Step, { kind: 'tool' }>>): Extract<Step, { kind: 'tool' }> => ({
@@ -24,6 +24,7 @@ const tool = (over: Partial<Extract<Step, { kind: 'tool' }>>): Extract<Step, { k
   outputText: null,
   outcome: 'success',
   durationMs: 10,
+  lineCounts: {},
   question: null,
   ...over,
 });
@@ -176,25 +177,14 @@ describe('ConversationFeedView', () => {
     expect(html).toContain('Prépare la revue');
     expect(html).toContain('via automation “Revue mensuelle”');
     expect(html).toContain('Alfred');
-    // P2bis — la ligne du nom ne porte plus que le modèle quand le tour a un
-    // groupe d'étapes ; le coût vit dans l'en-tête du groupe, à droite.
+    // P2bis — la ligne du nom ne porte plus que le modèle quand le tour a du
+    // raisonnement ; le coût vit à droite du bloc de réflexion.
     expect(html).not.toContain('claude-opus-5 · 12,480 tokens');
     expect(html).toContain('>claude-opus-5<');
-    // Une seule durée : celle des étapes. La durée des appels LLM (9.4 s) ne
-    // se met plus à côté — deux temps sans étiquette ne se lisaient pas.
-    expect(html).toContain('3 steps · 20 ms · 12,480 tokens · $0.05');
-    expect(html).not.toContain('12,480 tokens · 9.4 s');
-  });
-
-  it('le titre d’un groupe nomme jusqu’à deux outils sans carte ; au-delà, il les compte', () => {
-    const named = (n: number): Step[] =>
-      Array.from({ length: n }, (_, i) =>
-        tool({ toolName: `tool_${i}`, card: null, presented: null, outcome: 'success' }),
-      );
-    expect(summarizeSteps(named(2))).toBe('tool_0 · tool_1');
-    expect(summarizeSteps([{ kind: 'reasoning', text: 'x' }, ...named(4)])).toBe(
-      'reasoning · 4 tool calls',
-    );
+    // Le bloc compte SES étapes (un seul raisonnement), puis dit le temps de
+    // penser du tour, ses jetons et son coût. Le temps des outils est sur
+    // chaque appel, ligne par ligne : les deux ne se confondent plus.
+    expect(html).toContain('1 step · 9.4 s · 12,480 tokens · $0.05');
   });
 
   it('le markdown de la prose est RENDU : plus d’astérisques à l’écran', () => {
@@ -232,20 +222,23 @@ describe('ConversationFeedView', () => {
     );
     // Un seul « Alfred » : un seul tour à l'écran.
     expect(rendu.split('>Alfred<')).toHaveLength(2);
-    expect(rendu).toContain('4 steps');
+    // L'appel du tour fusionné est là, visible, avec son nom court.
+    expect(rendu).toContain('file_read');
     // Et plus jamais l'aveu d'un tour vide.
     expect(rendu).not.toContain('No visible action this turn');
   });
 
-  it('les actions mineures sont repliées sous un titre déduit des CARTES, pas des noms', () => {
-    const summary = summarizeSteps(
-      feed.items[2]!.kind === 'turn' ? (feed.items[2].blocks[1] as { steps: Step[] }).steps : [],
-    );
-    expect(summary).toBe('reasoning · 1 table · fetch'); // le brut est nommé, pas compté
-    expect(html).toContain(summary);
-    expect(html).toContain('3 steps');
-    // Replié par défaut : le détail des étapes n'est pas dans le HTML initial.
+  it('le raisonnement est replié ; CHAQUE appel d’outil est visible et nommé', () => {
+    // Replié par défaut : le texte du raisonnement n'est pas dans le HTML.
+    expect(html).toContain('Reasoning');
     expect(html).not.toContain('la mémoire devrait avoir le format');
+    // Plus de groupe « N tool calls » : les deux appels mineurs du tour se
+    // lisent chacun sur sa ligne, avec leur nom court et leur résultat.
+    expect(html).not.toContain('tool calls');
+    expect(html).toContain('query_memory');
+    expect(html).toContain('>fetch<'); // mcp_x__fetch, sans son préfixe de serveur
+    expect(html).toContain('1 table · 0 rows');
+    expect(html).toContain('brut');
   });
 
   it('la carte table dessine les cellules et dit que l’en-tête est inconnu', () => {
@@ -282,6 +275,155 @@ describe('ConversationFeedView', () => {
     expect(html.indexOf('Earlier in this conversation')).toBeLessThan(
       html.indexOf('Prépare la revue'),
     );
+  });
+
+  it('la carte des fichiers est une REVUE DE DIFF quand l’agent a écrit, une liste quand il a lu', () => {
+    const filesFeed = (action: 'created' | 'listed'): ConversationFeed => ({
+      items: [
+        {
+          kind: 'turn',
+          index: 1,
+          turn: 1,
+          turnSource: 'audit',
+          agent: { name: 'Alfred', slug: 'alfred' },
+          model: null,
+          usage: null,
+          blocks: [
+            {
+              kind: 'card',
+              step: tool({
+                toolName: 'file_write',
+                card: 'files',
+                presented: {
+                  card: 'files',
+                  total: 1,
+                  truncated: false,
+                  files: [{ path: 'src/auth/session.ts', action, detail: '2 hunks' }],
+                },
+              }),
+            },
+          ],
+        },
+      ],
+      totals: feed.totals,
+    });
+    const written = renderToStaticMarkup(<ConversationFeedView feed={filesFeed('created')} />);
+    expect(written).toContain('diff review');
+    expect(written).toContain('1 file');
+    expect(written).toContain('src/auth/session.ts');
+    expect(written).toContain('2 hunks');
+    // Sans écriture textuelle lue dans l'entrée, AUCUN compteur : jamais un
+    // « +0 » qui laisserait croire à une écriture vide.
+    expect(written).not.toContain('+0');
+    // Et le mot « created » ne revient plus sur la ligne : c'est la pastille.
+    expect(written).not.toContain('>created<');
+
+    const read = renderToStaticMarkup(<ConversationFeedView feed={filesFeed('listed')} />);
+    expect(read).toContain('>files<');
+    expect(read).not.toContain('diff review');
+  });
+
+  it('la carte des fichiers porte les compteurs de lignes, par fichier et en total', () => {
+    // L'entrée de l'appel est ce qui porte les lignes — la même lecture que la
+    // page Code (`lineCountsOfCall`), donc les mêmes nombres sur les deux
+    // écrans. Le classeur, écrit par un outil sans texte, n'a pas de
+    // compteurs : sa ligne n'en montre aucun.
+    const input = {
+      changes: [
+        { path: 'src/auth/session.ts', kind: 'update', diff: ['a', 'b'].join('\n') },
+        { path: 'src/auth/token-service.ts', kind: 'add', diff: ['a', 'b', 'c'].join('\n') },
+      ],
+      path: 'src/auth/session.ts',
+    };
+    const html2 = renderToStaticMarkup(
+      <ConversationFeedView
+        feed={{
+          items: [
+            {
+              kind: 'turn',
+              index: 1,
+              turn: 1,
+              turnSource: 'audit',
+              agent: { name: 'Alfred', slug: 'alfred' },
+              model: null,
+              usage: null,
+              blocks: [
+                {
+                  kind: 'card',
+                  step: tool({
+                    toolName: 'cli:file_change',
+                    card: 'files',
+                    input,
+                    lineCounts: lineCountsOfCall('cli:file_change', input, null),
+                    presented: {
+                      card: 'files',
+                      total: 3,
+                      truncated: false,
+                      files: [
+                        { path: 'src/auth/session.ts', action: 'modified' },
+                        { path: 'src/auth/token-service.ts', action: 'created' },
+                        { path: 'reports/bilan.xlsx', action: 'created' },
+                      ],
+                    },
+                  }),
+                },
+              ],
+            },
+          ],
+          totals: feed.totals,
+        }}
+      />,
+    );
+    // Par fichier : deux lignes pour l'un, trois pour l'autre.
+    expect(html2).toContain('+2');
+    expect(html2).toContain('+3');
+    // En tête : la somme des fichiers de la carte.
+    expect(html2).toContain('+5');
+    // Le classeur n'a pas de compteurs, et rien ne les invente pour lui.
+    expect(html2).toContain('reports/bilan.xlsx');
+    expect(html2).not.toContain('+0');
+    expect(html2).not.toContain('−0');
+  });
+
+  it('une délégation porte le nom du délégué, ce qu’il a rendu, et son coût', () => {
+    const html2 = renderToStaticMarkup(
+      <ConversationFeedView
+        feed={{
+          items: [
+            {
+              kind: 'child',
+              job: {
+                id: 'job-2',
+                agentName: 'Le Relecteur',
+                agentSlug: 'relecteur',
+                status: 'completed',
+                task: 'Audite le correctif de session',
+                result: ['## Verdict', '', 'Le correctif tient, une note mineure.'].join('\n'),
+                error: null,
+                createdAt: new Date('2026-09-07T10:00:00Z'),
+                completedAt: new Date('2026-09-07T10:01:12Z'),
+                feed: {
+                  items: [],
+                  totals: { ...feed.totals, inputTokens: 40000, outputTokens: 200, costUsd: 0.14 },
+                },
+              },
+            },
+          ],
+          totals: feed.totals,
+        }}
+      />,
+    );
+    expect(html2).toContain('Delegated to Le Relecteur');
+    // Le TITRE est la première ligne plate du résultat, pas la consigne, et le
+    // markdown n'y laisse pas ses dièses.
+    expect(html2).toContain('Verdict');
+    expect(html2).not.toContain('## Verdict');
+    expect(html2).toContain('1 min 12 · 40,200 tokens · $0.14');
+    // Terminé : pastille verte, et plus de pastille d'état à mots.
+    expect(html2).toContain('bg-ok');
+    expect(html2).not.toContain('>Done<');
+    // Replié : la consigne du délégué n'est pas dans le HTML initial.
+    expect(html2).not.toContain('Audite le correctif de session');
   });
 
   it('la réponse ferme le fil, après l’envoi', () => {

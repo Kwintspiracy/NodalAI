@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { CaretDown, CaretRight } from '@phosphor-icons/react/dist/ssr';
 
 type Props = {
   open: boolean;
@@ -11,6 +12,14 @@ type Props = {
    *  pattern instead (see ChatClient's ConversationRow / MemoriesClient's
    *  MemoryFact). */
   children: ReactNode;
+  /**
+   * Where the chevron sits. `start` (default) is the accordion convention —
+   * the caret leads the row. `end` puts it hard right, for rows whose content
+   * IS the row (a reasoning summary, a delegation) and whose caret is the last
+   * thing the eye meets, per the thread design (P2bis). With `end`, the row's
+   * own trailing meta carries its `ml-auto`.
+   */
+  chevron?: 'start' | 'end';
   className?: string;
 };
 
@@ -22,7 +31,18 @@ type Props = {
  * list (DS Phase 2R) instead of hand-rolling a raw <button> with a chevron
  * span at each call site.
  */
-export default function DisclosureButton({ open, onClick, children, className = '' }: Props) {
+export default function DisclosureButton({
+  open,
+  onClick,
+  children,
+  chevron = 'start',
+  className = '',
+}: Props) {
+  const caret = (
+    <span className="flex w-3.5 shrink-0 items-center text-ink-4" aria-hidden>
+      {open ? <CaretDown size={14} /> : <CaretRight size={14} />}
+    </span>
+  );
   return (
     <button
       type="button"
@@ -30,8 +50,9 @@ export default function DisclosureButton({ open, onClick, children, className = 
       aria-expanded={open}
       className={`flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-hover ${className}`}
     >
-      <span className="w-3 shrink-0 text-body-12 text-ink-4">{open ? '▾' : '▸'}</span>
+      {chevron === 'start' && caret}
       {children}
+      {chevron === 'end' && caret}
     </button>
   );
 }

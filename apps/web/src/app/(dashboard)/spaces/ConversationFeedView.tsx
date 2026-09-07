@@ -8,12 +8,12 @@ import AgentAvatar from '@/components/ui/AgentAvatar';
 import Disc from '@/components/ui/Disc';
 import { User } from '@phosphor-icons/react/dist/ssr';
 import ClampedText from './ClampedText.tsx';
-import StatusPill, { type StatusVariant } from '@/components/ui/StatusPill';
 import Table, { THead, Th, Tr, Td } from '@/components/ui/Table';
 import { MonoMicroTag } from '@/components/ui/MonoMicroTag';
 import type { CardPayloadFor, TableEntry } from '@nodal-agents/shared';
 import { readQuestionToolInput } from '@nodal-agents/shared';
 import { deliverableStatusKey, type DeliverableStatusView } from '@/lib/verification-runs-view.ts';
+import { findLineCounts, type LineCounts } from '@/lib/coding-changes.ts';
 import type {
   ConversationFeed,
   FeedChildJob,
@@ -21,11 +21,13 @@ import type {
   Step,
   TurnBlock,
 } from '@/lib/conversation-feed.ts';
-import Markdown from '@/components/Markdown.tsx';
-import StepsGroup from './StepsGroup.tsx';
-import ProducedCard from './ProducedCard.tsx';
+import Markdown, { plainText } from '@/components/Markdown.tsx';
+import { truncate } from '@/lib/format-time';
+import ThinkingBlock from './ThinkingBlock.tsx';
+import ToolBlock from './ToolBlock.tsx';
+import DeliveryBlock from './DeliveryBlock.tsx';
 import QuestionCard from './QuestionCard.tsx';
-import FileDiff from './FileDiff.tsx';
+import FileDiff, { FILE_DOT, LineDelta } from './FileDiff.tsx';
 import HistoryGroup from './HistoryGroup.tsx';
 import DelegationDisclosure from './DelegationDisclosure.tsx';
 import { formatCost, formatMs, formatTokens, originLabel } from './format.ts';
@@ -55,7 +57,7 @@ export default function ConversationFeedView({
     deliverables.map((d) => [deliverableStatusKey(d.jobId, d.canonicalKey), d.status]),
   );
   return (
-    <div className="mx-auto max-w-[840px]">
+    <div className="mx-auto max-w-[760px]">
       <FeedItems items={feed.items} deliverables={byKey} />
     </div>
   );
@@ -100,9 +102,14 @@ function FeedItemView({
           }
         >
           <Who name="You" meta={originLabel(item.origin)} />
-          <ClampedText plain={item.text} className="max-w-[68ch]">
-            <Markdown text={item.text} tone="user" />
-          </ClampedText>
+          {/* La demande est DANS une carte (P2bis) : c'est la seule chose du
+              fil que l'utilisateur a écrite, et le design la pose sur du
+              papier pour qu'on la retrouve d'un coup d'œil. */}
+          <div className="rounded-xl border border-rule-2 bg-paper px-4 py-3">
+            <ClampedText plain={item.text}>
+              <Markdown text={item.text} tone="user" />
+            </ClampedText>
+          </div>
         </Turn>
       );
     case 'note':
@@ -110,29 +117,32 @@ function FeedItemView({
       // alignée sur la colonne de texte. Un rappel du runner dit qui parle ; un
       // aveu du fil parle en son nom et n'a pas de préfixe.
       return (
-        <p className="mt-3 truncate pl-[44px] text-mono-11 text-ink-4" title={item.text}>
+        <p className="mt-3 truncate pl-[46px] text-mono-11 text-ink-4" title={item.text}>
           {item.origin === 'runner' ? `Nodal reminded the agent · ${item.text}` : item.text}
         </p>
       );
     case 'turn': {
-      // Les jetons et le coût descendent dans l'en-tête du groupe d'étapes
-      // quand il y en a un : la ligne du nom porte alors le modèle, et rien
-      // d'autre. Sans groupe, elle garde tout — sinon ces nombres n'auraient
-      // nulle part où aller.
-      // Une seule durée par tour : celle des étapes, que le groupe affiche
-      // déjà. Ajouter ici celle des appels LLM mettait deux temps côte à côte
-      // (« 31.7 s · 34,158 tokens · 15.5 s ») sans dire lequel était quoi.
+      // Ce que le tour a coûté descend dans le bloc de RÉFLEXION quand il y en
+      // a un : le design y met « 3 étapes · 7,2 s · 9 120 jetons », et la ligne
+      // du nom ne porte alors que le modèle. Sans réflexion, elle garde tout —
+      // sinon ces nombres n'auraient nulle part où aller.
+      // La durée est celle des appels LLM du tour (le temps de penser) : celle
+      // des outils est sur chaque `ToolBlock`, ligne par ligne, donc les deux
+      // ne se confondent plus comme du temps du groupe.
       const cost = [
+        item.usage && item.usage.durationMs > 0 ? formatMs(item.usage.durationMs) : null,
         item.usage
           ? `${formatTokens(item.usage.inputTokens + item.usage.outputTokens)} tokens`
           : null,
         item.usage && item.usage.costUsd !== null ? formatCost(item.usage.costUsd) : null,
       ].filter((x): x is string => x !== null);
-      // Le PREMIER groupe d'étapes du tour porte le coût ; les suivants (rares)
-      // n'en portent pas, sinon le même nombre paraîtrait deux fois.
-      const firstSteps = item.blocks.findIndex((b) => b.kind === 'steps');
+      // Le PREMIER bloc qui porte du raisonnement reçoit le coût ; les suivants
+      // (rares) n'en portent pas, sinon le même nombre paraîtrait deux fois.
+      const firstThinking = item.blocks.findIndex(
+        (b) => b.kind === 'steps' && b.steps.some((st) => st.kind === 'reasoning'),
+      );
       const meta =
-        firstSteps >= 0
+        firstThinking >= 0
           ? (item.model ?? '')
           : [item.model, ...cost].filter((x): x is string => typeof x === 'string').join(' · ');
       return (
@@ -143,7 +153,7 @@ function FeedItemView({
               key={i}
               block={b}
               deliverables={deliverables}
-              {...(i === firstSteps && cost.length > 0 ? { meta: cost.join(' · ') } : {})}
+              {...(i === firstThinking && cost.length > 0 ? { meta: cost.join(' · ') } : {})}
             />
           ))}
         </Turn>
@@ -165,12 +175,15 @@ function FeedItemView({
     case 'produced':
       // P7 — ce qui est sorti du chat à ce tour. Il ne paraît QUE là :
       // `buildConversationThread` ne pose l'item que sur un tour qui a produit.
-      return <ProducedCard verdict={item.verdict} project={item.project} />;
+      // P2bis — c'est devenu le RÉCAPITULATIF DE LIVRAISON : la liste des
+      // items produits a laissé place aux chiffres du travail, aux relectures
+      // et à la preuve, qui vivaient trois écrans plus bas.
+      return <DeliveryBlock summary={item.summary} />;
     case 'handoff':
       // P7 — la consigne passée au travail. Repliée dans le style des notes :
       // la demande de l'utilisateur est juste au-dessus, écrite de sa main.
       return (
-        <p className="mt-3 truncate pl-[44px] text-mono-11 text-ink-4" title={item.text}>
+        <p className="mt-3 truncate pl-[46px] text-mono-11 text-ink-4" title={item.text}>
           Handed to the work · {item.text}
         </p>
       );
@@ -189,7 +202,7 @@ function FeedItemView({
 
 function Turn({ avatar, children }: { avatar: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[30px_1fr] gap-[14px] pt-6">
+    <div className="grid grid-cols-[32px_1fr] gap-[14px] pt-6">
       <div>{avatar}</div>
       <div className="min-w-0">{children}</div>
     </div>
@@ -199,8 +212,8 @@ function Turn({ avatar, children }: { avatar: React.ReactNode; children: React.R
 function Who({ name, meta }: { name: string; meta: string }) {
   return (
     <div className="mb-1.5 flex items-baseline gap-2">
-      <span className="text-medium-14 text-ink">{name}</span>
-      {meta !== '' && <span className="text-mono-11 text-ink-4">{meta}</span>}
+      <span className="text-title-15 text-ink">{name}</span>
+      {meta !== '' && <span className="text-mono-11 text-ink-3">{meta}</span>}
     </div>
   );
 }
@@ -218,12 +231,24 @@ function Block({
   switch (block.kind) {
     case 'prose':
       return <Markdown text={block.text} className="mb-3" />;
-    case 'steps':
+    case 'steps': {
+      // P2bis — plus de groupe « N tool calls » : le raisonnement se replie,
+      // chaque appel d'outil se montre, dans l'ordre où il a eu lieu.
+      const reasoning = block.steps
+        .filter((s) => s.kind === 'reasoning')
+        .map((s) => (s as Extract<typeof s, { kind: 'reasoning' }>).text);
+      const tools = block.steps.filter((s): s is ToolStep => s.kind === 'tool');
       return (
-        <div className="mb-3">
-          <StepsGroup steps={block.steps} {...(meta !== undefined ? { meta } : {})} />
+        <div className="mb-3 space-y-2">
+          {reasoning.length > 0 && (
+            <ThinkingBlock steps={reasoning} {...(meta !== undefined ? { meta } : {})} />
+          )}
+          {tools.map((s, i) => (
+            <ToolBlock key={i} step={s} />
+          ))}
         </div>
       );
+    }
     case 'card':
       return (
         <div className="mb-4">
@@ -468,14 +493,36 @@ function FilesCard({
   aside?: string;
   deliverables: Deliverables;
 }) {
+  // P2bis — « DIFF REVIEW » quand l'agent a ÉCRIT, « FILES » quand il n'a fait
+  // que lire. Les compteurs « −2 +27 » viennent de l'ENTRÉE de l'appel, lue
+  // par `coding-changes.ts` : la même lecture que la page Code, donc les mêmes
+  // nombres sur les deux écrans. Un fichier écrit par un outil sans texte (un
+  // classeur) n'en a pas — et n'affiche rien, plutôt qu'un zéro.
+  const wrote = payload.files.some((f) => f.action !== 'listed');
+  const perFile = payload.files.map((f) => findLineCounts(step.lineCounts, f.path));
+  const total = perFile.reduce<LineCounts | null>(
+    (acc, c) =>
+      c === null
+        ? acc
+        : { added: (acc?.added ?? 0) + c.added, removed: (acc?.removed ?? 0) + c.removed },
+    null,
+  );
   return (
-    <CardFrame
-      title={`${payload.total} ${payload.total === 1 ? 'file' : 'files'}`}
-      meta={payload.truncated ? `showing ${payload.files.length}` : undefined}
-      aside={aside}
-    >
-      <ul className="py-1">
+    <div className="overflow-hidden rounded-xl border border-rule-2 bg-canvas">
+      <div className="flex h-[35px] items-center gap-2.5 px-3.5">
+        <MonoMicroTag tone="ink">{wrote ? 'diff review' : 'files'}</MonoMicroTag>
+        <span className="text-mono-11 text-ink-3">
+          {payload.total} {payload.total === 1 ? 'file' : 'files'}
+          {payload.truncated ? ` · showing ${payload.files.length}` : ''}
+        </span>
+        <span className="ml-auto flex items-center gap-2.5">
+          <LineDelta counts={total} />
+          {aside !== undefined && <span className="text-mono-11 text-ink-4">{aside}</span>}
+        </span>
+      </div>
+      <ul className="border-t border-rule-2">
         {payload.files.map((f, i) => {
+          const counts = perFile[i] ?? null;
           // P12 — l'aperçu se pose SOUS la ligne du fichier, au-dessus du diff
           // de P11. L'état de vérification ne se lit que si l'outil a écrit la
           // clé du livrable ET que CE job porte une ligne pour elle.
@@ -503,30 +550,41 @@ function FilesCard({
                 toolCallId={step.toolCallId}
                 path={f.path}
                 action={f.action}
+                lineCounts={counts}
                 {...(f.bytes !== undefined ? { bytes: `${formatTokens(f.bytes)} B` } : {})}
                 {...(f.detail !== undefined ? { detail: f.detail } : {})}
                 {...(preview !== undefined ? { preview } : {})}
               />
             );
           }
+          // Un fichier seulement LU n'a pas de diff à ouvrir : même ligne, sans
+          // chevron — la gouttière de 14 px du chevron est rendue en marge
+          // pour que les chemins restent alignés d'une ligne à l'autre.
           return (
-            <li key={i} className="text-mono-12 text-ink-2">
-              <div className="flex items-center gap-3 px-4 py-1.5">
-                <span className="min-w-0 flex-1 truncate">{f.path}</span>
-                <MonoMicroTag tone={f.action === 'listed' ? 'ink' : 'agent'}>
-                  {f.action}
-                </MonoMicroTag>
+            <li key={i} className="border-t border-rule-2 first:border-t-0">
+              <div className="flex h-[42px] items-center gap-2 pr-3.5 pl-[38px]">
+                <span
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${FILE_DOT[f.action] ?? 'bg-ink-4'}`}
+                />
+                <span className="min-w-0 flex-1 truncate text-mono-12 text-ink">{f.path}</span>
+                <LineDelta counts={counts} />
                 {f.bytes !== undefined && (
-                  <span className="text-ink-4">{formatTokens(f.bytes)} B</span>
+                  <span className="shrink-0 text-mono-11 text-ink-4">
+                    {formatTokens(f.bytes)} B
+                  </span>
                 )}
-                {f.detail !== undefined && <span className="truncate text-ink-4">{f.detail}</span>}
+                {f.detail !== undefined && (
+                  <span className="max-w-[40%] shrink-0 truncate text-mono-11 text-ink-4">
+                    {f.detail}
+                  </span>
+                )}
               </div>
               {preview}
             </li>
           );
         })}
       </ul>
-    </CardFrame>
+    </div>
   );
 }
 
@@ -635,17 +693,24 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="mb-1 text-label-11 uppercase tracking-wider text-ink-4">{children}</p>;
 }
 
+/**
+ * Ce qu'un délégué a rendu, en une ligne : la première ligne PLATE de son
+ * résultat — c'est ce qu'un lecteur vient chercher. Sans résultat (il court
+ * encore, il a échoué), la consigne qu'il a reçue le remplace : dire de quoi
+ * il s'agit vaut mieux qu'une ligne vide.
+ */
+function delegationTitle(result: string | null, task: string | null): string {
+  const source = result !== null && result.trim() !== '' ? result : (task ?? '');
+  if (source.trim() === '') return 'No result yet';
+  return truncate(plainText(source), 80);
+}
+
 function DelegationCard({ payload }: { payload: CardPayloadFor<'delegation'> }) {
   return (
     <DelegationDisclosure
-      head={
-        <>
-          <span className="text-medium-13 text-ink-2">Delegated to {payload.to}</span>
-          <MonoMicroTag tone={payload.ok ? 'agent' : 'err'}>
-            {payload.ok ? 'done' : 'failed'}
-          </MonoMicroTag>
-        </>
-      }
+      label={`Delegated to ${payload.to}`}
+      title={delegationTitle(payload.resultText, payload.task)}
+      ok={payload.ok}
       aside={[
         payload.durationMs !== null ? formatMs(payload.durationMs) : null,
         payload.costUsd !== null ? formatCost(payload.costUsd) : null,
@@ -670,14 +735,6 @@ function DelegationCard({ payload }: { payload: CardPayloadFor<'delegation'> }) 
   );
 }
 
-function statusVariant(status: string | null): StatusVariant {
-  if (status === 'completed') return 'done';
-  if (status === 'failed' || status === 'cancelled') return 'warn';
-  if (status === 'processing' || status === 'pending' || (status?.startsWith('awaiting') ?? false))
-    return 'run';
-  return 'idle';
-}
-
 /**
  * Un travail confié à un autre agent, dépliable (P2bis).
  *
@@ -696,19 +753,22 @@ function DelegationGroup({ job, deliverables }: { job: FeedChildJob; deliverable
   // du parent, déjà écrite sous « Task » ; un « You » y serait faux, c'est
   // l'agent parent qui a demandé.
   const nested = job.feed?.items.filter((i) => i.kind !== 'request' && i.kind !== 'history');
+  const totals = job.feed?.totals;
+  const aside = [
+    durationMs !== null && durationMs > 0 ? formatMs(durationMs) : null,
+    totals ? `${formatTokens(totals.inputTokens + totals.outputTokens)} tokens` : null,
+    totals && totals.costUsd !== null ? formatCost(totals.costUsd) : null,
+  ]
+    .filter((x): x is string => x !== null)
+    .join(' · ');
   return (
-    <div className="mt-4 pl-[44px]">
+    <div className="mt-4 pl-[46px]">
       <DelegationDisclosure
-        head={
-          <>
-            <AgentAvatar name={job.agentName ?? 'Agent'} size="sm" shape="square" />
-            <span className="text-medium-13 text-ink-2">
-              Delegated to {job.agentName ?? 'an agent'}
-            </span>
-            <StatusPill variant={statusVariant(job.status)} />
-          </>
-        }
-        aside={durationMs !== null && durationMs > 0 ? formatMs(durationMs) : undefined}
+        label={`Delegated to ${job.agentName ?? 'an agent'}`}
+        avatar={<AgentAvatar name={job.agentName ?? 'Agent'} size="sm" shape="square" />}
+        title={delegationTitle(job.result, job.task)}
+        ok={job.status === 'completed'}
+        aside={aside}
       >
         {job.task !== null && (
           <div className="px-4 py-3">

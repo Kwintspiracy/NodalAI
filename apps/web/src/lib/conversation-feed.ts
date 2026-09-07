@@ -28,6 +28,7 @@ import { SENT_TEXT_KINDS, TOOL_CARDS } from '@nodal-agents/shared';
 import type { ToolCard, ToolCardPayload } from '@nodal-agents/shared';
 import { blocksFromContent } from '@/components/JobMessages.tsx';
 import { parsePresented, outcomeOfToolOutput } from './tool-card-payload.ts';
+import { lineCountsOfCall, type LineCounts } from './coding-changes.ts';
 import type { ProductionVerdict } from './chat-or-work.ts';
 
 // ─── Entrées ──────────────────────────────────────────────────────────────────
@@ -147,6 +148,17 @@ export type Step =
       outcome: StepOutcome;
       durationMs: number | null;
       /**
+       * P2bis — ce que CET appel a écrit, par chemin de fichier : lignes
+       * ajoutées, lignes remplacées. `{}` quand il n'écrit pas de texte (une
+       * lecture, un classeur xlsx) ou qu'il a été refusé.
+       *
+       * La lecture est celle de la page Code, au mot près (`lineCountsOfCall`
+       * dans `coding-changes.ts`) : les deux écrans doivent dire le même
+       * nombre du même fichier, et une recopie aurait divergé au premier outil
+       * ajouté.
+       */
+      lineCounts: Record<string, LineCounts>;
+      /**
        * P10a — la question que CET appel a posée, quand une ligne
        * `approval_requests` lui correspond par `toolCallId`. null pour toute
        * autre étape, et pour une carte `question` dont la ligne n'a pas été
@@ -226,6 +238,8 @@ export type FeedItem =
       jobId: string;
       verdict: ProductionVerdict;
       project: { id: string; name: string; path: string } | null;
+      /** P2bis — de quoi dessiner le récapitulatif de livraison. */
+      summary: DeliverySummary;
     }
   /**
    * P7 — la consigne que le chat a passée au travail. Ce n'est pas la demande
@@ -233,6 +247,49 @@ export type FeedItem =
    * sa reformulation par l'agent, repliée.
    */
   | { kind: 'handoff'; text: string };
+
+/**
+ * Une relecture du travail, telle que le récapitulatif de livraison la montre
+ * (P2bis) : un délégué qui a rendu quelque chose, ou un verdict d'outil de
+ * revue. `text` est BRUT (du markdown) — l'écran en tire sa première ligne
+ * plate ; le modèle ne rend pas de texte d'interface.
+ */
+export type DeliveryReview = {
+  name: string;
+  text: string;
+  ok: boolean;
+  /** Un délégué porte un avatar ; un verdict d'outil n'en a pas. */
+  isAgent: boolean;
+};
+
+/** Une commande de preuve et son sort. */
+export type DeliveryCheck = { command: string; ok: boolean };
+
+/**
+ * Ce que le récapitulatif de livraison a le droit de dire d'un travail
+ * (P2bis). CHAQUE champ peut manquer, et un champ absent ne se dessine pas :
+ * la maquette montre « Lignes +27 −2 » et « Couverture 92 % », que rien en
+ * base ne porte — ils n'ont donc pas de place ici (invariant #4).
+ */
+export type DeliverySummary = {
+  /** Fichiers DISTINCTS écrits par le job et ses délégués ; 0 ⇒ pas de cellule. */
+  files: number;
+  /**
+   * Les lignes écrites et remplacées, sommées sur le job et ses délégués — le
+   * même churn que la page Code. null quand AUCUN appel n'a écrit de texte
+   * (un travail qui n'a produit qu'un classeur n'a pas de lignes).
+   */
+  lines: LineCounts | null;
+  /** Les commandes de preuve, passées sur total. null : aucune preuve n'a tourné. */
+  tests: { passed: number; total: number } | null;
+  /** Du début à la fin du travail. null tant qu'il n'est pas terminé. */
+  durationMs: number | null;
+  costUsd: number | null;
+  reviews: DeliveryReview[];
+  checks: DeliveryCheck[];
+  /** 'green' toutes vertes, 'red' au moins une qui ne l'est pas, null aucune preuve. */
+  verdict: 'green' | 'red' | null;
+};
 
 export type FeedTotals = {
   turns: number;
@@ -629,6 +686,15 @@ export function buildConversationFeed(
         if (row && row.turn !== null) rowTurns.push(row.turn);
         const card = row && isToolCard(row.card) ? row.card : null;
         const q = b.toolCallId ? questionByCallId.get(b.toolCallId) : undefined;
+        const outcome = outcomeOfToolOutput(row?.toolOutput);
+        // Un appel qui n'a pas ABOUTI n'a rien écrit : une édition en attente
+        // d'approbation, bloquée ou en erreur garde son entrée (le fil la
+        // montre) mais aucun compteur — sinon le récapitulatif dirait « +2 −1 »
+        // sur un fichier intact (vu en vrai le 07/09 : un `file_edit` en
+        // attente comptait déjà dans « Lines »). `unknown` (ligne sans sortie,
+        // d'avant 0092) compte : ces écritures ont eu lieu.
+        const wrote =
+          outcome !== 'error' && outcome !== 'blocked' && outcome !== 'awaiting_approval';
         const step: Extract<Step, { kind: 'tool' }> = {
           kind: 'tool',
           toolName,
@@ -638,8 +704,9 @@ export function buildConversationFeed(
           presented: row ? parsePresented(row.presented) : null,
           input: b.payload,
           outputText: row?.toolOutput ?? null,
-          outcome: outcomeOfToolOutput(row?.toolOutput),
+          outcome,
           durationMs: row?.durationMs ?? null,
+          lineCounts: wrote ? lineCountsOfCall(toolName, b.payload, row?.toolOutput) : {},
           question: q
             ? {
                 approvalRequestId: q.approvalRequestId,

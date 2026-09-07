@@ -10,12 +10,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import PageShell from '@/components/ui/PageShell';
 import StatusPill from '@/components/ui/StatusPill';
+import WorkHeader from '@/app/(dashboard)/spaces/WorkHeader.tsx';
 import ConversationFeedView from '@/app/(dashboard)/spaces/ConversationFeedView.tsx';
 import LiveRefresh from '@/app/(dashboard)/spaces/LiveRefresh.tsx';
-import DeliveriesCard from '@/app/(dashboard)/spaces/DeliveriesCard.tsx';
 import StatusBar from '@/app/(dashboard)/spaces/StatusBar.tsx';
-import VerificationSection from '@/app/(dashboard)/code/[id]/VerificationSection.tsx';
-import { formatCost, formatTokens, originLabel } from '@/app/(dashboard)/spaces/format.ts';
+import { originLabel, threadAgents } from '@/app/(dashboard)/spaces/format.ts';
 import { getConversationThreadAction } from '@/lib/conversation-actions.ts';
 import { plainText } from '@/components/Markdown.tsx';
 import { truncate } from '@/lib/format-time';
@@ -44,12 +43,6 @@ export default async function ChatThreadPage({ params }: { params: Promise<{ id:
   const pendingDeliveries = deliveries.filter(
     (d) => d.outcome === 'prepared' || d.outcome === 'attempted',
   ).length;
-  const showVerification =
-    verification.sequences.length > 0 ||
-    verification.unconfigured.length > 0 ||
-    verification.skippedSurfaces.length > 0 ||
-    live;
-
   // Le titre : celui que porte la conversation, sinon sa première demande —
   // jamais un identifiant. « Untitled » n'apparaît que si les deux manquent.
   const firstRequest = feed.items.find((i) => i.kind === 'request');
@@ -57,9 +50,9 @@ export default async function ChatThreadPage({ params }: { params: Promise<{ id:
   // s'affichait avec ses dièses et ses astérisques.
   const title =
     conversation.title !== ''
-      ? truncate(plainText(conversation.title), 90)
+      ? truncate(plainText(conversation.title), 60)
       : firstRequest
-        ? truncate(plainText(firstRequest.text), 90)
+        ? truncate(plainText(firstRequest.text), 60)
         : 'Untitled';
 
   const origin = originLabel({
@@ -67,61 +60,43 @@ export default async function ChatThreadPage({ params }: { params: Promise<{ id:
     scheduleName: null,
     chatId: conversation.chatId,
   });
-  const subtitle = [
-    origin,
-    conversation.agentName,
-    `${feed.totals.turns} ${feed.totals.turns === 1 ? 'turn' : 'turns'}`,
-    `${formatTokens(feed.totals.inputTokens + feed.totals.outputTokens)} tokens`,
-    feed.totals.costUsd !== null ? formatCost(feed.totals.costUsd) : null,
-  ]
-    .filter((x): x is string => typeof x === 'string' && x !== '')
-    .join(' · ');
+  // P2bis — l'en-tête d'un fil dit le LIEU du travail : le projet courant et
+  // son dossier quand il y en a un, sinon de quoi parle la conversation et
+  // d'où elle vient. Les compteurs (tours, jetons, coût) sont dans la barre
+  // d'état, en bas, où ils étaient déjà.
+  const project = conversation.currentProject;
 
   return (
     <PageShell
-      title={title}
-      subtitle={subtitle}
+      header={
+        <WorkHeader
+          name={project ? project.name : title}
+          path={project ? project.path : origin}
+          agents={threadAgents(feed.items)}
+          proofVerdict={lastProof?.verdict ?? null}
+          projectId={project ? project.id : null}
+        />
+      }
       toolbar={
         <div className="flex items-center gap-3">
-          <Link href="/chat" className="text-xs text-ink-3 hover:text-ink-2">
+          <Link href="/chat" className="text-mono-11 text-ink-4 hover:text-ink-2">
             ← Chat
           </Link>
           <StatusPill variant={live ? 'run' : 'idle'} />
-          {conversation.currentProject && (
-            <Link
-              href={`/spaces/${conversation.currentProject.id}`}
-              className="text-xs text-ink-3 hover:text-ink-2"
-              title={conversation.currentProject.path}
-            >
-              {conversation.currentProject.name}
-            </Link>
-          )}
         </div>
       }
     >
       <LiveRefresh live={live} />
       <ConversationFeedView feed={feed} deliverables={verification.deliverables} />
-      {/* P3 — la preuve et la file d'envoi de TOUT le fil, la même carte que la
-          page d'un espace. */}
-      {/* La preuve ne se rend QUE s'il y a quelque chose à en dire. Une carte
-          « No proof ran for this process. » sous chaque fil terminé était du
-          bruit : la barre d'état le dit déjà, en permanence. */}
-      <div className="mx-auto mt-8 max-w-[840px] space-y-6">
-        {showVerification && (
-          <VerificationSection
-            sequences={verification.sequences}
-            skippedSurfaces={verification.skippedSurfaces}
-            unconfigured={verification.unconfigured}
-            stage={live ? 'processing' : 'completed'}
-            live={live}
-          />
-        )}
-        <DeliveriesCard deliveries={deliveries} />
-      </div>
+      {/* P2bis — la preuve et la file d'envoi ne sont plus EN BAS de la page.
+          La preuve vit dans le récapitulatif de livraison du travail qui l'a
+          fait tourner (« Checks »), et la file d'envoi dans la barre d'état,
+          qui compte déjà les messages en attente. Une section de plus, trois
+          écrans sous le tour qu'elle décrivait, ne se lisait jamais. */}
       {canReply ? (
         <ThreadComposer conversationId={conversation.id} agentName={conversation.agentName} />
       ) : (
-        <p className="mx-auto mt-8 max-w-[840px] text-body-13 text-ink-4">
+        <p className="mx-auto mt-8 max-w-[760px] text-body-13 text-ink-4">
           This conversation lives in {origin.replace(/^via /, '')}. Reply from there.
         </p>
       )}

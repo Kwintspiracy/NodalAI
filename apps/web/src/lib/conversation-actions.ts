@@ -45,7 +45,7 @@ import { headers } from 'next/headers';
 import { getDb, applyActiveEntity, getAuthProvider } from './server.ts';
 import { assembleJobFeeds, collectDescendants } from './job-feed.ts';
 import { buildConversationThread } from './conversation-thread.ts';
-import type { ThreadJob, ThreadProject } from './conversation-thread.ts';
+import type { ThreadJob, ThreadProject, ThreadProofRun } from './conversation-thread.ts';
 import { classifyProduction } from './chat-or-work.ts';
 import type { ConversationFeed } from './conversation-feed.ts';
 import { aggregateSpaceCost, type SpaceCostView } from './space-cost.ts';
@@ -485,40 +485,6 @@ export async function getConversationThreadAction(
       rowsByRoot.set(root, bucket);
     }
 
-    const conversationRef = { channel: conv.channel, chatId: conv.chatId };
-    const jobs: ThreadJob[] = headRows.map((r, i) => ({
-      jobId: r.job.id,
-      feed: assembled[i]!.feed,
-      createdAt: r.job.createdAt,
-      verdict: classifyProduction({
-        conversation: conversationRef,
-        rows: rowsByRoot.get(r.job.id) ?? [],
-      }),
-      project: r.job.projectId !== null ? (projectById.get(r.job.projectId) ?? null) : null,
-    }));
-
-    const currentProject = projectOf(conv);
-    const feed = buildConversationThread({
-      conversation: {
-        id: conv.id,
-        channel: conv.channel,
-        chatId: conv.chatId,
-        title: conv.title,
-        agentName: conv.agentName,
-        agentSlug: conv.agentSlug,
-        currentProject,
-      },
-      messages: messageRows.map((m) => ({
-        id: m.id,
-        role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.content,
-        jobId: m.jobId,
-        createdAt: m.createdAt,
-      })),
-      jobs,
-      truncated,
-    });
-
     // P3/P4 — la preuve, la file d'envoi et le coût de TOUT le fil : les jobs
     // de tête et leurs délégués, jamais le réglage courant.
     const [verificationRunRows, unconfiguredRows, deliveryRows, costRows, approvalRows] =
@@ -617,6 +583,55 @@ export async function getConversationThreadAction(
                 ),
               ),
           ]);
+
+    const conversationRef = { channel: conv.channel, chatId: conv.chatId };
+    // P2bis — la preuve rangée SOUS le job de tête, comme les lignes d'audit :
+    // un délégué qui fait tourner les tests les fait tourner POUR le travail
+    // qui l'a mandaté, et c'est le récapitulatif de ce travail-là qui doit les
+    // montrer. Une ligne dont le job n'appartient pas au fil est ignorée.
+    const proofByRoot = new Map<string, ThreadProofRun[]>();
+    for (const row of verificationRunRows) {
+      const root = row.jobId !== null ? rootOf.get(row.jobId) : undefined;
+      if (root === undefined) continue;
+      const bucket = proofByRoot.get(root) ?? [];
+      bucket.push({ command: row.command, verdict: row.verdict });
+      proofByRoot.set(root, bucket);
+    }
+
+    const jobs: ThreadJob[] = headRows.map((r, i) => ({
+      jobId: r.job.id,
+      feed: assembled[i]!.feed,
+      createdAt: r.job.createdAt,
+      completedAt: r.job.completedAt,
+      verdict: classifyProduction({
+        conversation: conversationRef,
+        rows: rowsByRoot.get(r.job.id) ?? [],
+      }),
+      project: r.job.projectId !== null ? (projectById.get(r.job.projectId) ?? null) : null,
+      proof: proofByRoot.get(r.job.id) ?? [],
+    }));
+
+    const currentProject = projectOf(conv);
+    const feed = buildConversationThread({
+      conversation: {
+        id: conv.id,
+        channel: conv.channel,
+        chatId: conv.chatId,
+        title: conv.title,
+        agentName: conv.agentName,
+        agentSlug: conv.agentSlug,
+        currentProject,
+      },
+      messages: messageRows.map((m) => ({
+        id: m.id,
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.content,
+        jobId: m.jobId,
+        createdAt: m.createdAt,
+      })),
+      jobs,
+      truncated,
+    });
 
     // Le fil COURT depuis l'ouverture de la conversation, pas depuis son
     // premier travail : c'est la durée que l'utilisateur a vécue. Il ne se

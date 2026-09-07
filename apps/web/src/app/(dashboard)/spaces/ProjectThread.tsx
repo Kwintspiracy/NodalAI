@@ -36,7 +36,7 @@ export default function ProjectThread({
 }) {
   if (thread !== null && !thread.ok) {
     return (
-      <div className="mx-auto mt-8 max-w-[840px]">
+      <div className="mx-auto mt-8 max-w-[760px]">
         <p className="text-sm text-err">{thread.message}</p>
       </div>
     );
@@ -60,7 +60,7 @@ export default function ProjectThread({
             />
           </>
         ) : (
-          <div className="mx-auto max-w-[840px]">
+          <div className="mx-auto max-w-[760px]">
             <EmptyState title="Nothing said here yet" compact />
           </div>
         )}

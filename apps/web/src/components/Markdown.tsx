@@ -93,7 +93,13 @@ export function safeHref(url: string): string | null {
 }
 
 function MdNode({ node, tone }: { node: RootContent; tone: MarkdownTone }): React.ReactNode {
-  const ink = tone === 'user' ? 'text-ink' : 'text-ink-2';
+  // P2bis — la prose de l'agent est à la MÊME encre que celle de
+  // l'utilisateur (`text-ink`). Le design ne distingue pas les deux voix par
+  // la couleur : ce qui les distingue, c'est l'avatar et la carte autour de la
+  // demande. En `ink-2`, la parole de l'agent — le fond du fil — se lisait
+  // comme une note de bas de page.
+  void tone;
+  const ink = 'text-ink';
   switch (node.type) {
     case 'paragraph':
       return <p className={`mb-3 last:mb-0 ${PROSE} ${ink}`}>{kids(node, tone)}</p>;

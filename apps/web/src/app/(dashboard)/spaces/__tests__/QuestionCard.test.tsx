@@ -80,7 +80,11 @@ describe('QuestionCard — dans le fil', () => {
     // et AUCUN bandeau « Question » au-dessus.
     expect(container.textContent).toContain('Waiting');
     expect(container.textContent).not.toContain('Question');
-    expect(container.innerHTML).toContain('border-ink');
+    // P2bis — la question est le seul cadre BLEU du fil : c'est la seule
+    // chose qui attend le lecteur, et le design la distingue par sa bordure.
+    expect(container.innerHTML).toContain('border-run');
+    // Plus de pastille d'état par-dessus : « WAITING » en capitales suffit.
+    expect(container.innerHTML).not.toContain('bg-run-bg');
   });
 
   it("le clic passe le LIBELLÉ de l'option à l'action, et rafraîchit le fil", async () => {
@@ -110,6 +114,9 @@ describe('QuestionCard — dans le fil', () => {
     );
     expect(buttonLabels()).toEqual([]);
     expect(container.textContent).toContain(`✓ ${OPTIONS[1]}`);
+    // Répondue : elle le DIT, en vert, à la place de « WAITING » (P2bis).
+    expect(container.textContent).toContain('Answered');
+    expect(container.textContent).not.toContain('Waiting');
   });
 
   it('déclinée : dite comme telle, avec la raison', async () => {
@@ -192,6 +199,7 @@ describe('ConversationFeedView — le dispatch sur la carte `question`', () => {
                 toolName: 'ask_user',
                 toolCallId: 'call_ask',
                 jobId: 'job-1',
+                lineCounts: {},
                 card: 'question',
                 presented: null,
                 input: { question: PROMPT, options: OPTIONS },

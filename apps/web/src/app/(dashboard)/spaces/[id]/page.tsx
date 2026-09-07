@@ -15,6 +15,8 @@ import EmptyState from '@/components/ui/EmptyState';
 import { getProjectPageAction } from '@/lib/project-actions.ts';
 import { getConversationThreadAction } from '@/lib/conversation-actions.ts';
 import type { VerificationUnconfiguredView } from '@/lib/verification-runs-view.ts';
+import WorkHeader from '../WorkHeader.tsx';
+import { threadAgents } from '../format.ts';
 import ProjectShelf from '../ProjectShelf.tsx';
 import ProjectConversations from '../ProjectConversations.tsx';
 import ProjectThread from '../ProjectThread.tsx';
@@ -62,27 +64,33 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           },
         ];
 
-  const subtitle = [
-    project.kind,
-    project.agentName,
-    `${conversations.length} ${conversations.length === 1 ? 'conversation' : 'conversations'}`,
-  ]
-    .filter((x): x is string => typeof x === 'string' && x !== '')
-    .join(' · ');
+  // P2bis — le même en-tête que les deux autres écrans du fil : le nom du
+  // projet, son dossier, qui y a travaillé, et le verdict de la dernière
+  // preuve du fil. Pas de bouton « Files » : on est déjà sur la page du
+  // projet, il pointerait sur elle-même.
+  const threadFeed = thread !== null && thread.ok ? thread.data.feed : null;
+  const lastProof =
+    thread !== null && thread.ok ? (thread.data.verification.sequences.at(-1) ?? null) : null;
 
   return (
     <PageShell
-      title={project.name}
-      subtitle={subtitle}
+      header={
+        <WorkHeader
+          name={project.name}
+          path={project.path}
+          agents={threadFeed !== null ? threadAgents(threadFeed.items) : []}
+          proofVerdict={lastProof?.verdict ?? null}
+        />
+      }
       toolbar={
         <div className="flex items-center gap-3">
-          <Link href="/spaces" className="text-xs text-ink-3 hover:text-ink-2">
+          <Link href="/spaces" className="text-mono-11 text-ink-4 hover:text-ink-2">
             ← Spaces
           </Link>
           {projectConversationId !== null && (
             <Link
               href={`/chat/${projectConversationId}`}
-              className="text-xs text-ink-3 hover:text-ink-2"
+              className="text-mono-11 text-ink-4 hover:text-ink-2"
             >
               Open in Chat
             </Link>

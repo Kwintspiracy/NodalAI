@@ -1,11 +1,7 @@
 import type { ReactNode } from 'react';
 import PageHeader from './PageHeader';
 
-type Props = {
-  /** Page title — shown as the h1 in the full-width header. */
-  title: ReactNode;
-  /** One-line lede under the title. Keep it to a single short sentence. */
-  subtitle?: ReactNode;
+type Common = {
   /** Optional toolbar row (filters/tabs + search + the page's create CTA),
    *  rendered just below the header. Build it with `PageTopBar`. The create
    *  button lives HERE, never in the navbar. */
@@ -17,6 +13,26 @@ type Props = {
   /** Extra classes on the body wrapper. */
   bodyClassName?: string;
 };
+
+type Props =
+  | (Common & {
+      /** Page title — shown as the h1 in the full-width header. */
+      title: ReactNode;
+      /** One-line lede under the title. Keep it to a single short sentence. */
+      subtitle?: ReactNode;
+      header?: undefined;
+    })
+  | (Common & {
+      /**
+       * A header of the page's own making, in a compact 62px bar, INSTEAD of
+       * the display title and its lede (P2bis). The thread screens use it: a
+       * work header is a row of facts (name, path, who worked, verdict), not a
+       * title. The global controls stay. Mutually exclusive with `title`.
+       */
+      header: ReactNode;
+      title?: undefined;
+      subtitle?: undefined;
+    });
 
 /**
  * PageShell — THE single layout wrapper every dashboard page uses. There is no
@@ -37,17 +53,15 @@ type Props = {
  *   │ body (max-w-6xl, left):  [toolbar] + children │  ← filters/CTA, then content
  *   └──────────────────────────────────────────────┘
  */
-export default function PageShell({
-  title,
-  subtitle,
-  toolbar,
-  children,
-  fluid = false,
-  bodyClassName = '',
-}: Props) {
+export default function PageShell(props: Props) {
+  const { toolbar, children, fluid = false, bodyClassName = '' } = props;
   return (
     <>
-      <PageHeader title={title} subtitle={subtitle} />
+      {props.header !== undefined ? (
+        <PageHeader header={props.header} />
+      ) : (
+        <PageHeader title={props.title} subtitle={props.subtitle} />
+      )}
       <div
         className={`px-5 pt-6 pb-10 sm:px-8 lg:px-9 ${fluid ? '' : 'max-w-6xl'} ${bodyClassName}`}
       >

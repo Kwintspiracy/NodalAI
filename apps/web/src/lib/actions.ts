@@ -42,6 +42,12 @@ import {
   isUnderPath,
 } from './code-projects.ts';
 import {
+  extractChange,
+  extractFilePath,
+  isRefusedToolCall,
+  type CodingChangeView,
+} from './coding-changes.ts';
+import {
   isWindowsPath,
   normalizePath,
   projectKey,
@@ -11467,15 +11473,6 @@ const FILE_TOOL_NAMES = new Set([...EDIT_TOOL_NAMES, 'file_edit', 'file_write'])
  * comme un trou avant de conclure l'inverse, d'où cette ligne.
  */
 
-/** file_path (cli:Edit/Write/MultiEdit), notebook_path (cli:NotebookEdit), or path (file_edit/file_write). */
-function extractFilePath(input: Record<string, unknown> | null): string | null {
-  if (!input) return null;
-  if (typeof input['file_path'] === 'string') return input['file_path'];
-  if (typeof input['notebook_path'] === 'string') return input['notebook_path'];
-  if (typeof input['path'] === 'string') return input['path'];
-  return null;
-}
-
 /**
  * Canonicalize an edit path for file grouping/counting (retour Quentin
  * 20/08, job cbdbfc6c) : the SAME file arrives as an ABSOLUTE path from the
@@ -11528,99 +11525,11 @@ async function entityWorkspaceRoots(
  * cli:NotebookEdit rarely reports an old_source (the CLI usually only sends
  * the new cell content), so it renders as a write when none is present.
  */
-/**
- * True when a recorded tool call was REFUSED and therefore changed nothing.
- * The CLI returns a `<tool_use_error>` envelope for a tool it removed from the
- * palette — e.g. a read-only runtime agent attempting a write gets
- * "No such tool available: Write. Write is disabled for this session".
- *
- * Nodal recorded those exactly like successful calls, so the Code tab counted
- * files that were never written, showed their content in Changes, and even
- * qualified a pipeline as a "coding session" on writes that never happened.
- * That is what hid a read-only coding agent for a full day (Quentin 20/08:
- * Dev C, 9 attempts, 9 refusals, and the UI kept saying files changed).
- * The Nodal builtins report their own failures as `{"ok":false,...}`.
- *
- * NOT exported: this file is `'use server'`, where every export must be an
- * async server action — exporting a sync helper is a build error, not a type
- * error, so neither tsc nor the suite catches it (caught in the browser).
- */
-function isRefusedToolCall(toolOutput: string | null): boolean {
-  if (!toolOutput) return false;
-  const head = toolOutput.slice(0, 400);
-  return head.includes('<tool_use_error>') || /^\s*\{"ok"\s*:\s*false\b/.test(head);
-}
-
-function extractChange(toolName: string, rawInput: unknown): CodingChangeView | null {
-  const input = (rawInput ?? null) as Record<string, unknown> | null;
-  const filePath = extractFilePath(input);
-  if (!filePath || !input) return null;
-
-  // Une écriture d'un agent en runtime CODEX (revue Codex, 27/08). Elle
-  // qualifiait déjà le pipeline et comptait dans les fichiers changés, mais le
-  // panneau Changes restait VIDE : une session annonçant « 3 fichiers » sans
-  // rien montrer. Codex ne rend pas l'avant/après — seulement un `diff` par
-  // changement — donc on montre le diff quand il est là, et on ne fabrique
-  // aucun contenu quand il ne l'est pas.
-  if (toolName === 'cli:file_change') {
-    const changes = Array.isArray(input['changes']) ? input['changes'] : [];
-    const mine = changes.find(
-      (c) => c && typeof c === 'object' && (c as Record<string, unknown>)['path'] === filePath,
-    ) as Record<string, unknown> | undefined;
-    const diff = typeof mine?.['diff'] === 'string' ? mine['diff'] : null;
-    return {
-      filePath,
-      // `add` est une création, tout le reste (update, move) touche un existant.
-      kind: mine?.['kind'] === 'add' ? 'write' : 'edit',
-      oldText: null,
-      newText: diff,
-    };
-  }
-  if (toolName === 'cli:Edit' || toolName === 'file_edit') {
-    return {
-      filePath,
-      kind: 'edit',
-      oldText: typeof input['old_string'] === 'string' ? input['old_string'] : null,
-      newText: typeof input['new_string'] === 'string' ? input['new_string'] : null,
-    };
-  }
-  if (toolName === 'cli:Write' || toolName === 'file_write') {
-    return {
-      filePath,
-      kind: 'write',
-      oldText: null,
-      newText: typeof input['content'] === 'string' ? input['content'] : null,
-    };
-  }
-  if (toolName === 'cli:MultiEdit') {
-    const edits = Array.isArray(input['edits']) ? input['edits'] : [];
-    const olds: string[] = [];
-    const news: string[] = [];
-    for (const e of edits) {
-      if (!e || typeof e !== 'object') continue;
-      const rec = e as Record<string, unknown>;
-      if (typeof rec['old_string'] === 'string') olds.push(rec['old_string']);
-      if (typeof rec['new_string'] === 'string') news.push(rec['new_string']);
-    }
-    return {
-      filePath,
-      kind: 'edit',
-      oldText: olds.length > 0 ? olds.join('\n') : null,
-      newText: news.length > 0 ? news.join('\n') : null,
-    };
-  }
-  if (toolName === 'cli:NotebookEdit') {
-    const oldText = typeof input['old_source'] === 'string' ? input['old_source'] : null;
-    const newText =
-      typeof input['new_source'] === 'string'
-        ? input['new_source']
-        : typeof input['content'] === 'string'
-          ? input['content']
-          : null;
-    return { filePath, kind: oldText !== null ? 'edit' : 'write', oldText, newText };
-  }
-  return null;
-}
+// `isRefusedToolCall`, `extractFilePath` et `extractChange` vivent désormais
+// dans `./coding-changes.ts` (P2bis) : le fil a besoin de la MÊME lecture pour
+// ses compteurs « −a +b », et une recopie aurait fait diverger deux écrans sur
+// le même nombre au premier outil ajouté. Le module est pur, donc testé seul —
+// ce qu'un helper enfoui dans un fichier `'use server'` ne pouvait pas être.
 
 // PAS exportée : ce fichier est `'use server'`, où tout export doit être une
 // fonction async — un helper synchrone exporté fait échouer le BUILD (pas le
@@ -12222,13 +12131,6 @@ export type CodingToolCallView = {
   createdAt: string | null;
   /** Set when this call happened in a DIRECT CHILD job (a delegated worker), not the root itself. */
   delegatedFrom: { jobId: string; agentName: string | null } | null;
-};
-
-export type CodingChangeView = {
-  filePath: string;
-  kind: 'edit' | 'write';
-  oldText: string | null;
-  newText: string | null;
 };
 
 /** One file's full edit history in this pipeline — the Changes panel's unit (v4, Quentin 19/08 third pass). */
