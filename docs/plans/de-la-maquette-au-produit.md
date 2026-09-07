@@ -405,7 +405,10 @@ pleine page ne pouvaient pas le montrer, une capture pleine page dessine un
 sans créer de conteneur), mesuré dans le navigateur : le composer passe de
 1582 px à 813 px du haut pour un viewport de 900 px, visible à l'ouverture et
 au défilement. *Leçon pour la preuve* : une capture du VIEWPORT à l'ouverture
-et au milieu du fil, en plus de la pleine page.
+et au milieu du fil, en plus de la pleine page. Passe Codex 59 sur ce
+correctif : aucun constat neuf — aucun écran ne dépendait du défilement
+horizontal du document, les trois éléments collants sont en flux et ne
+masquent rien de définitif ; seule réserve, Playwright ne couvre que Chromium.
 
 **Ce que la vérification a corrigé dans le plan lui-même.** La ligne « la
 maquette est une intention, pas une spécification au pixel » des limites
