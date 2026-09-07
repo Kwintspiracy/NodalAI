@@ -177,3 +177,47 @@ describe('createAgentRepo — ROOT = origin orchestrator', () => {
     expect(assignments.length).toBe(1);
   });
 });
+
+describe('createAgentRepo — two orchestrators created at the same time (Codex review, pass 63)', () => {
+  it('exactly ONE becomes ROOT, the other is forced under it — never two top-level orchestrators', async () => {
+    // Clean slate: no ROOT. The earlier orchestrators keep their rows; only
+    // the entity's pointer is reset, which is what a fresh entity looks like.
+    await db
+      .update(schema.entities)
+      .set({ rootAgentId: null })
+      .where(eq(schema.entities.id, entityId));
+
+    // Both creations interleave: each reads "no ROOT yet" before either has
+    // written. A SELECT-then-UPDATE let the LAST one win and left the other
+    // at the top level; the conditional UPDATE lets exactly one win.
+    const [ra, rb] = await Promise.all([
+      createAgentRepo(db, entityId, orch('race-a', 'Race A')),
+      createAgentRepo(db, entityId, orch('race-b', 'Race B')),
+    ]);
+    const a = 'id' in ra ? ra.id : '';
+    const b = 'id' in rb ? rb.id : '';
+    expect(a && b).toBeTruthy();
+
+    const rootId = await rootOf();
+    expect([a, b]).toContain(rootId);
+    const loser = rootId === a ? b : a;
+
+    // The loser is wired under the winner…
+    const under = await db
+      .select()
+      .from(schema.agentAssignments)
+      .where(
+        and(
+          eq(schema.agentAssignments.orchestratorId, rootId!),
+          eq(schema.agentAssignments.subAgentId, loser),
+        ),
+      );
+    expect(under.length).toBe(1);
+    // …and the winner is under nobody.
+    const above = await db
+      .select()
+      .from(schema.agentAssignments)
+      .where(eq(schema.agentAssignments.subAgentId, rootId!));
+    expect(above.length).toBe(0);
+  });
+});

@@ -6,13 +6,13 @@ This doc is the source of truth for the procedure. Read it end to end the first 
 
 ## TL;DR — the 5 files you must touch
 
-| # | File                                                                  | What to add                                                                  |
-| - | --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| 1 | `apps/web/src/lib/oauth-providers.ts`                                 | Entry in `OAUTH_PROVIDERS` (URLs, scopes, PKCE/auth/body modes, accountInfo) |
-| 2 | `apps/web/src/lib/connector-catalog.ts`                               | Entry in `CONNECTOR_CATALOG` (slug, label, `authType: 'oauth2'`, hint, `credentialType`) |
-| 3 | `apps/web/src/lib/connector-help.ts`                                  | Entry in `OAUTH_GUIDES` (step-by-step setup with redirect URI prompt)        |
-| 4 | `apps/web/src/app/(dashboard)/credentials/CredentialWizard.tsx`       | Entry in `PROVIDER_CONFIGS` + entry in `TYPE_OPTIONS`                        |
-| 5 | `packages/db/src/schema/credentials.ts` + new migration               | Extend `credentials_type_check` constraint to include the new type            |
+| #   | File                                                            | What to add                                                                              |
+| --- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 1   | `apps/web/src/lib/oauth-providers.ts`                           | Entry in `OAUTH_PROVIDERS` (URLs, scopes, PKCE/auth/body modes, accountInfo)             |
+| 2   | `apps/web/src/lib/connector-catalog.ts`                         | Entry in `CONNECTOR_CATALOG` (slug, label, `authType: 'oauth2'`, hint, `credentialType`) |
+| 3   | `apps/web/src/lib/connector-help.ts`                            | Entry in `OAUTH_GUIDES` (step-by-step setup with redirect URI prompt)                    |
+| 4   | `apps/web/src/app/(dashboard)/credentials/CredentialWizard.tsx` | Entry in `PROVIDER_CONFIGS` + entry in `TYPE_OPTIONS`                                    |
+| 5   | `packages/db/src/schema/credentials.ts` + new migration         | Extend `credentials_type_check` constraint to include the new type                       |
 
 Optional 6th if the provider returns identity inside the token response (Notion-style instead of a dedicated userinfo endpoint):
 
@@ -113,7 +113,11 @@ Two small additions:
 Update the `CredentialWizardType` union accordingly:
 
 ```ts
-export type CredentialWizardType = 'google-oauth' | 'notion-oauth' | 'airtable-oauth' | 'slack-oauth';
+export type CredentialWizardType =
+  | 'google-oauth'
+  | 'notion-oauth'
+  | 'airtable-oauth'
+  | 'slack-oauth';
 ```
 
 ### 5. DB constraint update

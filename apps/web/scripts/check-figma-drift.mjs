@@ -41,7 +41,10 @@ export const EXTERNAL_MAPPING_PREFIXES = ['Icon/'];
  *  Reported as warnings so the check still passes.
  *  (2026-07-16: emptied — PageShell, PageTopBar, SetRow and SidebarSection
  *  got their Figma components + mappings. Keep the mechanism for next time.) */
-export const KNOWN_GAPS = new Set([]);
+export const KNOWN_GAPS = new Set([
+  // P2bis 07/09 : miroir Figma à créer.
+  'CodeBlock',
+]);
 
 // ─── Parsers (pure — unit-tested) ───────────────────────────────────────────
 

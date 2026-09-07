@@ -7,7 +7,7 @@
 // can create a job. Action escalation (the agent uses a tool → a real
 // `agent_jobs` row) is a later increment.
 
-import { eq, and, desc } from '@nodal-agents/db';
+import { eq, and, desc, sql } from '@nodal-agents/db';
 import { agents, chatMessages, conversations, agentJobs } from '@nodal-agents/db';
 import { buildSystemPrompt } from '@nodal-agents/orchestration';
 import type { Agent, AgentId, EntityId } from '@nodal-agents/orchestration';
@@ -25,6 +25,8 @@ import {
   loadInlineDelegationLedger,
   formatInlineDelegationLines,
 } from '../job/task-ledger.ts';
+import { loadConversationContext } from '../job/conversation-id.ts';
+import { TITLE_SYSTEM_PROMPT, cleanTitle, titlePrompt } from './conversation-title.ts';
 import { z } from 'zod';
 import type { ModelMessage } from 'ai';
 import type { RunnerDeps } from '../deps.ts';
@@ -243,11 +245,29 @@ export async function runChatTurn(opts: {
 
   // 1a. Verify the conversation belongs to this entity (the sidebar entry).
   const [conv] = await db
-    .select({ id: conversations.id, title: conversations.title })
+    .select({
+      id: conversations.id,
+      title: conversations.title,
+      // L'agent DU fil : un tour ne s'écrit que dans la conversation de son
+      // propre agent (revue Codex, passe 29).
+      agentId: conversations.agentId,
+      // Le projet courant du fil (P6) : il suit le job qu'une escalade `run_task`
+      // crée, pour que le travail naisse déjà dans le bon dossier.
+      currentProjectId: conversations.currentProjectId,
+    })
     .from(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.entityId, entityId)))
     .limit(1);
   if (!conv) return { ok: false, error: 'conversation_not_found' };
+
+  // 1a-bis. L'agent demandé DOIT être celui de la conversation.
+  //
+  // Vérifier l'entité ne suffisait pas : l'appelant web résolvait le ROOT
+  // COURANT, si bien qu'après un changement de ROOT, répondre dans l'ancien
+  // fil de A écrivait des messages de B et exécutait B avec l'historique de A.
+  // L'appelant est corrigé, mais la garde vit ICI aussi — et AVANT le moindre
+  // insert : un tour mal adressé ne doit laisser aucune trace (invariant #4).
+  if (conv.agentId !== agentId) return { ok: false, error: 'conversation_agent_mismatch' };
 
   // 1b. Persist the user turn IMMEDIATELY — before the (slower) LLM resolution +
   // system-prompt build — so it's visible the instant the user navigates back to
@@ -313,6 +333,9 @@ export async function runChatTurn(opts: {
       source: 'chat',
       entityId: agentRow.entityId ?? null,
       agentId: agentRow.id,
+      // 0100 — un tour de chat n'a pas de job : c'est la CONVERSATION qui
+      // rattache ses jetons et son coût au fil qui les montre.
+      conversationId,
     }),
   );
   if (!resolved.ok) {
@@ -329,11 +352,16 @@ export async function runChatTurn(opts: {
   // 3. System prompt — memory is AUTO-INJECTED here (recall is free). The
   //    origin:'dashboard' job-context steers the agent to reply in plain text.
   const deployment = await getDeploymentContext(db, entityId);
+  // Le fil et son projet courant (P6). Chargé APRÈS l'insert du tour utilisateur
+  // (1b ci-dessus) — d'où le « moins un » dans le compte des tours précédents,
+  // qui vit dans `loadConversationContext`.
+  const conversation = await loadConversationContext(db, conversationId, { task: message });
   const systemPrompt = await buildSystemPrompt(agent, db, {
     origin: 'dashboard',
     surface: 'chat',
     task: message,
     deployment,
+    ...(conversation ? { conversation } : {}),
   });
 
   // 4. Load recent history of THIS conversation (most recent N, chronological).
@@ -490,6 +518,10 @@ export async function runChatTurn(opts: {
         // real conversation entity (the dashboard sidebar thread) — stamp
         // that id directly rather than re-deriving it from a gap heuristic.
         conversationId,
+        // Le projet courant du fil (P6) : le travail escaladé naît dans le
+        // dossier où cette conversation travaille, sans attendre qu'une
+        // écriture l'y rattache.
+        projectId: conv.currentProjectId,
         messages: [{ role: 'user', content: workerContent }],
       })
       .returning({ id: agentJobs.id });
@@ -538,5 +570,56 @@ export async function runChatTurn(opts: {
     .set({ updatedAt: new Date() })
     .where(eq(conversations.id, conversationId));
 
+  // Le titre DÉFINITIF, tiré de l'échange entier — après la réponse, jamais
+  // avant : le nommer coûte un appel, et l'utilisateur attend sa réponse, pas
+  // son titre. Un échec ne remonte pas : le titre provisoire (sa première
+  // phrase) reste, ce qui est le pire cas acceptable.
+  await nameConversationOnce({
+    db,
+    conversationId,
+    userMessage: message,
+    agentReply: replyText,
+    generate: (system, prompt) =>
+      llmClient.generateText({ system, messages: [{ role: 'user', content: prompt }] }),
+  });
+
   return { ok: true, reply: replyText };
+}
+
+/**
+ * Nomme la conversation d'après son PREMIER échange, une seule fois.
+ *
+ * « Une seule fois » se lit dans les données, pas dans un drapeau : le premier
+ * échange est celui après lequel la conversation compte exactement deux
+ * messages. Au troisième, on ne renomme plus — le titre appartient alors à
+ * l'utilisateur, qui l'a lu et gardé.
+ */
+async function nameConversationOnce(input: {
+  db: Parameters<typeof loadConversationContext>[0];
+  conversationId: string;
+  userMessage: string;
+  agentReply: string;
+  generate: (system: string, prompt: string) => Promise<{ text?: string }>;
+}): Promise<void> {
+  try {
+    const [count] = await input.db
+      .select({ n: sql<number>`count(*)` })
+      .from(chatMessages)
+      .where(eq(chatMessages.conversationId, input.conversationId));
+    if (Number(count?.n ?? 0) !== 2) return;
+
+    const out = await input.generate(
+      TITLE_SYSTEM_PROMPT,
+      titlePrompt({ userMessage: input.userMessage, agentReply: input.agentReply }),
+    );
+    const title = cleanTitle(out.text ?? '');
+    if (title === null) return;
+    await input.db
+      .update(conversations)
+      .set({ title })
+      .where(eq(conversations.id, input.conversationId));
+  } catch (err) {
+    // Jamais bloquant : la conversation garde son titre provisoire.
+    console.warn('[run-chat-turn] auto-title failed:', (err as Error).message);
+  }
 }

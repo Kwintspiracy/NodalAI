@@ -76,7 +76,20 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <ApprovalsProvider initial={initialPending}>
       <SkillUpdatesProvider initial={initialUpdates}>
-        <div className="flex min-h-screen bg-canvas text-ink">
+        {/*
+          `h-screen` + `overflow-hidden` : la FENÊTRE ne défile jamais, seule
+          la zone de contenu défile (`main > div`). C'est ce que fait toute
+          application où la saisie reste en bas — Claude Code, une messagerie.
+          Avec `min-h-screen`, le document défilait ; un fil court laissait la
+          saisie et la barre d'état au MILIEU de l'écran, là où le contenu
+          s'arrêtait (Quentin, 07/09 : « le champ de texte est en plein
+          milieu, il descend au fur et à mesure que j'écris »).
+        */}
+        {/* `dvh`, pas `vh` : sur Safari iOS, `100vh` compte la barre d'adresse
+            comme si elle n'était pas là — l'écran déborde et la saisie passe
+            dessous (revue Codex, passe 65). `dvh` suit la hauteur réellement
+            visible. Repli `h-screen` pour un navigateur qui l'ignore. */}
+        <div className="flex h-screen h-[100dvh] overflow-hidden bg-canvas text-ink">
           <Sidebar workspaces={workspaces} userMenu={<UserMenu />} />
 
           {/*
@@ -86,7 +99,24 @@ export default async function DashboardLayout({ children }: { children: React.Re
             title AND the global controls. Canonical max-width is on the inner wrapper.
           */}
           <main className="flex min-w-0 flex-1 flex-col pt-16 lg:ml-[244px] lg:pt-0">
-            <div className="flex-1 overflow-x-hidden">{children}</div>
+            {/*
+              `overflow-x-clip`, PAS `overflow-x-hidden` : `hidden` sur un axe
+              force l'autre axe à `auto`, ce qui fait de ce bloc le conteneur
+              de défilement de référence pour tout `position: sticky` en
+              dessous — alors que c'est le document qui défile. Le composer du
+              fil (`sticky bottom-7`) et la barre d'état (`sticky bottom-0`)
+              ne se collaient donc JAMAIS au bas de l'écran : l'utilisateur
+              devait descendre en bas de page pour écrire (Quentin, 07/09).
+              `clip` coupe le débordement horizontal sans créer de conteneur.
+            */}
+            {/*
+              La zone qui DÉFILE. `overflow-x-clip` et non `-hidden` : masquer
+              un axe force l'autre à `auto`, ce qui ferait de ce bloc un
+              conteneur de défilement pour tout `position: sticky` en dessous —
+              ici c'en est un exprès, et le collant s'y réfère, ce qui est
+              justement voulu.
+            */}
+            <div className="min-h-0 flex-1 overflow-x-clip overflow-y-auto">{children}</div>
           </main>
 
           <ThemedToaster />

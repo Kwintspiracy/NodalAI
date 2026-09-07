@@ -23,7 +23,14 @@ import {
 } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { realpath as fsRealpath, access as fsAccess, opendir as fsOpendir } from 'node:fs/promises';
+import {
+  realpath as fsRealpath,
+  access as fsAccess,
+  opendir as fsOpendir,
+  open as fsOpen,
+  lstat as fsLstat,
+} from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import {
   deriveProjectRoot,
   isInsideWorkspace,
@@ -32,8 +39,36 @@ import {
   type WorkspaceRef,
   projectNameFromPath,
   fallbackProjectFromAgentWorkspaces,
+  isUnderPath,
 } from './code-projects.ts';
-import { projectKey } from './project-key.ts';
+import {
+  canonicalChangePath,
+  extractChange,
+  extractFilePath,
+  isRefusedToolCall,
+  type CodingChangeView,
+} from './coding-changes.ts';
+import {
+  entityWorkspaceRoots,
+  sharedWorkspacePath as sharedWorkspacePathOf,
+} from './workspace-roots.ts';
+import {
+  normalizePath,
+  projectKey,
+  discoverVerifyCommands,
+  VerifyCommandsSchema,
+  VerificationSurfacesSchema,
+  parseVerificationSurfaces,
+  type DiscoveredCommand,
+  type ProjectManifests,
+  type VerifyCommand,
+  type VerificationSurfaces,
+} from '@nodal-agents/shared';
+import {
+  currentManifestHash,
+  deriveVerifyStatus,
+  type VerifyStatus,
+} from './verification-display.ts';
 import { randomBytes } from 'node:crypto';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import ipaddr from 'ipaddr.js';
@@ -50,7 +85,6 @@ import {
   agents,
   agentAssignments,
   agentJobs,
-  chatMessages,
   conversations,
   connectors,
   credentials,
@@ -89,7 +123,18 @@ import {
   encryptChannelSecret,
   getMcpApprovalContext,
   cliRuns,
+  verificationRuns,
+  jobDeliverableVerificationState,
+  jobDeliveries,
 } from '@nodal-agents/db';
+import {
+  deliverableStatuses,
+  groupVerificationRuns,
+  mergeSkippedSurfaces,
+  type DeliverableStatusView,
+  type VerificationSequenceView,
+  type VerificationUnconfiguredView,
+} from './verification-runs-view.ts';
 import type { JobTriggerContext, AnyDrizzleDb } from '@nodal-agents/db';
 import {
   DeliveryError,
@@ -148,6 +193,9 @@ import {
 import { CONNECTOR_CATALOG, type ConnectorAuthType } from './connector-catalog.ts';
 import { isValidAvatarUrl } from './avatar-catalog.ts';
 import { MCP_CATALOG, AgentSlugSchema } from '@nodal-agents/shared';
+import type { ConversationFeed } from './conversation-feed.ts';
+import { aggregateSpaceCost, type SpaceCostView } from './space-cost.ts';
+import { assembleJobFeed, collectDescendants } from './job-feed.ts';
 import { probeContextWindow } from '@nodal-agents/llm';
 import {
   systemSkillSlugs,
@@ -2254,6 +2302,363 @@ export async function getJobDetailAction(id: string): Promise<ActionResult<JobDe
   } catch (err) {
     console.error('[getJobDetailAction]', err);
     return fail('db_error', 'Failed to load job');
+  }
+}
+
+// ─── Spaces (P2, plan « De la maquette au produit ») ─────────────────────────
+
+export type SpaceListRow = {
+  id: string;
+  agentName: string;
+  agentSlug: string | null;
+  agentAvatarUrl: string | null;
+  channel: string;
+  task: string;
+  status: string | null;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  createdAt: Date | null;
+  completedAt: Date | null;
+  conversationId: string | null;
+  scheduleId: string | null;
+  scheduleName: string | null;
+};
+
+/** Les colonnes lues par les deux listes (conversations et runs planifiés). */
+const SPACE_LIST_SELECT = {
+  id: agentJobs.id,
+  agentName: agents.name,
+  agentSlug: agents.slug,
+  agentAvatarUrl: agents.avatarUrl,
+  channel: agentJobs.channel,
+  task: agentJobs.task,
+  status: agentJobs.status,
+  costUsd: agentJobs.totalCostUsd,
+  inputTokens: agentJobs.inputTokens,
+  outputTokens: agentJobs.outputTokens,
+  createdAt: agentJobs.createdAt,
+  completedAt: agentJobs.completedAt,
+  conversationId: agentJobs.conversationId,
+  scheduleId: agentJobs.scheduleId,
+  triggerContext: agentJobs.triggerContext,
+};
+
+type SpaceListDbRow = {
+  id: string;
+  agentName: string | null;
+  agentSlug: string | null;
+  agentAvatarUrl: string | null;
+  channel: string;
+  task: string;
+  status: string | null;
+  costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  createdAt: Date | null;
+  completedAt: Date | null;
+  conversationId: string | null;
+  scheduleId: string | null;
+  triggerContext: JobTriggerContext | null;
+};
+
+function toSpaceListRow(r: SpaceListDbRow): SpaceListRow {
+  return {
+    id: r.id,
+    agentName: r.agentName ?? '—',
+    agentSlug: r.agentSlug,
+    agentAvatarUrl: r.agentAvatarUrl,
+    channel: r.channel,
+    task: r.task,
+    status: r.status,
+    costUsd: r.costUsd ?? 0,
+    inputTokens: r.inputTokens ?? 0,
+    outputTokens: r.outputTokens ?? 0,
+    createdAt: r.createdAt,
+    completedAt: r.completedAt,
+    conversationId: r.conversationId,
+    // La colonne d'abord, la provenance ensuite : `schedule_id` est SET NULL
+    // quand l'automatisation est supprimée, et sans l'id gardé dans la
+    // provenance deux automatisations supprimées puis recréées sous le même
+    // nom se fondaient en une ligne (revue passe 26). Les jobs antérieurs à
+    // cet id retombent sur le nom — `groupSpaces` le dit.
+    scheduleId:
+      r.scheduleId ??
+      (r.channel === 'cron' && r.triggerContext?.type === 'cron'
+        ? (r.triggerContext.scheduleId ?? null)
+        : null),
+    scheduleName:
+      r.channel === 'cron' && r.triggerContext?.type === 'cron'
+        ? r.triggerContext.scheduleName
+        : null,
+  };
+}
+
+// `listSpacesAction` (la liste des jobs de tête hors cron) est RETIRÉE par P8 :
+// /spaces liste des PROJETS, et la liste de toutes les conversations vit dans
+// `listAllConversationsAction` (P7, conversation-actions.ts). Un mode canonique
+// par feature — deux listes de « ce qui s'est passé » divergeaient forcément.
+
+/**
+ * Les runs d'automatisation de TÊTE, les plus récents d'abord (P9 : les runs
+ * d'automatisation ont leur page, /scheduled, où ils sont groupés par
+ * automatisation ; ils ne noient plus la liste des conversations).
+ */
+export async function listScheduledRunsAction(
+  opts: { limit?: number } = {},
+): Promise<ActionResult<SpaceListRow[]>> {
+  try {
+    const session = await getSession();
+    const db = getDb();
+    const limit = Math.min(opts.limit ?? 300, 2000);
+    const rows = await db
+      .select(SPACE_LIST_SELECT)
+      .from(agentJobs)
+      .leftJoin(agents, eq(agents.id, agentJobs.agentId))
+      .where(
+        and(
+          eq(agentJobs.entityId, session.entityId),
+          isNull(agentJobs.parentJobId),
+          eq(agentJobs.channel, 'cron'),
+        ),
+      )
+      .orderBy(desc(agentJobs.createdAt))
+      .limit(limit);
+    return ok(rows.map(toSpaceListRow));
+  } catch (err) {
+    console.error('[listScheduledRunsAction]', err);
+    return fail('db_error', 'Failed to load scheduled runs');
+  }
+}
+
+// P4 — la forme du coût (`SpaceCostView`) vit dans space-cost.ts, avec sa
+// fonction : la déclarer ici faisait un cycle d'import (revue CI du 06/09).
+
+export type SpaceConversationView = {
+  job: {
+    id: string;
+    task: string;
+    channel: string;
+    status: string | null;
+    agentName: string | null;
+    agentSlug: string | null;
+    createdAt: Date | null;
+    completedAt: Date | null;
+    conversationId: string | null;
+    parentJobId: string | null;
+    scheduleName: string | null;
+  };
+  feed: ConversationFeed;
+  /** P3 — ce que la preuve a fait pour ce travail et ses délégués (même lecture que le détail Code). */
+  verification: {
+    sequences: VerificationSequenceView[];
+    skippedSurfaces: string[];
+    unconfigured: VerificationUnconfiguredView[];
+    /** P12 — l'état de chaque DOCUMENT du fil, pour la carte du fichier écrit. */
+    deliverables: DeliverableStatusView[];
+  };
+  cost: SpaceCostView;
+  /** P3 — la file d'envoi de ce travail (`job_deliveries`), telle quelle. */
+  deliveries: Array<{
+    channel: string;
+    chatId: string;
+    outcome: string;
+    attempts: number;
+    createdAt: Date | null;
+    updatedAt: Date | null;
+  }>;
+};
+
+/**
+ * Le fil d'un travail, prêt à dessiner : le job et ses messages, ses lignes
+ * d'audit (carte + charge utile persistées par P1), ses appels LLM par tour,
+ * ses enfants — assemblés par `assembleJobFeed` (`job-feed.ts`), le MÊME
+ * assemblage que le fil d'une conversation (P7). Les messages sont masqués à
+ * l'affichage (SECRET-001), jamais à l'écriture.
+ *
+ * P8 : elle sert le fil d'UN RUN, sur /scheduled/[id]. Le nom reste — le
+ * renommer changerait des dizaines de lignes de tests pour rien.
+ */
+export async function getSpaceConversationAction(
+  id: string,
+): Promise<ActionResult<SpaceConversationView>> {
+  try {
+    const session = await getSession();
+    if (!z.string().guid().safeParse(id).success) {
+      return fail('validation_failed', 'Invalid job id');
+    }
+    const db = getDb();
+
+    const [row] = await db
+      .select({ job: agentJobs, agentName: agents.name, agentSlug: agents.slug })
+      .from(agentJobs)
+      .leftJoin(agents, eq(agents.id, agentJobs.agentId))
+      .where(and(eq(agentJobs.id, id), eq(agentJobs.entityId, session.entityId)));
+    if (!row) return fail('not_found', 'Job not found');
+    const job = row.job;
+
+    // Le fil du job : extrait dans `job-feed.ts` (P7) et partagé avec le fil
+    // d'une conversation, qui en assemble un par job de tête.
+    const { feed, displayTask, scheduleName } = await assembleJobFeed(db, session.entityId, {
+      job,
+      agentName: row.agentName,
+      agentSlug: row.agentSlug,
+    });
+
+    // P3 — les preuves du travail ET de ses délégués (T24 : la preuve d'un
+    // délégué remonte à la racine), bornées à l'entité ; la trace D8 des
+    // surfaces décochées vient des jobs eux-mêmes, jamais du réglage courant ;
+    // et la file d'envoi, telle qu'elle est.
+    // Les descendants à TOUTE profondeur, niveau par niveau (revue passe 20 :
+    // les enfants directs seuls laissaient la preuve d'un petit-enfant hors de
+    // la racine, alors que le détail Code la remonte — même lecture, même
+    // ROLLUP_MAX_DEPTH). Chacun porte sa trace D8.
+    const descendants = await collectDescendants(db, session.entityId, [id]);
+    const relevantIds = [id, ...descendants.map((d) => d.id)];
+    const [verificationRunRows, unconfiguredRows, deliveryRows, costRows, approvalRows] =
+      await Promise.all([
+        db
+          .select({
+            jobId: verificationRuns.jobId,
+            deliverableType: verificationRuns.deliverableType,
+            canonicalKey: verificationRuns.canonicalKey,
+            sequenceId: verificationRuns.sequenceId,
+            commandRank: verificationRuns.commandRank,
+            command: verificationRuns.command,
+            exitCode: verificationRuns.exitCode,
+            outcomeKind: verificationRuns.outcomeKind,
+            durationMs: verificationRuns.durationMs,
+            verdict: verificationRuns.verdict,
+            testedGeneration: verificationRuns.testedGeneration,
+            testedEpoch: verificationRuns.testedEpoch,
+            createdAt: verificationRuns.createdAt,
+          })
+          .from(verificationRuns)
+          .where(
+            and(
+              eq(verificationRuns.entityId, session.entityId),
+              inArray(verificationRuns.jobId, relevantIds),
+            ),
+          ),
+        db
+          .select({
+            jobId: jobDeliverableVerificationState.jobId,
+            deliverableType: jobDeliverableVerificationState.deliverableType,
+            canonicalKey: jobDeliverableVerificationState.canonicalKey,
+            displayPath: jobDeliverableVerificationState.displayPathSnapshot,
+            decisionStatus: jobDeliverableVerificationState.decisionStatus,
+          })
+          .from(jobDeliverableVerificationState)
+          .where(
+            and(
+              inArray(jobDeliverableVerificationState.jobId, relevantIds),
+              // P3 veut les livrables NON configurés ; P12 veut l'état de TOUS
+              // les documents, `dirty` et `green` compris, pour la carte du
+              // classeur écrit. Une requête, deux lectures triées ensuite.
+              or(
+                inArray(jobDeliverableVerificationState.decisionStatus, [
+                  'not_configured',
+                  'pending_approval',
+                ]),
+                eq(jobDeliverableVerificationState.deliverableType, 'office_file'),
+              ),
+            ),
+          ),
+        db
+          .select({
+            channel: jobDeliveries.channel,
+            chatId: jobDeliveries.chatId,
+            outcome: jobDeliveries.outcome,
+            attempts: jobDeliveries.attempts,
+            createdAt: jobDeliveries.createdAt,
+            updatedAt: jobDeliveries.updatedAt,
+          })
+          .from(jobDeliveries)
+          .where(eq(jobDeliveries.jobId, id))
+          .orderBy(jobDeliveries.createdAt),
+        // P4 — les appels LLM du job ET de ses délégués, avec l'agent qui a appelé.
+        db
+          .select({
+            agentId: llmCalls.agentId,
+            agentName: agents.name,
+            modelEffective: llmCalls.modelEffective,
+            inputTokens: llmCalls.inputTokens,
+            outputTokens: llmCalls.outputTokens,
+            cachedTokens: llmCalls.cachedTokens,
+            cacheCreationTokens: llmCalls.cacheCreationTokens,
+            costUsd: llmCalls.costUsd,
+            durationMs: llmCalls.durationMs,
+          })
+          .from(llmCalls)
+          .leftJoin(agents, eq(agents.id, llmCalls.agentId))
+          .where(
+            and(eq(llmCalls.entityId, session.entityId), inArray(llmCalls.jobId, relevantIds)),
+          ),
+        // P4 — l'attente humaine : chaque approbation tranchée, du moment demandé au moment tranché.
+        db
+          .select({
+            requestedAt: approvalRequests.requestedAt,
+            resolvedAt: approvalRequests.resolvedAt,
+          })
+          .from(approvalRequests)
+          .where(
+            and(
+              eq(approvalRequests.entityId, session.entityId),
+              inArray(approvalRequests.jobId, relevantIds),
+            ),
+          ),
+      ]);
+    const cost = aggregateSpaceCost({
+      calls: costRows,
+      approvals: approvalRows,
+      proofMs: verificationRunRows.reduce((acc, r) => acc + (r.durationMs ?? 0), 0),
+      startedAt: job.createdAt,
+      endedAt: job.completedAt,
+    });
+    const verification = {
+      sequences: groupVerificationRuns(verificationRunRows),
+      skippedSurfaces: mergeSkippedSurfaces([
+        job.verificationSkippedSurfaces,
+        ...descendants.map((d) => d.verificationSkippedSurfaces),
+      ]),
+      unconfigured: unconfiguredRows
+        .filter(
+          (r) => r.decisionStatus === 'not_configured' || r.decisionStatus === 'pending_approval',
+        )
+        .map(
+          (r): VerificationUnconfiguredView => ({
+            deliverableType: r.deliverableType,
+            canonicalKey: r.canonicalKey,
+            displayPath: r.displayPath,
+            reason: r.decisionStatus === 'pending_approval' ? 'pending_approval' : 'not_configured',
+          }),
+        ),
+      // P12 — l'état de chaque DOCUMENT, rangé par sa clé canonique.
+      deliverables: deliverableStatuses(unconfiguredRows),
+    };
+
+    return ok({
+      job: {
+        id: job.id,
+        task: displayTask,
+        channel: job.channel,
+        status: job.status,
+        agentName: row.agentName,
+        agentSlug: row.agentSlug,
+        createdAt: job.createdAt,
+        completedAt: job.completedAt,
+        conversationId: job.conversationId,
+        parentJobId: job.parentJobId,
+        scheduleName,
+      },
+      feed,
+      verification,
+      cost,
+      deliveries: deliveryRows,
+    });
+  } catch (err) {
+    console.error('[getSpaceConversationAction]', err);
+    return fail('db_error', 'Failed to load the conversation');
   }
 }
 
@@ -5396,6 +5801,14 @@ export type ApprovalRow = {
   agentSlug: string | null;
   toolName: string;
   toolInput: unknown;
+  /**
+   * Ce que la ligne DEMANDE (P10a) : 'approval' — approuver ou refuser une
+   * action — ou 'question' — choisir parmi les options que l'agent propose.
+   * Lu sur la colonne, jamais déduit du nom de l'outil (invariant #1).
+   */
+  kind: string;
+  /** L'option retenue, sur une question résolue. null tant que personne n'a répondu. */
+  answer: string | null;
   status: string;
   requestedAt: Date | null;
   resolvedAt: Date | null;
@@ -5459,6 +5872,8 @@ export async function listApprovalsAction(
         agentSlug: agents.slug,
         toolName: approvalRequests.toolName,
         toolInput: approvalRequests.toolInput,
+        kind: approvalRequests.kind,
+        answer: approvalRequests.answer,
         status: approvalRequests.status,
         requestedAt: approvalRequests.requestedAt,
         resolvedAt: approvalRequests.resolvedAt,
@@ -5535,6 +5950,13 @@ const ResolveApprovalSchema = z.object({
   approvalRequestId: z.string().guid(),
   decision: z.enum(['approve', 'reject']),
   notes: z.string().max(5000).optional(),
+  /**
+   * P10a — l'option choisie sur une QUESTION. Le libellé, jamais l'index. Le
+   * runner la valide contre les options de la ligne : cette action ne fait que
+   * la transporter, et un libellé qui n'est plus une option revient en erreur
+   * plutôt que d'être écrit.
+   */
+  answer: z.string().max(400).optional(),
 });
 
 /**
@@ -5547,7 +5969,7 @@ const ResolveApprovalSchema = z.object({
  */
 export async function resolveApprovalAction(
   raw: unknown,
-): Promise<ActionResult<{ jobId: string; decision: string }>> {
+): Promise<ActionResult<{ jobId: string; decision: string; answer: string | null }>> {
   try {
     const session = await getSession();
     const parsed = ResolveApprovalSchema.safeParse(raw);
@@ -5603,11 +6025,11 @@ export async function resolveApprovalAction(
       return fail(code, `Runner rejected: ${code}`);
     }
 
-    const body = (await res.json()) as { jobId: string; decision: string };
+    const body = (await res.json()) as { jobId: string; decision: string; answer?: string | null };
     revalidatePath('/approvals');
     revalidatePath('/jobs');
     revalidatePath(`/jobs/${body.jobId}`);
-    return ok({ jobId: body.jobId, decision: body.decision });
+    return ok({ jobId: body.jobId, decision: body.decision, answer: body.answer ?? null });
   } catch (err) {
     console.error('[resolveApprovalAction]', err);
     return fail('db_error', 'Failed to resolve approval');
@@ -6781,6 +7203,75 @@ export async function setAutoRunPauseAction(raw: unknown): Promise<ActionResult<
   } catch (err) {
     console.error('[setAutoRunPauseAction]', err);
     return fail('db_error', 'Failed to save the auto-run pause setting');
+  }
+}
+
+// ─── Surfaces sous vérification (D8, plan « Vérifier & Corriger », T23) ───────
+//
+// L'utilisateur décide quelles façons de travailler posent une intention de
+// mutation et sont prouvées : une case par surface. Même forme que le frein
+// ci-dessus, même garde owner (entities.userId === session.userId — jamais
+// entityMembers.role, qui vaut 'owner' pour tout invité). L'objet COMPLET est
+// écrit à chaque sauvegarde : « absent » ne doit avoir qu'un seul sens, celui
+// du parseur (toutes activées), jamais « pas encore touché par un merge ».
+
+export type VerificationSurfacesView = {
+  surfaces: VerificationSurfaces;
+  isOwner: boolean;
+};
+
+export async function getVerificationSurfacesAction(): Promise<
+  ActionResult<VerificationSurfacesView>
+> {
+  try {
+    const session = await getSession();
+    const db = getDb();
+    const [entityRow] = await db
+      .select({ userId: entities.userId, verificationSurfaces: entities.verificationSurfaces })
+      .from(entities)
+      .where(eq(entities.id, session.entityId));
+    if (!entityRow) return fail('not_found', 'Workspace not found');
+    return ok({
+      surfaces: parseVerificationSurfaces(entityRow.verificationSurfaces),
+      isOwner: entityRow.userId === session.userId,
+    });
+  } catch (err) {
+    console.error('[getVerificationSurfacesAction]', err);
+    return fail('db_error', 'Failed to load the verification surfaces');
+  }
+}
+
+export async function setVerificationSurfacesAction(raw: unknown): Promise<ActionResult<void>> {
+  try {
+    const session = await getSession();
+    const parsed = VerificationSurfacesSchema.strict().safeParse(raw);
+    if (!parsed.success) {
+      return fail('validation_failed', parsed.error.issues[0]?.message ?? 'Invalid input');
+    }
+
+    const db = getDb();
+    const [entityRow] = await db
+      .select({ userId: entities.userId })
+      .from(entities)
+      .where(eq(entities.id, session.entityId));
+    if (!entityRow) return fail('not_found', 'Workspace not found');
+    if (entityRow.userId !== session.userId) {
+      return fail('forbidden', 'Only the workspace owner can change this setting.');
+    }
+
+    await db
+      .update(entities)
+      .set({ verificationSurfaces: parsed.data })
+      .where(eq(entities.id, session.entityId));
+
+    // L'onglet Code porte l'état de vérification : sans cette revalidation le
+    // réglage est enregistré et l'écran ment jusqu'au prochain rechargement.
+    revalidatePath('/settings');
+    revalidatePath('/code');
+    return ok(undefined);
+  } catch (err) {
+    console.error('[setVerificationSurfacesAction]', err);
+    return fail('db_error', 'Failed to save the verification surfaces');
   }
 }
 
@@ -8533,14 +9024,9 @@ export type SettingsView = {
 export async function getSettingsAction(): Promise<ActionResult<SettingsView>> {
   try {
     const session = await getSession();
-    // Shared workspace folder for this entity — must mirror the runner's
-    // workspacesRoot() resolver (apps/runner/src/lib/workspaces-root.ts):
-    //   <NODALAI_WORKSPACES_ROOT | ~/.nodalai/workspaces>/<entityId>/shared
-    const sharedWorkspacePath = pathJoin(
-      process.env['NODALAI_WORKSPACES_ROOT'] ?? pathJoin(homedir(), '.nodalai', 'workspaces'),
-      session.entityId,
-      'shared',
-    );
+    // Shared workspace folder for this entity — the runner's resolver, mirrored
+    // once in `workspace-roots.ts` (the Code page and the thread read it too).
+    const sharedWorkspacePath = sharedWorkspacePathOf(session.entityId);
     return ok({
       llm: {
         provider: env.LLM_PROVIDER ?? null,
@@ -10583,7 +11069,7 @@ export async function updateRootPersonalityAction(raw: unknown): Promise<ActionR
     }
     const db = getDb();
     const { rootAgentId } = await resolveRoot(db, session.entityId);
-    if (!rootAgentId) return fail('not_found', 'No ROOT agent designated');
+    if (!rootAgentId) return fail('not_found', 'No ROOT agent yet');
     await db
       .update(agents)
       .set({ personality: parsed.data.personality })
@@ -10607,7 +11093,7 @@ export async function getRootSystemPromptAction(): Promise<ActionResult<string>>
     const session = await getSession();
     const db = getDb();
     const { rootAgentId } = await resolveRoot(db, session.entityId);
-    if (!rootAgentId) return fail('not_found', 'No ROOT agent designated');
+    if (!rootAgentId) return fail('not_found', 'No ROOT agent yet');
     const [row] = await db.select().from(agents).where(eq(agents.id, rootAgentId));
     if (!row) return fail('not_found', 'ROOT agent not found');
 
@@ -10872,32 +11358,18 @@ export async function setRootAgentAction(raw: unknown): Promise<ActionResult<voi
   }
 }
 
-// ─── In-app chat (V4 — conversation-first) ────────────────────────────────────
-// A conversation is NOT a job. Turns live in `chat_messages`, grouped under a
-// `conversations` row (the sidebar entries). Pure conversation never creates an
-// agent_jobs row. The runner (/api/chat) is the single writer of messages; it
-// persists both turns + bumps the conversation, and returns the reply.
-// Targets the entity's ROOT agent.
-
-export type ConversationView = {
-  id: string;
-  title: string;
-  preview: string;
-  updatedAt: Date | null;
-};
-export type ChatMessageView = {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  jobId: string | null;
-};
-
-/** A dispatched action job's live state, for the in-chat dispatch card. */
-export type ChatJobStatus = {
-  status: string;
-  result: string | null;
-  children: { agentName: string; status: string }[];
-};
+// ─── In-app chat — ce qui ÉCRIT une conversation ──────────────────────────────
+// Une conversation n'est pas un job. Les tours du dashboard vivent dans
+// `chat_messages`, sous une ligne `conversations` ; une conversation pure ne
+// crée jamais de `agent_jobs`. Le runner (/api/chat) est le seul écrivain des
+// messages : il persiste les deux tours, remonte la conversation, et rend la
+// réponse. Il vise l'agent ROOT de l'entité.
+//
+// La LECTURE, elle, a quitté ce fichier avec P7 : `listAllConversationsAction`
+// et `getConversationThreadAction` vivent dans `conversation-actions.ts`, qui
+// lit TOUS les canaux. `listConversationsAction`, `listChatAction` et
+// `getChatJobStatusAction` ont été retirées avec le chat à deux volets qu'elles
+// servaient — un mode canonique par feature.
 
 /** Resolve the entity's ROOT agent (id + name), or null when none is designated. */
 async function resolveRoot(
@@ -10919,71 +11391,6 @@ async function resolveRoot(
   return { rootAgentId, rootName: root?.name ?? null };
 }
 
-export async function listConversationsAction(): Promise<
-  ActionResult<{
-    rootAgentId: string | null;
-    rootName: string | null;
-    conversations: ConversationView[];
-  }>
-> {
-  try {
-    const session = await getSession();
-    const db = getDb();
-    const { rootAgentId, rootName } = await resolveRoot(db, session.entityId);
-    if (!rootAgentId) return ok({ rootAgentId: null, rootName: null, conversations: [] });
-
-    const rows = await db
-      .select({
-        id: conversations.id,
-        title: conversations.title,
-        updatedAt: conversations.updatedAt,
-      })
-      .from(conversations)
-      .where(
-        and(
-          eq(conversations.entityId, session.entityId),
-          eq(conversations.agentId, rootAgentId),
-          // The onboarding welcome interview stamps its conversation with
-          // origin='onboarding' at creation time — never rewritten later — so
-          // it never appears in the dashboard's Chats list, whether the
-          // operator skips it or finishes it.
-          eq(conversations.origin, 'user'),
-        ),
-      )
-      .orderBy(desc(conversations.updatedAt))
-      .limit(200);
-
-    // Per-conversation preview = the most recent message. One extra query over
-    // the listed conversations; take the first (newest) message per conversation.
-    const convIds = rows.map((r) => r.id);
-    const previewByConv = new Map<string, string>();
-    if (convIds.length > 0) {
-      const msgs = await db
-        .select({ conversationId: chatMessages.conversationId, content: chatMessages.content })
-        .from(chatMessages)
-        .where(inArray(chatMessages.conversationId, convIds))
-        .orderBy(desc(chatMessages.createdAt))
-        .limit(1000);
-      for (const m of msgs) {
-        if (m.conversationId && !previewByConv.has(m.conversationId)) {
-          previewByConv.set(m.conversationId, m.content);
-        }
-      }
-    }
-
-    const list: ConversationView[] = rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      preview: previewByConv.get(r.id) ?? '',
-      updatedAt: r.updatedAt,
-    }));
-    return ok({ rootAgentId, rootName, conversations: list });
-  } catch (err) {
-    console.error('[listConversationsAction]', err);
-    return fail('db_error', 'Failed to load conversations');
-  }
-}
-
 export async function createConversationAction(
   opts: { origin?: 'user' | 'onboarding' } = {},
 ): Promise<ActionResult<{ id: string }>> {
@@ -10991,7 +11398,14 @@ export async function createConversationAction(
     const session = await getSession();
     const db = getDb();
     const { rootAgentId } = await resolveRoot(db, session.entityId);
-    if (!rootAgentId) return fail('no_root_agent', 'Designate a ROOT agent in Settings first.');
+    // Le ROOT n'est pas désigné à la main : il naît avec le premier
+    // orchestrateur créé (revue Codex, passes 62-63).
+    if (!rootAgentId) {
+      return fail(
+        'no_root_agent',
+        'No ROOT agent yet. Create an orchestrator agent first: the first one you create becomes this workspace’s ROOT.',
+      );
+    }
 
     const [row] = await db
       .insert(conversations)
@@ -11008,6 +11422,38 @@ export async function createConversationAction(
   } catch (err) {
     console.error('[createConversationAction]', err);
     return fail('db_error', 'Failed to create conversation');
+  }
+}
+
+/**
+ * Supprimer PLUSIEURS conversations d'un coup (07/09, Quentin : « il faudrait
+ * un moyen de faire du mass delete dans le chat »).
+ *
+ * Une seule requête, bornée à l'entité de la session comme la suppression
+ * unitaire : la liste peut envoyer cinquante identifiants, ils ne sortent pas
+ * de l'espace de travail courant. Le nombre RÉELLEMENT supprimé est rendu —
+ * une ligne déjà partie, ou d'une autre entité, ne fait pas échouer le geste,
+ * elle n'est simplement pas comptée, et l'écran dit le vrai compte.
+ */
+export async function deleteConversationsAction(
+  ids: readonly string[],
+): Promise<ActionResult<{ deleted: number }>> {
+  try {
+    const session = await getSession();
+    const parsed = z.array(z.string().guid()).min(1).max(200).safeParse(ids);
+    if (!parsed.success) return fail('validation_failed', 'Invalid conversation ids');
+    const db = getDb();
+    const rows = await db
+      .delete(conversations)
+      .where(
+        and(inArray(conversations.id, parsed.data), eq(conversations.entityId, session.entityId)),
+      )
+      .returning({ id: conversations.id });
+    revalidatePath('/chat');
+    return ok({ deleted: rows.length });
+  } catch (err) {
+    console.error('[deleteConversationsAction]', err);
+    return fail('db_error', 'Failed to delete the conversations');
   }
 }
 
@@ -11029,50 +11475,6 @@ export async function deleteConversationAction(id: string): Promise<ActionResult
   }
 }
 
-export async function listChatAction(
-  conversationId: string,
-): Promise<ActionResult<{ messages: ChatMessageView[] }>> {
-  try {
-    const session = await getSession();
-    if (!z.string().guid().safeParse(conversationId).success) {
-      return fail('validation_failed', 'Invalid conversation id');
-    }
-    const db = getDb();
-    // Verify the conversation belongs to this entity before reading its messages.
-    const [conv] = await db
-      .select({ id: conversations.id })
-      .from(conversations)
-      .where(
-        and(eq(conversations.id, conversationId), eq(conversations.entityId, session.entityId)),
-      )
-      .limit(1);
-    if (!conv) return fail('not_found', 'Conversation not found');
-
-    const rows = await db
-      .select({
-        id: chatMessages.id,
-        role: chatMessages.role,
-        content: chatMessages.content,
-        jobId: chatMessages.jobId,
-      })
-      .from(chatMessages)
-      .where(eq(chatMessages.conversationId, conversationId))
-      .orderBy(chatMessages.createdAt)
-      .limit(500);
-
-    const messages: ChatMessageView[] = rows.map((r) => ({
-      id: r.id,
-      role: r.role as 'user' | 'assistant',
-      content: r.content,
-      jobId: r.jobId,
-    }));
-    return ok({ messages });
-  } catch (err) {
-    console.error('[listChatAction]', err);
-    return fail('db_error', 'Failed to load chat');
-  }
-}
-
 const SendChatMessageSchema = z.object({
   conversationId: z.string().guid(),
   // Generous cap: users paste large skills/personalities into chat (skills run 18K+ chars).
@@ -11089,8 +11491,28 @@ export async function sendChatMessageAction(
       return fail('validation_failed', parsed.error.issues[0]?.message ?? 'Invalid input');
     }
     const db = getDb();
-    const { rootAgentId } = await resolveRoot(db, session.entityId);
-    if (!rootAgentId) return fail('no_root_agent', 'Designate a ROOT agent in Settings first.');
+
+    // L'agent DE LA CONVERSATION, jamais le ROOT courant (revue Codex, passe
+    // 29). Une conversation appartient à l'agent avec qui elle a été menée :
+    // désigner un nouveau ROOT ne doit pas faire répondre B dans le fil de A,
+    // ni exécuter B avec l'historique de A. Le ROOT ne décide que de l'agent
+    // d'une conversation NEUVE (`createConversationAction`).
+    const [conv] = await db
+      .select({ agentId: conversations.agentId, agentActive: agents.active })
+      .from(conversations)
+      .leftJoin(agents, eq(agents.id, conversations.agentId))
+      .where(
+        and(
+          eq(conversations.id, parsed.data.conversationId),
+          eq(conversations.entityId, session.entityId),
+        ),
+      )
+      .limit(1);
+    if (!conv) return fail('conversation_not_found', 'Conversation not found');
+    if (conv.agentActive === false) {
+      return fail('agent_inactive', 'This conversation’s agent is disabled.');
+    }
+    const agentId = conv.agentId;
 
     if (!env.WORKER_SECRET) {
       console.error('[sendChatMessageAction] WORKER_SECRET missing — cannot reach runner');
@@ -11109,7 +11531,7 @@ export async function sendChatMessageAction(
         },
         body: JSON.stringify({
           entityId: session.entityId,
-          agentId: rootAgentId,
+          agentId,
           conversationId: parsed.data.conversationId,
           message: parsed.data.message,
         }),
@@ -11135,43 +11557,6 @@ export async function sendChatMessageAction(
   } catch (err) {
     console.error('[sendChatMessageAction]', err);
     return fail('db_error', 'Failed to send message');
-  }
-}
-
-export async function getChatJobStatusAction(jobId: string): Promise<ActionResult<ChatJobStatus>> {
-  try {
-    const session = await getSession();
-    if (!z.string().guid().safeParse(jobId).success) {
-      return fail('validation_failed', 'Invalid job id');
-    }
-    const db = getDb();
-    const [job] = await db
-      .select({ status: agentJobs.status, result: agentJobs.result })
-      .from(agentJobs)
-      .where(and(eq(agentJobs.id, jobId), eq(agentJobs.entityId, session.entityId)))
-      .limit(1);
-    if (!job) return fail('not_found', 'Job not found');
-
-    // Delegated sub-agents (children) = the "DISPATCHED TO N AGENTS" rows.
-    const childRows = await db
-      .select({
-        agentName: agents.name,
-        agentSlug: agents.slug,
-        status: agentJobs.status,
-      })
-      .from(agentJobs)
-      .leftJoin(agents, eq(agents.id, agentJobs.agentId))
-      .where(and(eq(agentJobs.parentJobId, jobId), eq(agentJobs.entityId, session.entityId)))
-      .orderBy(agentJobs.createdAt);
-
-    const children = childRows.map((r) => ({
-      agentName: r.agentName ?? r.agentSlug ?? 'agent',
-      status: r.status ?? 'pending',
-    }));
-    return ok({ status: job.status ?? 'pending', result: job.result, children });
-  } catch (err) {
-    console.error('[getChatJobStatusAction]', err);
-    return fail('db_error', 'Failed to load job status');
   }
 }
 
@@ -11357,54 +11742,11 @@ const FILE_TOOL_NAMES = new Set([...EDIT_TOOL_NAMES, 'file_edit', 'file_write'])
  * comme un trou avant de conclure l'inverse, d'où cette ligne.
  */
 
-/** file_path (cli:Edit/Write/MultiEdit), notebook_path (cli:NotebookEdit), or path (file_edit/file_write). */
-function extractFilePath(input: Record<string, unknown> | null): string | null {
-  if (!input) return null;
-  if (typeof input['file_path'] === 'string') return input['file_path'];
-  if (typeof input['notebook_path'] === 'string') return input['notebook_path'];
-  if (typeof input['path'] === 'string') return input['path'];
-  return null;
-}
-
-/**
- * Canonicalize an edit path for file grouping/counting (retour Quentin
- * 20/08, job cbdbfc6c) : the SAME file arrives as an ABSOLUTE path from the
- * CLI's own tools (`C:\…\<ws-root>\outputs\app\index.html`) and as a
- * WORKSPACE-RELATIVE path from the Nodal file tools
- * (`outputs/app/index.html`) — raw-string grouping counted one file twice.
- * Backslashes are normalized to `/` and a known workspace-root prefix is
- * stripped (case-insensitively for Windows-style paths, whose filesystems
- * are case-insensitive). Falls back to the slash-normalized original.
- */
-function canonicalChangePath(rawPath: string, workspaceRoots: string[]): string {
-  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
-  const p = norm(rawPath.trim());
-  const isWindowsPath = /^[a-z]:\//i.test(p);
-  for (const root of workspaceRoots) {
-    const r = norm(root);
-    if (r === '') continue;
-    const matches = isWindowsPath
-      ? p.toLowerCase().startsWith(r.toLowerCase() + '/')
-      : p.startsWith(r + '/');
-    if (matches) return p.slice(r.length + 1);
-  }
-  return p.replace(/^\.\//, '');
-}
-
-/** All workspace roots of the entity's agents — one query, shared by the
- *  coding list AND detail so both canonicalize edit paths identically. */
-async function entityWorkspaceRoots(
-  db: ReturnType<typeof getDb>,
-  entityId: string,
-): Promise<string[]> {
-  const rows = await db
-    .select({ path: agentWorkspaces.path })
-    .from(agentWorkspaces)
-    .innerJoin(agents, eq(agents.id, agentWorkspaces.agentId))
-    .where(eq(agents.entityId, entityId));
-  // Longest roots first, so a nested workspace strips before its parent.
-  return rows.map((r) => r.path).sort((a, b) => b.length - a.length);
-}
+// `canonicalChangePath` vit dans `./coding-changes.ts` et
+// `entityWorkspaceRoots` dans `./workspace-roots.ts` (P2bis, passe 57) : le
+// récapitulatif de livraison compte les fichiers changés avec la MÊME règle que
+// cette page, et un helper enfoui dans un fichier `'use server'` ne se partage
+// pas.
 
 /**
  * A diff/change entry from one edit-shaped tool_call, for the detail view's
@@ -11414,99 +11756,11 @@ async function entityWorkspaceRoots(
  * cli:NotebookEdit rarely reports an old_source (the CLI usually only sends
  * the new cell content), so it renders as a write when none is present.
  */
-/**
- * True when a recorded tool call was REFUSED and therefore changed nothing.
- * The CLI returns a `<tool_use_error>` envelope for a tool it removed from the
- * palette — e.g. a read-only runtime agent attempting a write gets
- * "No such tool available: Write. Write is disabled for this session".
- *
- * Nodal recorded those exactly like successful calls, so the Code tab counted
- * files that were never written, showed their content in Changes, and even
- * qualified a pipeline as a "coding session" on writes that never happened.
- * That is what hid a read-only coding agent for a full day (Quentin 20/08:
- * Dev C, 9 attempts, 9 refusals, and the UI kept saying files changed).
- * The Nodal builtins report their own failures as `{"ok":false,...}`.
- *
- * NOT exported: this file is `'use server'`, where every export must be an
- * async server action — exporting a sync helper is a build error, not a type
- * error, so neither tsc nor the suite catches it (caught in the browser).
- */
-function isRefusedToolCall(toolOutput: string | null): boolean {
-  if (!toolOutput) return false;
-  const head = toolOutput.slice(0, 400);
-  return head.includes('<tool_use_error>') || /^\s*\{"ok"\s*:\s*false\b/.test(head);
-}
-
-function extractChange(toolName: string, rawInput: unknown): CodingChangeView | null {
-  const input = (rawInput ?? null) as Record<string, unknown> | null;
-  const filePath = extractFilePath(input);
-  if (!filePath || !input) return null;
-
-  // Une écriture d'un agent en runtime CODEX (revue Codex, 27/08). Elle
-  // qualifiait déjà le pipeline et comptait dans les fichiers changés, mais le
-  // panneau Changes restait VIDE : une session annonçant « 3 fichiers » sans
-  // rien montrer. Codex ne rend pas l'avant/après — seulement un `diff` par
-  // changement — donc on montre le diff quand il est là, et on ne fabrique
-  // aucun contenu quand il ne l'est pas.
-  if (toolName === 'cli:file_change') {
-    const changes = Array.isArray(input['changes']) ? input['changes'] : [];
-    const mine = changes.find(
-      (c) => c && typeof c === 'object' && (c as Record<string, unknown>)['path'] === filePath,
-    ) as Record<string, unknown> | undefined;
-    const diff = typeof mine?.['diff'] === 'string' ? mine['diff'] : null;
-    return {
-      filePath,
-      // `add` est une création, tout le reste (update, move) touche un existant.
-      kind: mine?.['kind'] === 'add' ? 'write' : 'edit',
-      oldText: null,
-      newText: diff,
-    };
-  }
-  if (toolName === 'cli:Edit' || toolName === 'file_edit') {
-    return {
-      filePath,
-      kind: 'edit',
-      oldText: typeof input['old_string'] === 'string' ? input['old_string'] : null,
-      newText: typeof input['new_string'] === 'string' ? input['new_string'] : null,
-    };
-  }
-  if (toolName === 'cli:Write' || toolName === 'file_write') {
-    return {
-      filePath,
-      kind: 'write',
-      oldText: null,
-      newText: typeof input['content'] === 'string' ? input['content'] : null,
-    };
-  }
-  if (toolName === 'cli:MultiEdit') {
-    const edits = Array.isArray(input['edits']) ? input['edits'] : [];
-    const olds: string[] = [];
-    const news: string[] = [];
-    for (const e of edits) {
-      if (!e || typeof e !== 'object') continue;
-      const rec = e as Record<string, unknown>;
-      if (typeof rec['old_string'] === 'string') olds.push(rec['old_string']);
-      if (typeof rec['new_string'] === 'string') news.push(rec['new_string']);
-    }
-    return {
-      filePath,
-      kind: 'edit',
-      oldText: olds.length > 0 ? olds.join('\n') : null,
-      newText: news.length > 0 ? news.join('\n') : null,
-    };
-  }
-  if (toolName === 'cli:NotebookEdit') {
-    const oldText = typeof input['old_source'] === 'string' ? input['old_source'] : null;
-    const newText =
-      typeof input['new_source'] === 'string'
-        ? input['new_source']
-        : typeof input['content'] === 'string'
-          ? input['content']
-          : null;
-    return { filePath, kind: oldText !== null ? 'edit' : 'write', oldText, newText };
-  }
-  return null;
-}
+// `isRefusedToolCall`, `extractFilePath` et `extractChange` vivent désormais
+// dans `./coding-changes.ts` (P2bis) : le fil a besoin de la MÊME lecture pour
+// ses compteurs « −a +b », et une recopie aurait fait diverger deux écrans sur
+// le même nombre au premier outil ajouté. Le module est pur, donc testé seul —
+// ce qu'un helper enfoui dans un fichier `'use server'` ne pouvait pas être.
 
 // PAS exportée : ce fichier est `'use server'`, où tout export doit être une
 // fonction async — un helper synchrone exporté fait échouer le BUILD (pas le
@@ -12110,13 +12364,6 @@ export type CodingToolCallView = {
   delegatedFrom: { jobId: string; agentName: string | null } | null;
 };
 
-export type CodingChangeView = {
-  filePath: string;
-  kind: 'edit' | 'write';
-  oldText: string | null;
-  newText: string | null;
-};
-
 /** One file's full edit history in this pipeline — the Changes panel's unit (v4, Quentin 19/08 third pass). */
 export type CodingFileChangeGroup = {
   filePath: string;
@@ -12196,6 +12443,21 @@ export type CodingProcessDetail = {
    * V1.1). Vide pour une session de chat (pas de jobs).
    */
   pipelineJobIds: string[];
+  /**
+   * Les preuves qui ont tourné pour ce pipeline (racine + délégués), une
+   * séquence par exécution de commandes, lues dans `verification_runs` par
+   * `pipelineJobIds` — jamais par un id venu du client (T24). Vide pour une
+   * session de chat : un tour de chat n'a pas de job, donc pas de preuve.
+   */
+  verificationRuns: VerificationSequenceView[];
+  /**
+   * La TRACE D8 figée sur les jobs du pipeline au moment où ils ont tourné
+   * (`agent_jobs.verification_skipped_surfaces`) — jamais le réglage courant
+   * de l'espace, qui décrirait les runs d'hier avec le choix d'aujourd'hui.
+   */
+  verificationSkippedSurfaces: string[];
+  /** Les livrables sans commandes de preuve (ou en attente d'approbation) au moment de la preuve. */
+  verificationUnconfigured: VerificationUnconfiguredView[];
 };
 
 const CodingProcessDetailSchema = z.union([
@@ -12227,6 +12489,7 @@ export async function getCodingProcessDetailAction(
           task: agentJobs.task,
           createdAt: agentJobs.createdAt,
           totalDurationMs: agentJobs.totalDurationMs,
+          verificationSkippedSurfaces: agentJobs.verificationSkippedSurfaces,
         })
         .from(agentJobs)
         .leftJoin(agents, eq(agents.id, agentJobs.agentId))
@@ -12245,6 +12508,7 @@ export async function getCodingProcessDetailAction(
         agentName: string | null;
         totalDurationMs: number | null;
         parentJobId: string | null;
+        verificationSkippedSurfaces: unknown;
       }> = [];
       {
         let frontier = [jobId];
@@ -12260,6 +12524,7 @@ export async function getCodingProcessDetailAction(
               agentName: agents.name,
               totalDurationMs: agentJobs.totalDurationMs,
               parentJobId: agentJobs.parentJobId,
+              verificationSkippedSurfaces: agentJobs.verificationSkippedSurfaces,
             })
             .from(agentJobs)
             .leftJoin(agents, eq(agents.id, agentJobs.agentId))
@@ -12382,6 +12647,69 @@ export async function getCodingProcessDetailAction(
         arr.push(v.toolOutput);
         verdictOutputsByJob.set(v.jobId, arr);
       }
+      // Les preuves du pipeline — lues par `allRelevantIds`, déjà bornées à
+      // l'espace, et re-bornées par entity_id : la preuve d'un délégué remonte
+      // à l'écran de la racine, celle d'un voisin jamais (T24).
+      const verificationRunRows = await db
+        .select({
+          jobId: verificationRuns.jobId,
+          deliverableType: verificationRuns.deliverableType,
+          canonicalKey: verificationRuns.canonicalKey,
+          sequenceId: verificationRuns.sequenceId,
+          commandRank: verificationRuns.commandRank,
+          command: verificationRuns.command,
+          exitCode: verificationRuns.exitCode,
+          outcomeKind: verificationRuns.outcomeKind,
+          durationMs: verificationRuns.durationMs,
+          verdict: verificationRuns.verdict,
+          testedGeneration: verificationRuns.testedGeneration,
+          testedEpoch: verificationRuns.testedEpoch,
+          createdAt: verificationRuns.createdAt,
+        })
+        .from(verificationRuns)
+        .where(
+          and(
+            eq(verificationRuns.entityId, entityId),
+            inArray(verificationRuns.jobId, allRelevantIds),
+          ),
+        );
+      const verificationSequences = groupVerificationRuns(verificationRunRows);
+      // La mention D8 vient de la TRACE posée sur chaque job du pipeline au
+      // moment où il a tourné — jamais d'une relecture d'`entities` : un réglage
+      // recoché demain ne réécrit pas l'histoire d'hier.
+      const verificationSkippedSurfaces = mergeSkippedSurfaces([
+        job.verificationSkippedSurfaces,
+        ...descendants.map((d) => d.verificationSkippedSurfaces),
+      ]);
+      // Un livrable sans commandes (ou en attente d'approbation) au moment de
+      // la preuve : un fait de configuration, rendu comme tel — pas un état de
+      // décision, que ① ne montre pas.
+      const unconfiguredRows = await db
+        .select({
+          deliverableType: jobDeliverableVerificationState.deliverableType,
+          canonicalKey: jobDeliverableVerificationState.canonicalKey,
+          displayPath: jobDeliverableVerificationState.displayPathSnapshot,
+          decisionStatus: jobDeliverableVerificationState.decisionStatus,
+        })
+        .from(jobDeliverableVerificationState)
+        .where(
+          and(
+            inArray(jobDeliverableVerificationState.jobId, allRelevantIds),
+            inArray(jobDeliverableVerificationState.decisionStatus, [
+              'not_configured',
+              'pending_approval',
+            ]),
+          ),
+        );
+      const verificationUnconfigured: VerificationUnconfiguredView[] = unconfiguredRows.map(
+        (r) => ({
+          deliverableType: r.deliverableType,
+          canonicalKey: r.canonicalKey,
+          displayPath: r.displayPath,
+          reason: r.decisionStatus === 'pending_approval' ? 'pending_approval' : 'not_configured',
+        }),
+      );
+
       const stage = deriveJobStage(job.status, job.id, childIds, verdictOutputsByJob);
 
       const verdicts: CodingVerdictView[] = verdictRows
@@ -12674,6 +13002,9 @@ export async function getCodingProcessDetailAction(
         verdicts,
         changes,
         pipelineJobIds: allRelevantIds,
+        verificationRuns: verificationSequences,
+        verificationSkippedSurfaces,
+        verificationUnconfigured,
       });
     }
 
@@ -12746,6 +13077,11 @@ export async function getCodingProcessDetailAction(
       verdicts: [],
       changes: [],
       pipelineJobIds: [],
+      // Un tour de chat n'a pas de jobId (run-chat.ts) : aucune intention
+      // posée, aucune preuve — l'écran le dit tel quel (T17/T24).
+      verificationRuns: [],
+      verificationSkippedSurfaces: [],
+      verificationUnconfigured: [],
     });
   } catch (err) {
     console.error('[getCodingProcessDetailAction]', err);
@@ -12769,6 +13105,26 @@ export interface CodeProjectPrefs {
   projectPath: string;
   displayName: string | null;
   hidden: boolean;
+  /** La séquence de preuve déclarée (v5-A) — null = rien de configuré. */
+  verifyCommands: VerifyCommand[] | null;
+  verifyApprovedAt: Date | null;
+  /**
+   * Le hash approuvé — le JETON que le client renvoie pour approuver : le
+   * serveur recalcule et compare, jamais il n'écrit cette valeur telle quelle.
+   */
+  verifyApprovedManifestHash: string | null;
+  /**
+   * Le hash du manifeste COURANT, recalculé au serveur à chaque lecture —
+   * `null` quand le projet n'a pas de commandes. C'est ce que le panneau
+   * renvoie tel quel à `approveCodeProjectVerifyManifestAction` : le client
+   * ne calcule JAMAIS un hash (verification-display.ts en tête), il transporte
+   * celui qu'il a lu. Sans ce champ le panneau n'aurait aucun jeton à
+   * présenter, et l'approbation serait impossible sans dupliquer le calcul au
+   * navigateur.
+   */
+  verifyManifestHash: string | null;
+  /** Calculé AU SERVEUR (D9) — le client ne recalcule jamais un hash. */
+  verifyStatus: VerifyStatus;
 }
 
 export async function listCodeProjectPrefsAction(): Promise<ActionResult<CodeProjectPrefs[]>> {
@@ -12779,10 +13135,19 @@ export async function listCodeProjectPrefsAction(): Promise<ActionResult<CodePro
         projectPath: codeProjects.projectPath,
         displayName: codeProjects.displayName,
         hidden: codeProjects.hidden,
+        verifyCommands: codeProjects.verifyCommands,
+        verifyApprovedAt: codeProjects.verifyApprovedAt,
+        verifyApprovedManifestHash: codeProjects.verifyApprovedManifestHash,
       })
       .from(codeProjects)
       .where(eq(codeProjects.entityId, session.entityId));
-    return ok(rows);
+    return ok(
+      rows.map((r) => ({
+        ...r,
+        verifyManifestHash: currentManifestHash(r),
+        verifyStatus: deriveVerifyStatus(r),
+      })),
+    );
   } catch (err) {
     console.error('[listCodeProjectPrefsAction]', err);
     return fail('db_error', 'Failed to load projects');
@@ -12824,52 +13189,37 @@ async function assertProjectOwner(
  * aucun moyen de le rétablir. Un geste réversible qui ne se défait pas est
  * pire qu'un geste absent.
  *
+ * Depuis la migration 0088, `project_key` porte la contrainte d'unicité
+ * (entity_id, project_key) EN BASE — il ne peut plus exister deux lignes pour
+ * la même identité, donc plus de filtre JS sur toutes les lignes de l'entité à
+ * chercher un match par égalité de `projectKey()` : `onConflictDoUpdate` sur
+ * la clé suffit, atomiquement.
+ *
  * Le chemin d'origine est conservé tel qu'il a été écrit la première fois —
- * c'est lui qu'on affiche ; seule la correspondance est normalisée.
+ * c'est lui qu'on affiche ; seule la correspondance (project_key) est
+ * normalisée. Un projet déjà en base sous une autre casse garde SON
+ * project_path d'origine : seuls les champs de `patch` (et project_key, sur un
+ * nouvel insert) sont écrits.
  */
 async function upsertCodeProject(
   db: ReturnType<typeof getDb>,
   entityId: string,
   projectPath: string,
-  patch: { hidden?: boolean; displayName?: string | null },
+  patch: {
+    hidden?: boolean;
+    displayName?: string | null;
+    verifyCommands?: VerifyCommand[] | null;
+    verifyApprovedManifestHash?: string | null;
+    verifyApprovedAt?: Date | null;
+    verifyApprovedBy?: string | null;
+  },
 ): Promise<void> {
-  // TOUTES les lignes qui désignent ce projet, pas seulement la première
-  // (revue Codex, 26/08). La contrainte d'unicité porte sur le TEXTE exact,
-  // héritée de `code_project_archives` (0083) : une base mise à jour peut donc
-  // déjà contenir deux lignes ne différant que par la casse, et une écriture
-  // concurrente peut encore en créer. N'en corriger qu'une laisserait l'autre
-  // à `hidden=true`, et le projet resterait masqué pour toujours.
-  //
-  // Les mettre toutes à jour converge : la première écriture qui suit remet
-  // l'ensemble d'accord, quelle que soit la façon dont les doublons sont nés.
-  const matches = (
-    await db
-      .select({ id: codeProjects.id, projectPath: codeProjects.projectPath })
-      .from(codeProjects)
-      .where(eq(codeProjects.entityId, entityId))
-  ).filter((r) => projectKey(r.projectPath) === projectKey(projectPath));
-
-  if (matches.length > 0) {
-    await db
-      .update(codeProjects)
-      .set({ ...patch, updatedAt: new Date() })
-      .where(
-        inArray(
-          codeProjects.id,
-          matches.map((r) => r.id),
-        ),
-      );
-    return;
-  }
-
-  // Pas de ligne pour ce projet : on la crée. `onConflictDoUpdate` couvre la
-  // course où deux écritures de MÊME casse arrivent en même temps — la
-  // contrainte d'unicité porte sur le texte exact.
+  const key = projectKey(projectPath);
   await db
     .insert(codeProjects)
-    .values({ entityId, projectPath, ...patch })
+    .values({ entityId, projectPath, projectKey: key, ...patch })
     .onConflictDoUpdate({
-      target: [codeProjects.entityId, codeProjects.projectPath],
+      target: [codeProjects.entityId, codeProjects.projectKey],
       set: { ...patch, updatedAt: new Date() },
     });
 }
@@ -12931,6 +13281,301 @@ export async function renameCodeProjectAction(raw: unknown): Promise<ActionResul
   } catch (err) {
     console.error('[renameCodeProjectAction]', err);
     return fail('db_error', 'Failed to rename the project');
+  }
+}
+
+// ─── Commandes de preuve d'un projet (plan « Vérifier & Corriger », T21 / D9) ─
+//
+// Une commande de preuve est un POUVOIR : un agent qui modifie package.json
+// contrôle ce que `pnpm test` lance. D'où deux gestes séparés, owner-only par
+// la même garde EXACTE que renommer/masquer (assertProjectOwner : comparaison
+// directe avec entities.userId — jamais la garde entityMembers.role, qui vaut
+// 'owner' pour tout invité, voir plus haut) :
+//   1. écrire la liste ordonnée — et EFFACER l'approbation dans la même
+//      écriture, sinon une fenêtre existe où un manifeste modifié se lit
+//      approuvé ;
+//   2. approuver — le serveur relit, recalcule le hash avec l'implémentation
+//      partagée, compare au jeton du client (concurrence optimiste) et écrit
+//      SA valeur.
+
+const SetCodeProjectVerifyCommandsSchema = z.object({
+  projectPath: z.string().min(1).max(4096),
+  commands: VerifyCommandsSchema,
+});
+
+export async function setCodeProjectVerifyCommandsAction(
+  raw: unknown,
+): Promise<ActionResult<void>> {
+  try {
+    const session = await getSession();
+    const parsed = SetCodeProjectVerifyCommandsSchema.safeParse(raw);
+    if (!parsed.success) {
+      return fail('validation_failed', parsed.error.issues[0]?.message ?? 'Invalid input');
+    }
+    const db = getDb();
+    const denied = await assertProjectOwner(db, session);
+    if (denied === 'not_found') return fail('not_found', 'Workspace not found');
+    if (denied) return fail('forbidden', 'Only the workspace owner can set proof commands.');
+
+    await upsertCodeProject(db, session.entityId, parsed.data.projectPath, {
+      verifyCommands: parsed.data.commands,
+      verifyApprovedManifestHash: null,
+      verifyApprovedAt: null,
+      verifyApprovedBy: null,
+    });
+    revalidatePath('/code');
+    return ok(undefined);
+  } catch (err) {
+    console.error('[setCodeProjectVerifyCommandsAction]', err);
+    return fail('db_error', 'Failed to save the proof commands');
+  }
+}
+
+// ─── Découverte des commandes (plan « Vérifier & Corriger », v7-C) ──────────
+//
+// L'écran disait « Add a command » devant un champ vide, et le premier
+// utilisateur à l'essayer n'a pas su quoi taper. Le projet, lui, le dit :
+// `package.json` porte ses scripts, `Cargo.toml` et `go.mod` désignent leur
+// outil. Cette action les LIT et rend des PROPOSITIONS — elle n'approuve rien
+// et n'écrit rien.
+//
+// LE CHEMIN EST VÉRIFIÉ AVANT TOUTE LECTURE. Il arrive du client ; sans garde,
+// l'action dirait à qui la sollicite si `C:/quelque/part/package.json` existe.
+// Il doit donc être DANS un dossier attaché à cet espace — la même règle que
+// celle qui décide ce que l'onglet Code affiche.
+
+const DiscoverVerifyCommandsSchema = z.object({
+  projectPath: z.string().min(1).max(4096),
+});
+
+/** Les manifestes lus à la racine d'un projet — noms figés, jamais un motif. */
+const MANIFEST_FILES = [
+  ['packageJson', 'package.json'],
+  ['denoJson', 'deno.json'],
+  ['cargoToml', 'Cargo.toml'],
+  ['pyprojectToml', 'pyproject.toml'],
+] as const;
+
+/** Les verrous reconnus — leur PRÉSENCE désigne le gestionnaire, pas leur contenu. */
+const LOCKFILES = ['pnpm-lock.yaml', 'yarn.lock', 'package-lock.json', 'bun.lockb'] as const;
+
+/** Un manifeste plus gros que ça n'est pas un manifeste. Lu borné, pas en entier. */
+const MAX_MANIFEST_BYTES = 512 * 1024;
+
+export async function discoverVerifyCommandsAction(
+  raw: unknown,
+): Promise<ActionResult<DiscoveredCommand[]>> {
+  try {
+    const session = await getSession();
+    const parsed = DiscoverVerifyCommandsSchema.safeParse(raw);
+    if (!parsed.success) {
+      return fail('validation_failed', parsed.error.issues[0]?.message ?? 'Invalid input');
+    }
+    const db = getDb();
+    const denied = await assertProjectOwner(db, session);
+    if (denied === 'not_found') return fail('not_found', 'Workspace not found');
+    if (denied) return fail('forbidden', 'Only the workspace owner can read proof commands.');
+
+    // LE CHEMIN RÉEL, pas celui qu'on a reçu. `isUnderPath` est un test de
+    // préfixe : `C:/ws/../../Users/x` COMMENCE par `C:/ws/` et passerait la
+    // garde, puis `pathJoin` résoudrait le `..` et lirait dehors. Et une
+    // jonction Windows posée dans un dossier attaché sort du périmètre sans
+    // qu'aucun `..` n'apparaisse. Les deux côtés passent donc par `realpath`,
+    // exactement comme `resolveAndCheckPath` dans packages/tools.
+    const projectPath = await realPathOrNull(pathResolve(parsed.data.projectPath));
+    if (projectPath === null) return fail('not_found', 'Project not found');
+    const roots = await db
+      .select({ path: agentWorkspaces.path })
+      .from(agentWorkspaces)
+      .where(eq(agentWorkspaces.entityId, session.entityId));
+    const realRoots = (
+      await Promise.all(roots.map((r) => realPathOrNull(pathResolve(r.path))))
+    ).filter((r): r is string => r !== null);
+    // Dans un dossier attaché, ou rien. Refusé AVANT la première lecture.
+    if (!realRoots.some((root) => isUnderPath(projectPath, root))) {
+      return fail('not_found', 'Project not found');
+    }
+
+    const manifests: Record<string, unknown> = {};
+    for (const [key, file] of MANIFEST_FILES) {
+      const text = await readManifest(pathJoin(projectPath, file));
+      if (text !== null) manifests[key] = text;
+    }
+    // `deno.jsonc` seulement si `deno.json` manque : deux fichiers, une clé.
+    if (manifests['denoJson'] === undefined) {
+      const jsonc = await readManifest(pathJoin(projectPath, 'deno.jsonc'));
+      if (jsonc !== null) manifests['denoJson'] = jsonc;
+    }
+    manifests['hasGoMod'] = await fileExists(pathJoin(projectPath, 'go.mod'));
+    const locks: string[] = [];
+    for (const f of LOCKFILES) {
+      if (await fileExists(pathJoin(projectPath, f))) locks.push(f);
+    }
+    manifests['lockfiles'] = locks;
+
+    return ok([...discoverVerifyCommands(manifests as ProjectManifests)]);
+  } catch (err) {
+    console.error('[discoverVerifyCommandsAction]', err);
+    return fail('db_error', 'Failed to read the project');
+  }
+}
+
+/**
+ * Le chemin RÉEL, normalisé — liens et jonctions résolus. `null` si le chemin
+ * n'existe pas.
+ *
+ * Rendre la forme lexicale d'un chemin inexistant était une faille (revue
+ * Codex PR #46, passe 9) : le dossier passait la garde par comparaison de
+ * texte, et un lien créé ensuite à cet emplacement était suivi à la lecture.
+ * Un chemin qui n'existe pas n'a rien à proposer de toute façon.
+ */
+async function realPathOrNull(path: string): Promise<string | null> {
+  try {
+    return normalizePath(await fsRealpath(path));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Le texte d'un manifeste, ou `null`. Un fichier absent, illisible ou trop
+ * gros rend `null` — la découverte se passe de lui, elle n'échoue pas pour
+ * autant : un projet dont le `package.json` est cassé garde ses propositions
+ * Rust ou Go.
+ */
+async function readManifest(path: string): Promise<string | null> {
+  // Lecture RÉELLEMENT bornée. `stat` puis `readFile` ne l'est pas : le
+  // fichier peut grossir ou être remplacé entre les deux appels, et la lecture
+  // dépasserait le plafond qu'on croyait tenir (revue Codex PR #46, passe 8).
+  // Un descripteur ouvert une fois, un tampon de taille fixe.
+  //
+  // LE MANIFESTE NE DOIT PAS ÊTRE UN LIEN. Un `package.json` qui pointe hors
+  // du dossier attaché ferait sortir la lecture du périmètre sans qu'aucun
+  // `..` ni aucun lien de dossier n'apparaisse (revue passe 9). `O_NOFOLLOW`
+  // le refuse au noyau là où il existe ; ailleurs (Windows) le `lstat`
+  // ci-dessous le refuse, avec la fenêtre que ça implique — voir la note du
+  // rapport de passe 9 : la fermer demanderait `openat`, que Node n'expose pas.
+  let handle: Awaited<ReturnType<typeof fsOpen>> | null = null;
+  try {
+    if ((await fsLstat(path)).isSymbolicLink()) return null;
+    const noFollow = (fsConstants as Record<string, number | undefined>)['O_NOFOLLOW'] ?? 0;
+    handle = await fsOpen(path, fsConstants.O_RDONLY | noFollow);
+    if (!(await handle.stat()).isFile()) return null;
+
+    // Une lecture peut être COURTE : un seul `read` ne remplit pas forcément
+    // le tampon, et un fichier trop gros passerait pour un fragment accepté
+    // (revue passe 9). On boucle jusqu'à EOF ou jusqu'au dépassement.
+    const buffer = Buffer.allocUnsafe(MAX_MANIFEST_BYTES + 1);
+    let total = 0;
+    for (;;) {
+      const { bytesRead } = await handle.read(buffer, total, buffer.length - total, total);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+      // Plus gros que le plafond : ce n'est pas un manifeste, et on ne devine
+      // rien sur un morceau tronqué.
+      if (total > MAX_MANIFEST_BYTES) return null;
+    }
+    return buffer.subarray(0, total).toString('utf8');
+  } catch {
+    return null;
+  } finally {
+    // Fermeture TENTÉE : une erreur de `close` est avalée pour ne pas
+    // transformer un manifeste lu en panne. Ce n'est donc pas « toujours
+    // refermé », et le dire autrement serait faux.
+    await handle?.close().catch(() => {});
+  }
+}
+
+/** Le fichier existe ? Asynchrone comme le reste — `existsSync` bloque le serveur. */
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    return (await fsStat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+const ApproveCodeProjectVerifyManifestSchema = z.object({
+  projectPath: z.string().min(1).max(4096),
+  /** Le hash que le client a LU — un jeton, jamais la valeur écrite. */
+  manifestHash: z.string().min(1).max(200),
+});
+
+export async function approveCodeProjectVerifyManifestAction(
+  raw: unknown,
+): Promise<ActionResult<void>> {
+  try {
+    const session = await getSession();
+    const parsed = ApproveCodeProjectVerifyManifestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return fail('validation_failed', parsed.error.issues[0]?.message ?? 'Invalid input');
+    }
+    const db = getDb();
+    const denied = await assertProjectOwner(db, session);
+    if (denied === 'not_found') return fail('not_found', 'Workspace not found');
+    if (denied) return fail('forbidden', 'Only the workspace owner can approve proof commands.');
+
+    const key = projectKey(parsed.data.projectPath);
+    const [row] = await db
+      .select({
+        projectPath: codeProjects.projectPath,
+        verifyCommands: codeProjects.verifyCommands,
+      })
+      .from(codeProjects)
+      .where(and(eq(codeProjects.entityId, session.entityId), eq(codeProjects.projectKey, key)));
+    if (!row) return fail('not_found', 'Project not found');
+
+    // Le manifeste courant, recalculé par le serveur — jamais celui du client.
+    const current = currentManifestHash(row);
+    if (current === null) return fail('not_configured', 'This project has no proof commands.');
+    if (current !== parsed.data.manifestHash) {
+      return fail(
+        'conflict',
+        'The proof commands changed since you loaded them. Reload and review.',
+      );
+    }
+
+    await upsertCodeProject(db, session.entityId, row.projectPath, {
+      verifyApprovedManifestHash: current,
+      verifyApprovedAt: new Date(),
+      verifyApprovedBy: session.userId,
+    });
+    revalidatePath('/code');
+    return ok(undefined);
+  } catch (err) {
+    console.error('[approveCodeProjectVerifyManifestAction]', err);
+    return fail('db_error', 'Failed to approve the proof commands');
+  }
+}
+
+/**
+ * Le booléen qui décide si le panneau de preuve de l'onglet Code est éditable
+ * (T22 / D9). Il vient du SERVEUR et jamais du navigateur : un client qui
+ * déduirait « je suis propriétaire » afficherait des champs actifs sur un
+ * espace qu'il ne peut pas écrire.
+ *
+ * Même fonction que les logs de service (`isWorkspaceOwner`, déclarée plus
+ * bas dans ce module — une déclaration de fonction est hoistée, donc l'appel
+ * précède le texte), ce qui EXEMPTE local-trust : en mode local-trust il n'y a
+ * pas d'identité à distinguer, tout le monde est le propriétaire. Attention,
+ * les deux écritures (`setCodeProjectVerifyCommandsAction`,
+ * `approveCodeProjectVerifyManifestAction`) passent, elles, par
+ * `assertProjectOwner`, qui compare SANS exemption : en local-trust une
+ * session non propriétaire verrait donc des champs actifs et un refus au
+ * moment d'écrire. Le panneau ne ment pas pour autant (il n'affiche rien
+ * avant la réponse du serveur), mais l'écart est voulu ici, pas un oubli.
+ */
+export async function getCodeTabOwnerAction(): Promise<ActionResult<{ isOwner: boolean }>> {
+  try {
+    const session = await getSession();
+    // LE MÊME prédicat que les deux écritures (`assertProjectOwner`) — pas
+    // `isWorkspaceOwner`, qui exempte local-trust : le panneau ne doit jamais
+    // montrer des champs actifs que le serveur refusera d'écrire.
+    const denied = await assertProjectOwner(getDb(), session);
+    return ok({ isOwner: denied === null });
+  } catch (err) {
+    console.error('[getCodeTabOwnerAction]', err);
+    return fail('db_error', 'Failed to read workspace ownership');
   }
 }
 

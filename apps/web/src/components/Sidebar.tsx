@@ -7,6 +7,8 @@ import {
   ChatCircle,
   Graph,
   Code,
+  CardsThree,
+  CalendarCheck,
   Sparkle,
   UsersThree,
   BookOpenText,
@@ -70,6 +72,8 @@ const NAV: Group[] = [
       { href: '/chat', label: 'Chat', icon: ChatCircle },
       { href: '/jobs', label: 'Runs', icon: Graph },
       { href: '/code', label: 'Code', icon: Code },
+      { href: '/spaces', label: 'Spaces', icon: CardsThree },
+      { href: '/scheduled', label: 'Scheduled', icon: CalendarCheck },
       { href: '/llm-providers', label: 'LLM Providers', icon: Sparkle },
     ],
   },
@@ -193,7 +197,7 @@ export default function Sidebar({
       <aside
         id="primary-nav"
         aria-label="Main navigation"
-        className={`fixed top-0 left-0 z-50 flex h-full w-full flex-col border-r border-rule-2 bg-sidebar pt-4 pb-3 transition-transform duration-200 ease-out lg:z-40 lg:w-[244px] lg:translate-x-0 ${
+        className={`fixed top-0 left-0 z-50 flex h-full h-[100dvh] w-full flex-col border-r border-rule-2 bg-sidebar pt-4 pb-3 transition-transform duration-200 ease-out lg:z-40 lg:w-[244px] lg:translate-x-0 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >

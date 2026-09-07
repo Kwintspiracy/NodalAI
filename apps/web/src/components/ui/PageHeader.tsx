@@ -4,9 +4,18 @@ import ThemeToggle from './ThemeToggle';
 import NotificationsBell from '@/components/NotificationsBell';
 
 type Props = {
-  title: ReactNode;
+  title?: ReactNode;
   /** Single-line subtitle / lede. Falls under the h1 with 14px ink-3 text. */
   subtitle?: ReactNode;
+  /**
+   * Replaces the title/lede block with a node of the page's own making, in a
+   * compact 62px bar (P2bis). The thread screens use it for their work header
+   * — a project name, its path, the agents that worked, the verification
+   * verdict — which is a ROW of facts, not a display title. The global
+   * controls on the right are untouched: every page keeps the same search,
+   * bell and theme. Pass `header` OR `title`, never both.
+   */
+  header?: ReactNode;
 };
 
 /**
@@ -24,7 +33,19 @@ type Props = {
  * already carries notifications + theme, so we never stack them twice — but the
  * title stays visible at every width.
  */
-export default function PageHeader({ title, subtitle }: Props) {
+export default function PageHeader({ title, subtitle, header }: Props) {
+  if (header !== undefined) {
+    return (
+      <header className="flex h-[62px] items-center gap-4 border-b border-rule-2 px-6">
+        <div className="min-w-0 flex-1">{header}</div>
+        <div className="hidden shrink-0 items-center gap-2 lg:flex">
+          <SearchBox className="hidden md:flex" />
+          <NotificationsBell />
+          <ThemeToggle />
+        </div>
+      </header>
+    );
+  }
   return (
     // FULL-WIDTH bar: title hard-left, global controls hard-right, edge to edge
     // (like the old top bar) + a bottom rule. There is NEVER a create/CTA button
