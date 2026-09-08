@@ -102,6 +102,7 @@ function verificationByKey(prefs: CodeProjectPrefs[]): Map<string, ProjectVerifi
         verifyApprovedAt: p.verifyApprovedAt,
         verifyManifestHash: p.verifyManifestHash,
         verifyStatus: p.verifyStatus,
+        verifySource: p.verifySource,
       },
     ]),
   );

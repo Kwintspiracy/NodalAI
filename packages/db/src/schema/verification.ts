@@ -73,7 +73,6 @@ export const jobDeliverableVerificationState = pgTable(
     dirtyGeneration: integer('dirty_generation'),
     /** Livrables MUTABLES seulement : la génération que la preuve a validée en vert. */
     verifiedGeneration: integer('verified_generation'),
-    /** DecisionStatus — l'état lisible affiché à l'owner. */
     /**
      * Ce livrable a-t-il été NOMMÉ par un outil (`true`), ou entre-t-il dans le
      * périmètre par précaution (`false`) ?
@@ -84,6 +83,7 @@ export const jobDeliverableVerificationState = pgTable(
      * livrables non vérifiés, dont `shared/_archive` (constaté le 08/09/2026).
      */
     addressed: boolean('addressed').notNull().default(true),
+    /** DecisionStatus — l'état lisible affiché à l'owner. */
     decisionStatus: text('decision_status').notNull(),
     /** Empreinte de la dernière commande de preuve exécutée (diagnostic, pas le hash d'approbation). */
     commandHashSnapshot: text('command_hash_snapshot'),

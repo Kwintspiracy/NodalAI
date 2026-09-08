@@ -246,7 +246,10 @@ const addButton = (panel: Locator): Locator => panel.getByRole('button', { name:
 test.describe('Proof commands — onglet Code', () => {
   test('A — configurer puis approuver, hash écrit EN BASE', async ({ page }) => {
     const panel = await openProjectPanel(page);
-    await expect(panel.getByTestId('verify-status')).toHaveText('Not configured');
+    // « Nothing declared yet » et non « Not configured » : l'écran ne reproche
+    // plus à l'utilisateur un champ qu'il n'a pas rempli. C'est l'agent qui
+    // déclare (PR « Prouver sans configurer », 08/09/2026).
+    await expect(panel.getByTestId('verify-status')).toHaveText('Nothing declared yet');
 
     await addButton(panel).click();
     await fillCommand(panel, 0, 'pnpm typecheck', '120');

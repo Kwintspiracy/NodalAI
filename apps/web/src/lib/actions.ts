@@ -13209,6 +13209,17 @@ export interface CodeProjectPrefs {
   verifyManifestHash: string | null;
   /** Calculé AU SERVEUR (D9) — le client ne recalcule jamais un hash. */
   verifyStatus: VerifyStatus;
+  /**
+   * QUI a décidé de ces commandes : `agent` quand celui qui a construit les a
+   * déclarées en finissant, `owner` quand le propriétaire les a saisies.
+   * `null` tant que personne ne l'a fait.
+   *
+   * L'écran en a besoin pour ne pas présenter comme le choix du propriétaire ce
+   * qui est celui de l'agent — la vérification s'exécute pareil dans les deux
+   * cas, mais on ne dit pas « approuvé par toi » d'une décision qu'il n'a pas
+   * prise.
+   */
+  verifySource: 'owner' | 'agent' | null;
 }
 
 export async function listCodeProjectPrefsAction(): Promise<ActionResult<CodeProjectPrefs[]>> {
@@ -13222,6 +13233,7 @@ export async function listCodeProjectPrefsAction(): Promise<ActionResult<CodePro
         verifyCommands: codeProjects.verifyCommands,
         verifyApprovedAt: codeProjects.verifyApprovedAt,
         verifyApprovedManifestHash: codeProjects.verifyApprovedManifestHash,
+        verifySource: codeProjects.verifySource,
       })
       .from(codeProjects)
       .where(eq(codeProjects.entityId, session.entityId));
