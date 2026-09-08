@@ -306,15 +306,20 @@ export function buildRuntimeBlock(
   // même information que la ligne ci-dessus (« de quel run suis-je la suite ? »),
   // et le prompt système pèse déjà assez.
   //
-  // Le tableau VIDE se DIT, il ne se tait pas. Sans cette phrase, une routine
-  // qui ne trouve rien ne peut pas distinguer « je n'ai jamais rien enregistré »
-  // de « mon état a disparu » — c'est exactement la confusion qui a produit
-  // l'annonce en double du 08/09/2026 : « Aucune version précédente en mémoire
-  // (premier run) », alors que le fait avait été supprimé de la table.
+  // Le tableau VIDE se DIT, il ne se tait pas : une routine qui ne trouve rien
+  // doit savoir qu'elle n'a rien enregistré, plutôt que de le déduire.
+  //
+  // Mais il ne dit RIEN DE PLUS. La première version de ce bloc annonçait
+  // « genuinely its first run » — faux, et faux exactement comme le bug qu'on
+  // répare : la table naît vide (migration 0101), donc toute routine qui
+  // existait avant la lisait comme un premier run et pouvait republier ce
+  // qu'elle avait déjà publié. Même chose pour un run terminé sans écrire son
+  // état. Un état absent ne prouve pas qu'il ne s'est rien passé (revue Codex,
+  // PR #47, passe 5).
   if (routineState) {
     if (routineState.length === 0) {
       lines.push(
-        `- Routine state: EMPTY. This routine has never recorded any state — this is genuinely its first run, not a run whose state was lost. Record what the next run will need with \`save_routine_state\` before you finish.`,
+        `- Routine state: nothing recorded yet. This does NOT mean the routine has never run — earlier runs may simply not have recorded anything. Check whatever you are about to do before assuming it has not been done, then record what the next run will need with \`save_routine_state\` before you finish.`,
       );
     } else {
       lines.push(

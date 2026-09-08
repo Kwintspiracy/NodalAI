@@ -2869,7 +2869,11 @@ describe('executeJob', () => {
       .select({ systemPrompt: agentJobs.systemPrompt })
       .from(agentJobs)
       .where(eq(agentJobs.id, job.id));
-    expect(stored?.systemPrompt).toContain('Routine state: EMPTY');
+    expect(stored?.systemPrompt).toContain('Routine state: nothing recorded yet');
+    // Et surtout : rien qui laisse croire que la routine n'a jamais tourné. La
+    // table naît vide, donc toute routine antérieure passe par là une fois
+    // (revue Codex, PR #47, passe 5).
+    expect(stored?.systemPrompt).not.toMatch(/first run/i);
   });
 
   it('un job ordinaire n’a PAS save_routine_state', async () => {

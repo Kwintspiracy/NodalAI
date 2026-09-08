@@ -31,11 +31,26 @@ describe('buildRuntimeBlock — état de routine', () => {
     expect(block).not.toContain('Routine state');
   });
 
-  it('état VIDE : le prompt dit que c’est vraiment un premier run', () => {
+  it('état VIDE : le prompt le dit, et n’en conclut RIEN sur les runs passés', () => {
     const block = buildRuntimeBlock(DEPLOYMENT, CRON, []);
-    expect(block).toContain('Routine state: EMPTY');
-    expect(block).toContain('genuinely its first run, not a run whose state was lost');
+    expect(block).toContain('Routine state: nothing recorded yet');
+    expect(block).toContain('does NOT mean the routine has never run');
     expect(block).toContain('save_routine_state');
+
+    // Le piège que ce test garde fermé. La table naît vide (migration 0101) :
+    // toute routine antérieure lit un état vide à son premier run après la mise
+    // à jour. Lui dire « premier run » la ferait republier ce qu'elle a déjà
+    // publié — le bug même que ce lot répare (revue Codex, passe 5).
+    expect(block).not.toMatch(/first run/i);
+    expect(block).not.toMatch(/never recorded/i);
+  });
+
+  it('un état vide ne contredit pas la ligne du run précédent', () => {
+    // Les deux lignes cohabitent dans le même bloc : « previous run: … » et
+    // « nothing recorded yet ». Elles doivent pouvoir être vraies ensemble.
+    const block = buildRuntimeBlock(DEPLOYMENT, CRON, []);
+    expect(block).toContain('Previous run of this schedule: 2026-09-07T15:00:18.795Z');
+    expect(block).toContain('nothing recorded yet');
   });
 
   it('état rempli : chaque clé est rendue telle quelle, et la mémoire est écartée', () => {
