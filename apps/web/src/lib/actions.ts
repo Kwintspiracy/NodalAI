@@ -180,6 +180,7 @@ import {
   explainApproval,
   type ApprovalExplanation,
   findModelCatalogEntry,
+  LIVE_JOB_STATUSES,
 } from '@nodal-agents/shared';
 import { getDb, getAuthProvider, applyActiveEntity, ACTIVE_ENTITY_COOKIE } from './server.ts';
 import { requireAuth, LocalAuthProvider, ClaimError } from '@nodal-agents/auth';
@@ -9587,6 +9588,29 @@ export async function runScheduleNowAction(
     if (!schedule) return fail('not_found', 'Schedule not found');
     if (!schedule.task) {
       return fail('validation_failed', 'This automation has no task to run.');
+    }
+
+    // Jamais deux exécutions de la MÊME routine en même temps. Troisième chemin
+    // d'insertion, après le tick du cron et l'outil `run_schedule` : le bouton
+    // « Run now ». Les trois doivent porter la garde de l'incident du
+    // 11/07/2026, sinon elle ne garantit rien — et depuis la PR #47, un run
+    // lancé pendant qu'un autre attend une approbation périme l'état que ce
+    // dernier a lu au début de son run.
+    const [live] = await db
+      .select({ id: agentJobs.id, status: agentJobs.status })
+      .from(agentJobs)
+      .where(
+        and(
+          eq(agentJobs.scheduleId, scheduleId),
+          inArray(agentJobs.status, [...LIVE_JOB_STATUSES]),
+        ),
+      )
+      .limit(1);
+    if (live) {
+      return fail(
+        'conflict',
+        `This automation is already running (${live.status}). Wait for that run to finish, or cancel it first.`,
+      );
     }
 
     // Mirror the cron tick: only carry a delivery target when the schedule opted
