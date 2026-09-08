@@ -394,6 +394,17 @@ describe('l’intention de mutation, posée par executeTool', () => {
     );
     for (const row of rows) expect(row.dirtyGeneration).toBe(1);
 
+    // La GARDE reste large — les deux dossiers sont sales — mais l'ÉCRAN ne
+    // montrera que ce qui a été VISÉ : la commande tourne dans `zeta`, `alpha`
+    // n'entre que par précaution. Sans cette distinction, une application de
+    // recettes s'affichait avec vingt livrables non vérifiés dont
+    // `shared/_archive` (08/09/2026).
+    const parCle = new Map(rows.map((r) => [r.canonicalKey, r.addressed]));
+    expect(parCle.get(keyOf(join(ws, 'zeta'))), 'le cwd est visé').toBe(true);
+    expect(parCle.get(keyOf(join(ws, 'alpha'))), 'une racine voisine est une précaution').toBe(
+      false,
+    );
+
     // L'ordre rendu par le résolveur EST l'ordre de verrouillage : il doit être
     // croissant, pas celui du readdir ni celui des workspaces.
     const intent = await writeMutationIntent(ctx(), {

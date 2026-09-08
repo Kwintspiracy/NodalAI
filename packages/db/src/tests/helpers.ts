@@ -840,6 +840,7 @@ export async function spinUpTestDb(): Promise<{ db: TestDb; pg: PGlite }> {
       display_path_snapshot text,
       dirty_generation integer,
       verified_generation integer,
+      addressed boolean NOT NULL DEFAULT true,
       decision_status text NOT NULL
         CHECK (decision_status IN ('dirty','green','red','pending_approval','not_configured','infra_error')),
       command_hash_snapshot text,

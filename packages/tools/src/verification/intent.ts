@@ -207,6 +207,12 @@ interface ResolvedDeliverable {
   readonly deliverableType: DeliverableType;
   readonly key: string;
   readonly path: string;
+  /**
+   * Un outil a-t-il NOMMÉ ce chemin, ou entre-t-il dans le périmètre par
+   * précaution ? Voir `MutationTarget.scope` : la garde traite les deux de la
+   * même façon, l'écran ne montre que le premier.
+   */
+  readonly addressed: boolean;
 }
 
 /**
@@ -248,13 +254,28 @@ async function resolveDeliverables(
   for (const [deliverableType, group] of byType) {
     switch (deliverableType) {
       case 'code_project': {
+        // Les projets réellement VISÉS, résolus sans expansion : le périmètre
+        // large d'un shell ne doit pas les diluer. Ce sont eux, et eux seuls,
+        // que l'écran présentera comme des livrables.
+        const addressedKeys = new Set(
+          resolveProjectRoots({
+            targets: group.filter((t) => t.scope !== 'precaution'),
+            workspaceRoots,
+            hasMarker,
+          }).map((p) => p.key),
+        );
         const expanded = await expandWorkspaceRoots(group, workspaceRoots);
         for (const project of resolveProjectRoots({
           targets: expanded,
           workspaceRoots,
           hasMarker,
         })) {
-          out.push({ deliverableType, key: project.key, path: project.path });
+          out.push({
+            deliverableType,
+            key: project.key,
+            path: project.path,
+            addressed: addressedKeys.has(project.key),
+          });
         }
         break;
       }
@@ -272,7 +293,7 @@ async function resolveDeliverables(
         // et passer par la fonction partagée garantit que la carte de l'outil
         // (P12) et cette ligne d'état portent LA MÊME clé.
         for (const file of officeFileDeliverables(group, workspaceRoots)) {
-          out.push({ deliverableType, key: file.key, path: file.path });
+          out.push({ deliverableType, key: file.key, path: file.path, addressed: true });
         }
         break;
       }
@@ -578,6 +599,7 @@ export async function writeMutationIntent(
             displayPathSnapshot: deliverable.path,
             dirtyGeneration: 1,
             decisionStatus: DECISION_STATUS_DIRTY,
+            addressed: deliverable.addressed,
           })
           .onConflictDoUpdate({
             target: [
@@ -589,6 +611,10 @@ export async function writeMutationIntent(
               dirtyGeneration: sql`${jobDeliverableVerificationState.dirtyGeneration} + 1`,
               decisionStatus: DECISION_STATUS_DIRTY,
               displayPathSnapshot: deliverable.path,
+              // Une cible d'abord vue par précaution puis NOMMÉE devient un
+              // livrable ; l'inverse n'est pas vrai — on ne rétrograde jamais
+              // ce qu'un outil a explicitement visé.
+              ...(deliverable.addressed ? { addressed: true } : {}),
               updatedAt: new Date(),
             },
           })

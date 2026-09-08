@@ -35,7 +35,17 @@
 // leurs CHECK — un écart entre les deux se voit au premier test de
 // contrainte (constraints.test.ts).
 
-import { pgTable, text, uuid, integer, timestamp, index, check, unique } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  uuid,
+  integer,
+  boolean,
+  timestamp,
+  index,
+  check,
+  unique,
+} from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { entities } from './entities.ts';
 import { agentJobs } from './jobs.ts';
@@ -64,6 +74,16 @@ export const jobDeliverableVerificationState = pgTable(
     /** Livrables MUTABLES seulement : la génération que la preuve a validée en vert. */
     verifiedGeneration: integer('verified_generation'),
     /** DecisionStatus — l'état lisible affiché à l'owner. */
+    /**
+     * Ce livrable a-t-il été NOMMÉ par un outil (`true`), ou entre-t-il dans le
+     * périmètre par précaution (`false`) ?
+     *
+     * La GARDE traite les deux pareil : un shell écrit où il veut, donc tout
+     * son périmètre est marqué sale. L'ÉCRAN, lui, ne montre que ce qui a été
+     * visé — sans quoi une application de recettes s'affiche avec vingt
+     * livrables non vérifiés, dont `shared/_archive` (constaté le 08/09/2026).
+     */
+    addressed: boolean('addressed').notNull().default(true),
     decisionStatus: text('decision_status').notNull(),
     /** Empreinte de la dernière commande de preuve exécutée (diagnostic, pas le hash d'approbation). */
     commandHashSnapshot: text('command_hash_snapshot'),
