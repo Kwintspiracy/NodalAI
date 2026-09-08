@@ -62,7 +62,43 @@ export function ScheduleRunList({ runs }: { runs: ScheduleGroup['runs'] }) {
   );
 }
 
-export default function ScheduledSection({ groups }: { groups: ScheduleGroup[] }) {
+/** Une entrée d'état de routine, telle que la page la reçoit. */
+export type RoutineStateEntry = { key: string; value: string; updatedAt: Date | string };
+
+/**
+ * Ce que la routine a retenu de ses runs précédents.
+ *
+ * Affiché AU-DESSUS de ses runs, parce que c'est ce qui décide s'il y aura un
+ * travail au prochain : une routine qui a noté « v0.8.8 déjà annoncée » ne
+ * réannoncera pas. Tant que cet état vivait dans la mémoire, personne ne
+ * pouvait le voir ici, et le supprimer depuis la page Memories a fait publier
+ * une annonce deux fois (08/09/2026).
+ */
+export function RoutineState({ entries }: { entries: RoutineStateEntry[] }) {
+  if (entries.length === 0) return null;
+  return (
+    <dl className="border-t border-rule-2 bg-canvas/40 px-4 py-2 pl-[44px]">
+      {entries.map((e) => (
+        <div key={e.key} className="flex items-baseline gap-3 py-0.5">
+          <dt className="text-mono-11 text-ink-4">{e.key}</dt>
+          <dd className="min-w-0 flex-1 truncate text-body-12 text-ink-2" title={e.value}>
+            {e.value}
+          </dd>
+          <span className="text-mono-11 text-ink-4">{relativeTime(e.updatedAt)}</span>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export default function ScheduledSection({
+  groups,
+  routineState = {},
+}: {
+  groups: ScheduleGroup[];
+  /** L'état de chaque routine, par `schedule_id`. Vide quand rien n'a été retenu. */
+  routineState?: Record<string, RoutineStateEntry[]>;
+}) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   if (groups.length === 0) return null;
   const runs = groups.reduce((acc, g) => acc + g.runs.length, 0);
@@ -105,6 +141,7 @@ export default function ScheduledSection({ groups }: { groups: ScheduleGroup[] }
                 </span>
                 <StatusPill variant={statusVariant(g.lastRun.status)} />
               </DisclosureButton>
+              {isOpen && <RoutineState entries={routineState[g.key] ?? []} />}
               {isOpen && <ScheduleRunList runs={g.runs} />}
             </div>
           );

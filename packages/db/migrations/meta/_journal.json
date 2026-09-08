@@ -701,6 +701,13 @@
       "when": 1786000080000,
       "tag": "0100_llm_calls_conversation",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1786000140000,
+      "tag": "0101_schedule_state",
+      "breakpoints": true
     }
   ]
 }

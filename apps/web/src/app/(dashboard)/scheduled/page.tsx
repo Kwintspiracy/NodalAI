@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { listScheduledRunsAction } from '@/lib/actions.ts';
+import { listScheduledRunsAction, listRoutineStatesAction } from '@/lib/actions.ts';
 import { groupSpaces } from '@/lib/spaces-list.ts';
 import PageShell from '@/components/ui/PageShell';
 import EmptyState from '@/components/ui/EmptyState';
@@ -12,8 +12,15 @@ export default async function ScheduledPage() {
   // P9 : les runs d'automatisation ont leur page. On lit UNIQUEMENT les runs
   // cron (leur propre action, leur propre limite) ; `groupSpaces` les replie
   // par automatisation, une ligne par automatisation, ses runs dessous.
-  const result = await listScheduledRunsAction();
+  const [result, states] = await Promise.all([
+    listScheduledRunsAction(),
+    // L'état de chaque routine — ce qui décide s'il y aura du travail au
+    // prochain run. Une lecture qui échoue ne doit pas emporter la page : la
+    // liste des runs reste lisible, l'état est simplement absent.
+    listRoutineStatesAction(),
+  ]);
   const { scheduled } = groupSpaces(result.ok ? result.data : []);
+  const routineState = states.ok ? states.data : {};
 
   return (
     <PageShell
@@ -35,7 +42,7 @@ export default async function ScheduledPage() {
           description="Runs of your automations show up here. Set one up in Automations."
         />
       ) : (
-        <ScheduledSection groups={scheduled} />
+        <ScheduledSection groups={scheduled} routineState={routineState} />
       )}
     </PageShell>
   );

@@ -25,6 +25,7 @@ import {
   entities,
   telegramAllowedChats,
   channelBindings,
+  agentSchedules,
 } from '@nodal-agents/db';
 import { createToolRegistry, registerBuiltins } from '@nodal-agents/tools';
 import { createEmbeddingClient } from '@nodal-agents/llm';
@@ -2807,6 +2808,108 @@ describe('executeJob', () => {
     expect(firstTurnTools.has('telegram_send_message')).toBe(false);
     expect(firstTurnTools.has('send_image')).toBe(false);
     expect(firstTurnTools.has('list_conversations')).toBe(false);
+  });
+
+  // ─── save_routine_state : offert au job d'une ROUTINE, à lui seul.
+  //
+  // Pourquoi ce test : l'outil ne sert qu'à une routine, et un outil visible
+  // sans usage coûte des jetons à chaque tour de chaque agent. La whitelist est
+  // donc conditionnée au `schedule_id` du job — vérifié ici sur la liste RÉELLE
+  // remise au modèle, pas sur la branche de code qui la calcule.
+
+  it('save_routine_state est dans la whitelist quand le job vient d’une routine', async () => {
+    const [sched] = await db
+      .insert(agentSchedules)
+      .values({
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        name: 'Check-Nodal-Agents-GitHub-Updates',
+        cronExpr: '0 */8 * * *',
+        task: 'detect new CHANGELOG entries and announce them',
+      })
+      .returning();
+    if (!sched) throw new Error('failed to create schedule');
+
+    const [job] = await db
+      .insert(agentJobs)
+      .values({
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        channel: 'cron',
+        task: 'detect new CHANGELOG entries and announce them',
+        status: 'pending',
+        messages: [],
+        chainCount: 0,
+        scheduleId: sched.id,
+      })
+      .returning();
+    if (!job) throw new Error('failed to create routine job');
+
+    const toolKeysPerCall: string[][] = [];
+    const llmClient = makeMockLlmClient(
+      [
+        {
+          toolCalls: [
+            { toolCallId: 'tc-rr', toolName: 'return_result', args: { status: 'success' } },
+          ],
+        },
+      ],
+      undefined,
+      undefined,
+      toolKeysPerCall,
+    );
+
+    const result = await executeJob(job.id as JobId, makeDeps(llmClient), testEnv);
+    expect(result.status).toBe('completed');
+    expect(new Set(toolKeysPerCall[0]).has('save_routine_state')).toBe(true);
+
+    // Et le prompt lui DIT que son état est vide — sans quoi un premier run se
+    // confond avec un run dont l'état a disparu (doublon Discord du 08/09).
+    const [stored] = await db
+      .select({ systemPrompt: agentJobs.systemPrompt })
+      .from(agentJobs)
+      .where(eq(agentJobs.id, job.id));
+    expect(stored?.systemPrompt).toContain('Routine state: EMPTY');
+  });
+
+  it('un job ordinaire n’a PAS save_routine_state', async () => {
+    const [job] = await db
+      .insert(agentJobs)
+      .values({
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        channel: 'api',
+        task: 'Do something once',
+        status: 'pending',
+        messages: [],
+        chainCount: 0,
+      })
+      .returning();
+    if (!job) throw new Error('failed to create plain job');
+
+    const toolKeysPerCall: string[][] = [];
+    const llmClient = makeMockLlmClient(
+      [
+        {
+          toolCalls: [
+            { toolCallId: 'tc-rr', toolName: 'return_result', args: { status: 'success' } },
+          ],
+        },
+      ],
+      undefined,
+      undefined,
+      toolKeysPerCall,
+    );
+
+    const result = await executeJob(job.id as JobId, makeDeps(llmClient), testEnv);
+    expect(result.status).toBe('completed');
+    expect(new Set(toolKeysPerCall[0]).has('save_routine_state')).toBe(false);
+
+    const [stored] = await db
+      .select({ systemPrompt: agentJobs.systemPrompt })
+      .from(agentJobs)
+      .where(eq(agentJobs.id, job.id));
+    expect(stored?.systemPrompt).not.toContain('Routine state');
   });
 
   // ─── P5 (causality study, 2026-07-22): dashboard_publish is a delivery

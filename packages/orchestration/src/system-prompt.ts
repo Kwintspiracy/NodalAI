@@ -87,6 +87,18 @@ export interface JobContext {
    */
   triggerContext?: JobTriggerContext;
   /**
+   * L'ÉTAT que cette routine a écrit à ses runs précédents (`schedule_state`),
+   * relu tel quel — pas par recherche. C'est la moitié LECTURE de
+   * `save_routine_state` : la routine voit ce qu'elle a fait la dernière fois
+   * avant de décider si elle doit refaire quelque chose.
+   *
+   * Chargé par le runner quand le job porte un `schedule_id`. Un tableau VIDE
+   * n'est pas la même chose qu'absent : vide = cette routine n'a encore rien
+   * enregistré, et le prompt le DIT, pour qu'un premier run ne soit pas
+   * confondu avec un état perdu ; absent = ce job n'est pas une routine.
+   */
+  routineState?: ReadonlyArray<{ key: string; value: string }>;
+  /**
    * Pre-rendered shallow listing of the entity's SHARED workspace, computed by
    * the runner at job start (apps/runner/src/lib/workspace-inventory.ts).
    * Rendered in the VOLATILE half (it changes between jobs — must never bust
@@ -265,6 +277,7 @@ export interface CodeProjectSummary {
 export function buildRuntimeBlock(
   d: DeploymentContext,
   triggerContext?: JobTriggerContext,
+  routineState?: ReadonlyArray<{ key: string; value: string }>,
 ): string {
   const networkLine =
     d.networkMode === 'lan'
@@ -286,6 +299,29 @@ export function buildRuntimeBlock(
         ? `- Scheduled run of "${triggerContext.scheduleName}". Previous run of this schedule: ${triggerContext.prevRunAt}.`
         : `- Scheduled run of "${triggerContext.scheduleName}". This is the FIRST run of this schedule.`,
     );
+  }
+
+  // L'état de la routine, RELU TEL QUEL — la moitié lecture de
+  // `save_routine_state`. Rendu ici plutôt que dans un bloc à part : c'est la
+  // même information que la ligne ci-dessus (« de quel run suis-je la suite ? »),
+  // et le prompt système pèse déjà assez.
+  //
+  // Le tableau VIDE se DIT, il ne se tait pas. Sans cette phrase, une routine
+  // qui ne trouve rien ne peut pas distinguer « je n'ai jamais rien enregistré »
+  // de « mon état a disparu » — c'est exactement la confusion qui a produit
+  // l'annonce en double du 08/09/2026 : « Aucune version précédente en mémoire
+  // (premier run) », alors que le fait avait été supprimé de la table.
+  if (routineState) {
+    if (routineState.length === 0) {
+      lines.push(
+        `- Routine state: EMPTY. This routine has never recorded any state — this is genuinely its first run, not a run whose state was lost. Record what the next run will need with \`save_routine_state\` before you finish.`,
+      );
+    } else {
+      lines.push(
+        `- Routine state, exactly as you recorded it on an earlier run. This is authoritative — do NOT look for it in memory:`,
+      );
+      for (const entry of routineState) lines.push(`  - \`${entry.key}\`: ${entry.value}`);
+    }
   }
 
   if (triggerContext?.type === 'webhook') {
@@ -857,7 +893,8 @@ export async function buildSystemPrompt(
   // to set up tunnels for local services. Omitted when no deployment
   // context is provided (system jobs, tests).
   const runtimeBlock = jobContext?.deployment
-    ? '\n\n' + buildRuntimeBlock(jobContext.deployment, jobContext.triggerContext)
+    ? '\n\n' +
+      buildRuntimeBlock(jobContext.deployment, jobContext.triggerContext, jobContext.routineState)
     : '';
 
   // 5. Built-in capabilities block — injected for every agent so the LLM sees

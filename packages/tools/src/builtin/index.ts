@@ -26,6 +26,7 @@ import { runCommandTool } from './run-command';
 import { codeTaskTool } from './code-task';
 import { reviewVerdictTool } from './review-verdict';
 import { runSkillScriptTool } from './run-skill-script';
+import { saveRoutineStateTool } from './save-routine-state';
 import { skillViewTool } from './skill-view';
 import { listModelsTool } from './list-models';
 import { listSchedulesTool } from './list-schedules';
@@ -110,6 +111,8 @@ export { assertWorkspacesConfigured, resolveAndCheckPath } from './file-ops/work
 export { reviewVerdictTool } from './review-verdict';
 export type { ReviewVerdictInput, ReviewVerdictOutput } from './review-verdict';
 export { runSkillScriptTool } from './run-skill-script';
+export { saveRoutineStateTool } from './save-routine-state';
+export type { SaveRoutineStateInput, SaveRoutineStateOutput } from './save-routine-state';
 export type { RunSkillScriptInput, RunSkillScriptOutput } from './run-skill-script';
 export { buildChildEnv, safeEnvAllowlistSnapshot } from './child-env';
 export {
@@ -199,6 +202,10 @@ export function registerBuiltins(registry: ToolRegistry): void {
   // requiredBuiltins. The runner adds it to the whitelist only when the agent
   // has ≥1 file-writable skill. Safe-by-default like run_skill_script.
   registry.register(skillFileWriteTool);
+  // save_routine_state — offert UNIQUEMENT aux jobs déclenchés par une routine
+  // (`agent_jobs.schedule_id`). Porté ici au registre, ajouté à la whitelist par
+  // le runner. Un agent qui n'a pas de routine ne le voit pas dans son prompt.
+  registry.register(saveRoutineStateTool);
 }
 
 /**

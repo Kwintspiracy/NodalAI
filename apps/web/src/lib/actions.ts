@@ -79,6 +79,7 @@ import {
   isNotNull,
   or,
   desc,
+  asc,
   inArray,
   notInArray,
   sql,
@@ -99,6 +100,7 @@ import {
   toolCalls,
   llmCalls,
   agentSchedules,
+  scheduleState,
   webhookTriggers,
   entityLlmKeys,
   agentWorkspaces,
@@ -2428,6 +2430,51 @@ export async function listScheduledRunsAction(
   } catch (err) {
     console.error('[listScheduledRunsAction]', err);
     return fail('db_error', 'Failed to load scheduled runs');
+  }
+}
+
+/**
+ * L'état que chaque routine de cet espace a enregistré, par `schedule_id`.
+ *
+ * Pourquoi c'est à l'écran : cet état décide si une routine refait ou non son
+ * travail. Tant qu'il vivait dans la mémoire, le propriétaire pouvait le
+ * supprimer sans savoir qu'une routine en dépendait — c'est ce qui a produit
+ * une annonce publiée deux fois le 08/09/2026. Ce qui commande un comportement
+ * doit se voir là où on regarde ce comportement.
+ *
+ * Une seule requête pour toutes les routines : la page en liste une dizaine, et
+ * une requête par ligne serait le N+1 que l'audit perf a déjà corrigé ailleurs.
+ */
+export async function listRoutineStatesAction(): Promise<
+  ActionResult<Record<string, Array<{ key: string; value: string; updatedAt: Date }>>>
+> {
+  try {
+    const session = await getSession();
+    const db = getDb();
+    const rows = await db
+      .select({
+        scheduleId: scheduleState.scheduleId,
+        key: scheduleState.key,
+        value: scheduleState.value,
+        updatedAt: scheduleState.updatedAt,
+      })
+      .from(scheduleState)
+      .innerJoin(agentSchedules, eq(agentSchedules.id, scheduleState.scheduleId))
+      .where(eq(agentSchedules.entityId, session.entityId))
+      .orderBy(asc(scheduleState.key));
+
+    const bySchedule: Record<string, Array<{ key: string; value: string; updatedAt: Date }>> = {};
+    for (const r of rows) {
+      (bySchedule[r.scheduleId] ??= []).push({
+        key: r.key,
+        value: r.value,
+        updatedAt: r.updatedAt,
+      });
+    }
+    return ok(bySchedule);
+  } catch (err) {
+    console.error('[listRoutineStatesAction]', err);
+    return fail('db_error', 'Failed to load routine state');
   }
 }
 
