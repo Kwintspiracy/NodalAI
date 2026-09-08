@@ -135,6 +135,7 @@ const EXPECTED_CARDS: Record<string, ToolCard> = {
   run_command: 'terminal',
   run_schedule: 'text',
   run_skill_script: 'terminal',
+  declare_verification: 'text',
   save_memory: 'text',
   save_routine_state: 'text',
   search_history: 'search',

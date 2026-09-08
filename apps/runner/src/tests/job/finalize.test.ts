@@ -423,6 +423,76 @@ describe('finalizeJobSuccess — non configuré et non approuvé', () => {
     expect((await jobRow(jobId)).status).toBe('completed');
   });
 
+  // ─── La boucle complète : l'agent DÉCLARE, le système PROUVE ───────────────
+  //
+  // Le seul test de ce fichier qui parte d'un projet SANS configuration, comme
+  // l'est tout projet réel : sur la base de référence, aucun n'en avait, et
+  // `verification_runs` portait 0 ligne depuis l'origine. Ici l'agent déclare
+  // sa propre vérification en finissant, et la finalisation l'exécute.
+  it('un projet SANS configuration devient prouvable quand l’agent déclare', async () => {
+    // Le projet existe (déclaré au registre) mais n'a AUCUNE commande : l'état
+    // dans lequel se trouvent tous les projets réels.
+    await setProject(null, null);
+    const jobId = await insertJob('processing');
+    const stateId = await insertState(jobId, 'code_project', key, 1);
+
+    // Sans déclaration, rien ne tourne — c'est le point de départ.
+    const cmd = await script('preuve.js', 'process.exit(0)');
+    const { declareVerificationTool } = await import('@nodal-agents/tools');
+    const out = await declareVerificationTool.execute(
+      { project_path: projectPath, commands: [{ command: cmd, timeout_seconds: 60 }] },
+      {
+        jobId,
+        agentId: seed.agentId,
+        entityId: seed.entityId,
+        db: db as never,
+        jobChatId: null,
+      },
+    );
+    expect(out.declared).toBe(true);
+
+    const outcome = await finalizeJobSuccess(
+      asDb(),
+      { jobId: jobId, result: 'ok', toolsUsed: [] },
+      deps(),
+    );
+
+    // La preuve a TOURNÉ : une ligne, verte, avec la commande déclarée.
+    const runs = await runsOf(jobId);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.verdict).toBe('green');
+    expect(runs[0]?.exitCode).toBe(0);
+    expect((await stateRow(stateId)).decisionStatus).toBe('green');
+    expect(outcome.observedOutcome).toBe('completed');
+  });
+
+  it('une preuve déclarée qui ÉCHOUE rend le livrable rouge', async () => {
+    await setProject(null, null);
+    const jobId = await insertJob('processing');
+    const stateId = await insertState(jobId, 'code_project', key, 1);
+
+    const cmd = await script('preuve-rouge.js', 'process.exit(3)');
+    const { declareVerificationTool } = await import('@nodal-agents/tools');
+    await declareVerificationTool.execute(
+      { project_path: projectPath, commands: [{ command: cmd, timeout_seconds: 60 }] },
+      {
+        jobId,
+        agentId: seed.agentId,
+        entityId: seed.entityId,
+        db: db as never,
+        jobChatId: null,
+      },
+    );
+
+    await finalizeJobSuccess(asDb(), { jobId: jobId, result: 'ok', toolsUsed: [] }, deps());
+
+    const runs = await runsOf(jobId);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.verdict).toBe('red');
+    expect(runs[0]?.exitCode).toBe(3);
+    expect((await stateRow(stateId)).decisionStatus).toBe('red');
+  });
+
   it('hash approuvé ≠ hash courant ⇒ état pending_approval et AUCUNE commande lancée', async () => {
     const witness = join(dir, 'temoin-approval.txt');
     const cmd = await script(

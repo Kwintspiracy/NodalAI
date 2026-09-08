@@ -524,6 +524,8 @@ export async function spinUpTestDb(): Promise<{ db: TestDb; pg: PGlite }> {
       verification_epoch integer NOT NULL DEFAULT 0,
       verify_approved_manifest_hash text,
       verify_approved_at timestamptz,
+      verify_source text CHECK (verify_source IS NULL OR verify_source IN ('owner','agent')),
+      verify_declared_by_job_id uuid,
       verify_approved_by uuid REFERENCES users(id) ON DELETE SET NULL,
       -- mirrors migration 0093 — le REGISTRE : registered_at NULL = ligne de
       -- comptabilité, NOT NULL = projet déclaré.
