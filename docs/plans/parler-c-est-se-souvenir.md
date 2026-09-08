@@ -18,14 +18,14 @@ déduits. **Aucun n'est un défaut du modèle.**
 
 ## Suivi
 
-| # | PR | Ce qui change | Taille |
-|---|----|---------------|--------|
-| 1 | B — la routine | Une routine a un état à elle, pas un souvenir | M |
-| 1b | B — la routine | La mémoire n'est pas un journal de bord | S |
-| 2 | A — le fil | Ce qu'un agent dit dans un chat appartient au fil de ce chat | M |
-| 3 | A — le fil | Un envoi rend « envoyé », pas un identifiant à interpréter | S |
-| 4 | A — le fil | La page Chat sépare les canaux des conversations | M |
-| 5 | A — le fil | Le fil descend tout seul quand un message arrive | S |
+| # | PR | Ce qui change | Taille | État |
+|---|----|---------------|--------|------|
+| 1 | B — la routine | Une routine a un état à elle, pas un souvenir | M | ✅ PR #47, en revue |
+| 1b | B — la routine | La mémoire n'est pas un journal de bord | S | 🔄 source coupée ; passé à ranger |
+| 2 | A — le fil | Ce qu'un agent dit dans un chat appartient au fil de ce chat | M | ⬜ |
+| 3 | A — le fil | Un envoi rend « envoyé », pas un identifiant à interpréter | S | ⬜ |
+| 4 | A — le fil | La page Chat sépare les canaux des conversations | M | ⬜ |
+| 5 | A — le fil | Le fil descend tout seul quand un message arrive | S | ⬜ |
 
 ## Les trois preuves
 
@@ -247,3 +247,25 @@ d'une PR : la règle dit que si `codex` manque ou échoue, on le dit et on
 s'arrête — jamais de repli sur un relecteur Claude, qui serait un fallback
 silencieux (invariant #4). À éprouver avant d'ouvrir la première PR, pour
 savoir si la boucle review → fix → review tient encore.
+
+## Ce que la livraison a appris (PR #47)
+
+- **La table `schedule_state` a un plafond de clés, et ce plafond ne pouvait pas
+  être une contrainte SQL.** Une contrainte sait borner une longueur, pas un
+  nombre de lignes : il a fallu un verrou consultatif par routine (revue Codex,
+  passe 1, constat 1).
+- **Deux doutes du plan étaient infondés**, vérifiés plutôt que supposés : le
+  bloc `## Runtime` est dans la moitié volatile du prompt (jamais servi périmé
+  par le cache), et un worker délégué n'hérite pas du `schedule_id` (il n'obtient
+  donc pas l'outil).
+- **La routine n'était pas la seule source de journaux en mémoire.** Le skill
+  `obsidian` livré avec le produit invitait lui-même à un `save_memory` « I wrote
+  X.md in the vault » quatre lignes avant d'interdire la pratique. Corrigé, et la
+  règle posée dans le socle commun à tous les agents.
+- **Le rangement des 13 lignes existantes reste ouvert** : aucun marqueur en base
+  ne distingue un journal d'une connaissance. Les repérer demanderait une
+  heuristique textuelle — une règle inventée. C'est un geste de Quentin, depuis
+  la page Memories.
+- **La consigne de la routine de Quentin dit encore d'utiliser `query_memory`.**
+  C'est de la donnée, pas du code. À mettre à jour depuis /automations, ou à me
+  demander explicitement.

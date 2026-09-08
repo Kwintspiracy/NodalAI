@@ -360,42 +360,49 @@
         <th>PR</th>
         <th>Ce qui change</th>
         <th>Taille</th>
+        <th>État</th>
       </tr>
       <tr>
         <td>1</td>
         <td><span class="pill pr">B · la routine</span></td>
         <td>Une routine a un état à elle, pas un souvenir</td>
         <td><span class="pill m">M</span></td>
+        <td><span class="pill s">PR #47</span></td>
       </tr>
       <tr>
         <td>1b</td>
         <td><span class="pill pr">B · la routine</span></td>
         <td>La mémoire n'est pas un journal de bord</td>
         <td><span class="pill s">S</span></td>
+        <td><span class="pill s">PR #47</span></td>
       </tr>
       <tr>
         <td>2</td>
         <td><span class="pill pr">A · le fil</span></td>
         <td>Ce qu'un agent dit dans un chat appartient au fil de ce chat</td>
         <td><span class="pill m">M</span></td>
+        <td>—</td>
       </tr>
       <tr>
         <td>3</td>
         <td><span class="pill pr">A · le fil</span></td>
         <td>Un envoi rend « envoyé », pas un identifiant à interpréter</td>
         <td><span class="pill s">S</span></td>
+        <td>—</td>
       </tr>
       <tr>
         <td>4</td>
         <td><span class="pill pr">A · le fil</span></td>
         <td>La page Chat sépare les canaux des conversations</td>
         <td><span class="pill m">M</span></td>
+        <td>—</td>
       </tr>
       <tr>
         <td>5</td>
         <td><span class="pill pr">A · le fil</span></td>
         <td>Le fil descend tout seul quand un message arrive</td>
         <td><span class="pill s">S</span></td>
+        <td>—</td>
       </tr>
     </table>
   </div>
@@ -678,6 +685,33 @@
     qui serait un fallback silencieux. À éprouver avant d'ouvrir la première PR, pour savoir si la
     boucle revue → correctif → revue tient encore.
   </p>
+
+  <h2>Ce que la livraison a appris (PR #47)</h2>
+  <ul class="plain">
+    <li>
+      <b>Le plafond de clés ne pouvait pas être une contrainte SQL.</b> Une contrainte sait borner
+      une longueur, pas un nombre de lignes : il a fallu un verrou par routine.
+    </li>
+    <li>
+      <b>Deux doutes du plan étaient infondés</b>, vérifiés plutôt que supposés : le bloc
+      <code>## Runtime</code> est dans la moitié volatile du prompt, donc jamais servi périmé par le
+      cache ; et un agent délégué n'hérite pas de la routine, donc n'obtient pas l'outil.
+    </li>
+    <li>
+      <b>La routine n'était pas la seule source de journaux en mémoire.</b> Le skill Obsidian livré
+      avec le produit invitait lui-même à enregistrer « I wrote X.md in the vault » quatre lignes
+      avant d'interdire la pratique. Corrigé, et la règle posée dans le socle commun.
+    </li>
+    <li>
+      <b>Ranger les 13 lignes existantes reste ouvert.</b> Aucun marqueur en base ne distingue un
+      journal d'une connaissance : les repérer demanderait une règle inventée. C'est un geste à
+      faire depuis la page Memories.
+    </li>
+    <li>
+      <b>La consigne de la routine dit encore d'utiliser la mémoire.</b> C'est de la donnée, pas du
+      code — à mettre à jour depuis Automations.
+    </li>
+  </ul>
 
   <p class="foot">
     Source versionnée : <code>docs/plans/parler-c-est-se-souvenir.md</code>. Rien n'est codé avant
