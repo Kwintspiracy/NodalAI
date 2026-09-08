@@ -72,6 +72,13 @@ export default function ThreadScroller({
 
   // AVANT la peinture : ouvrir un fil sur son dernier message, sans que le
   // lecteur voie passer le haut de l'historique.
+  //
+  // Ce que la mutation dit de cette ligne, et qu'il faut savoir : la neutraliser
+  // NE fait pas rougir la spec `thread-autoscroll` — l'observateur ci-dessous
+  // rattrape, parce qu'il émet dès qu'il commence à observer. Elle ne tient donc
+  // pas la POSITION, qui est prouvée ailleurs ; elle évite le FLASH, ce
+  // qu'aucun test de ce dépôt ne sait mesurer. Elle reste pour ça, et pour rien
+  // d'autre.
   useLayoutEffect(() => {
     const el = ref.current;
     if (el) scrollToBottom(el);
