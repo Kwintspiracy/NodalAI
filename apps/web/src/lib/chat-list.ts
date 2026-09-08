@@ -66,9 +66,19 @@ export type ChatLists = {
  */
 export type ChatNames = Readonly<Record<string, { name: string | null; kind: string | null }>>;
 
-/** La clé d'un chat. Le canal en fait partie : deux canaux peuvent porter le même id. */
-export function chatKey(channel: string, chatId: string): string {
-  return `${channel}:${chatId}`;
+/**
+ * La clé d'un chat, du point de vue de l'écran.
+ *
+ * L'AGENT en fait partie, et c'est le point délicat : le runner identifie un
+ * fil par (entité, agent, canal, chat) — voir `resolveConversation`. Deux bots
+ * d'agents différents qui parlent au même utilisateur Telegram tiennent donc
+ * deux fils distincts. Grouper sur le seul couple canal/chat les fusionnait, et
+ * le second disparaissait des deux tableaux (revue Codex, PR #48, passe 2).
+ *
+ * Le canal en fait partie aussi : deux canaux peuvent porter le même id.
+ */
+export function chatKey(agentId: string | null, channel: string, chatId: string): string {
+  return `${agentId ?? 'sans-agent'}:${channel}:${chatId}`;
 }
 
 /**
@@ -95,7 +105,8 @@ export function groupChatLists(
       dashboard.push(r);
       continue;
     }
-    const key = chatKey(r.channel, r.chatId);
+    const key = chatKey(r.agentId, r.channel, r.chatId);
+    const nameKey = `${r.channel}:${r.chatId}`;
     const seen = channels.get(key);
     if (seen) {
       seen.conversationCount += 1;
@@ -105,8 +116,10 @@ export function groupChatLists(
       key,
       channel: r.channel,
       chatId: r.chatId,
-      name: names[key]?.name ?? null,
-      kind: names[key]?.kind ?? null,
+      // Le NOM se cherche par (canal, chat) : l'allowlist nomme l'interlocuteur,
+      // qui est le même quel que soit l'agent qui lui parle.
+      name: names[nameKey]?.name ?? null,
+      kind: names[nameKey]?.kind ?? null,
       currentConversationId: r.id,
       conversationCount: 1,
       agentName: r.agentName,

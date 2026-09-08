@@ -6,7 +6,7 @@
 // s'affichait sous le titre de son premier message.
 
 import { describe, it, expect } from 'vitest';
-import { groupChatLists, chatKey } from '../chat-list.ts';
+import { groupChatLists } from '../chat-list.ts';
 import type { ConversationListRow } from '../conversation-actions.ts';
 
 const row = (over: Partial<ConversationListRow> & { id: string }): ConversationListRow => ({
@@ -77,7 +77,20 @@ describe('groupChatLists', () => {
       row({ id: 'b', channel: 'discord', chatId: '42' }),
     ]);
     expect(channels).toHaveLength(2);
-    expect(channels.map((c) => c.key).sort()).toEqual(['discord:42', 'telegram:42']);
+    expect(channels.map((c) => c.key).sort()).toEqual(['a1:discord:42', 'a1:telegram:42']);
+  });
+
+  it('deux AGENTS sur le même chat gardent chacun leur fil', () => {
+    // Le runner identifie un fil par (entité, agent, canal, chat) — voir
+    // `resolveConversation`. Grouper sur le seul couple canal/chat fusionnait
+    // deux bots parlant au même utilisateur, et le second fil disparaissait de
+    // l'écran (revue Codex, PR #48, passe 2).
+    const { channels } = groupChatLists([
+      row({ id: 'f1', channel: 'telegram', chatId: '199791464', agentId: 'alfred' }),
+      row({ id: 'f2', channel: 'telegram', chatId: '199791464', agentId: 'hermes' }),
+    ]);
+    expect(channels).toHaveLength(2);
+    expect(channels.map((c) => c.currentConversationId).sort()).toEqual(['f1', 'f2']);
   });
 
   it('le nom vient de l’allowlist, jamais du premier message', () => {
@@ -90,7 +103,7 @@ describe('groupChatLists', () => {
           title: 'Fais-moi une app en HTML, en récupérant l’API de IGDB',
         }),
       ],
-      { [chatKey('telegram', '-1003782553674')]: { name: 'Mathilde', kind: 'group' } },
+      { 'telegram:-1003782553674': { name: 'Mathilde', kind: 'group' } },
     );
     expect(channels[0]?.name).toBe('Mathilde');
   });
@@ -105,8 +118,8 @@ describe('groupChatLists', () => {
         row({ id: 's', channel: 'discord', chatId: '1511202553420054671' }),
       ],
       {
-        [chatKey('discord', '1525500444439220334')]: { name: 'Kwintspiracy', kind: 'private' },
-        [chatKey('discord', '1511202553420054671')]: { name: 'Kwintspiracy', kind: 'channel' },
+        'discord:1525500444439220334': { name: 'Kwintspiracy', kind: 'private' },
+        'discord:1511202553420054671': { name: 'Kwintspiracy', kind: 'channel' },
       },
     );
     expect(channels.map((c) => c.kind).sort()).toEqual(['channel', 'private']);

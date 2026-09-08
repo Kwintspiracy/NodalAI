@@ -55,14 +55,20 @@ export default function ThreadScroller({
   /** Faut-il suivre le bas ? Vrai tant que le lecteur n'a pas remonté. */
   const follow = useRef(true);
   /**
-   * Un défilement que NOUS venons de provoquer, à ignorer.
+   * Combien de défilements que NOUS avons provoqués attendent encore leur
+   * événement.
    *
-   * Sans ce drapeau, le composant se sabote : écrire `scrollTop` déclenche
+   * Sans ce garde-fou, le composant se sabote : écrire `scrollTop` déclenche
    * `onScroll`, la mesure y est lue pendant que la hauteur bouge encore, et le
    * suivi se coupe tout seul dès le premier message. Constaté au navigateur —
    * le fil s'ouvrait à 243 px du bas au lieu d'être en bas.
+   *
+   * Un COMPTEUR et non un drapeau : deux défilements rapprochés armaient puis
+   * désarmaient le drapeau avant que le premier événement n'arrive, et cet
+   * événement en vol passait alors pour un geste du lecteur (revue Codex,
+   * PR #48, passe 2).
    */
-  const selfScroll = useRef(false);
+  const pendingSelfScrolls = useRef(0);
 
   /**
    * Descendre, sans que notre propre geste passe pour celui du lecteur.
@@ -81,7 +87,10 @@ export default function ThreadScroller({
   const scrollToBottom = (el: HTMLDivElement) => {
     const before = el.scrollTop;
     el.scrollTop = el.scrollHeight;
-    selfScroll.current = el.scrollTop !== before;
+    // Rien n'a bougé (le fil était déjà en bas) : aucun événement ne viendra,
+    // donc rien à attendre. Compter quand même ferait avaler le prochain geste
+    // du lecteur.
+    if (el.scrollTop !== before) pendingSelfScrolls.current += 1;
   };
 
   // AVANT la peinture : ouvrir un fil sur son dernier message, sans que le
@@ -119,13 +128,22 @@ export default function ThreadScroller({
       onScroll={() => {
         const el = ref.current;
         if (!el) return;
-        // Notre propre geste ne dit rien de l'intention du lecteur : il vise le
-        // bas par construction, et le mesurer en vol conclurait le contraire.
-        if (selfScroll.current) {
-          selfScroll.current = false;
+        // En bas, quelle qu'en soit la raison : on suit, et le compte des
+        // défilements en attente n'a plus d'objet. Cette branche d'abord, pour
+        // que le compteur ne puisse jamais rester bloqué et avaler un geste.
+        if (staysAtBottom(el)) {
+          pendingSelfScrolls.current = 0;
+          follow.current = true;
           return;
         }
-        follow.current = staysAtBottom(el);
+        // Pas en bas, mais un de NOS défilements est encore en vol : il vise le
+        // bas par construction, et le mesurer en route conclurait le contraire.
+        if (pendingSelfScrolls.current > 0) {
+          pendingSelfScrolls.current -= 1;
+          return;
+        }
+        // Pas en bas, rien en vol : le lecteur a remonté. On cesse de suivre.
+        follow.current = false;
       }}
     >
       {children}
