@@ -24,6 +24,7 @@ déduits. **Aucun n'est un défaut du modèle.**
 | 2 | A — le fil | Ce qu'un agent dit dans un chat appartient au fil de ce chat | M |
 | 3 | A — le fil | Un envoi rend « envoyé », pas un identifiant à interpréter | S |
 | 4 | A — le fil | La page Chat sépare les canaux des conversations | M |
+| 5 | A — le fil | Le fil descend tout seul quand un message arrive | S |
 
 ## Les trois preuves
 
@@ -155,6 +156,33 @@ et ne le change jamais. Nommé par son chat, le problème disparaît — et le
 titrage IA, qui ne couvre que le dashboard (`run-chat-turn.ts:577`), n'a pas à
 être étendu aux canaux.
 
+### 4 · Le fil descend tout seul — S
+
+Aujourd'hui **rien ne fait défiler le fil**. `scrollIntoView` / `scrollTop`
+n'apparaissent nulle part dans les écrans de conversation — seulement dans le
+panneau de logs (`ServiceLogsPanel.tsx:78`) et l'onboarding
+(`OnboardingFlow.tsx:329`), qui l'ont chacun réimplémenté dans leur coin.
+
+Conséquence : un message qui arrive se pose sous le bord bas de la zone
+visible, contre la saisie, et Quentin doit faire défiler à la main pour lire ce
+qu'il vient de recevoir. La charpente, elle, est correcte — les trois écrans
+partagent `ThreadScreen`, où la saisie est hors de la zone qui défile.
+
+Deux règles, celles de n'importe quelle messagerie :
+
+- à l'ouverture d'un fil, on est en bas ;
+- un message qui arrive fait descendre le fil **seulement si on était déjà en
+  bas**. Remonter dans l'historique doit tenir : c'est ce que fait déjà le
+  panneau de logs, à 40 px près.
+
+⚠️ **À vérifier à l'écran** : si un message est réellement rendu *derrière* la
+saisie et pas seulement hors champ, c'est un second défaut, de géométrie
+celui-là. La capture le dira ; le correctif n'est pas le même.
+
+*Preuve* : Playwright — ouvrir un fil de 30 tours, le dernier message est
+visible sans toucher à rien ; remonter de 500 px, envoyer un message, la
+position ne bouge pas ; revenir en bas, envoyer, ça suit.
+
 ## L'ordre, et pourquoi
 
 **B avant A.** Le doublon est le seul des trois qui soit visible par d'autres
@@ -173,3 +201,16 @@ republie une annonce publique coûte plus cher qu'un nom de fichier tronqué.
   B, plus aucune routine n'en dépend : l'alerte n'aurait plus d'objet.
 - **`/new` découvrable depuis un canal.** Une fois les canaux séparés dans
   l'écran, la question se repose différemment — à trancher ensuite.
+
+## Un risque sur la boucle de revue
+
+`codex review` est le seul relecteur autorisé pour une PR (CLAUDE.md), et
+**Quentin signale que la dernière version refuse de coder depuis la CLI**
+(constaté par lui le 08/09 ; version installée et dernière publiée :
+`codex-cli 0.153.4`).
+
+Ça ne bloque pas la rédaction de ces plans, mais ça bloque la **fermeture**
+d'une PR : la règle dit que si `codex` manque ou échoue, on le dit et on
+s'arrête — jamais de repli sur un relecteur Claude, qui serait un fallback
+silencieux (invariant #4). À éprouver avant d'ouvrir la première PR, pour
+savoir si la boucle review → fix → review tient encore.

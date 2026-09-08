@@ -385,6 +385,12 @@
         <td>La page Chat sépare les canaux des conversations</td>
         <td><span class="pill m">M</span></td>
       </tr>
+      <tr>
+        <td>5</td>
+        <td><span class="pill pr">A · le fil</span></td>
+        <td>Le fil descend tout seul quand un message arrive</td>
+        <td><span class="pill s">S</span></td>
+      </tr>
     </table>
   </div>
 
@@ -556,6 +562,33 @@
     </p>
   </div>
 
+  <div class="card">
+    <h3><span class="num">5</span> Le fil descend tout seul <span class="pill s size">S</span></h3>
+    <p>
+      Aujourd'hui <b>rien ne fait défiler le fil</b>. Aucun écran de conversation n'en contient la
+      moindre ligne — seuls le panneau de logs et l'onboarding l'ont réimplémenté chacun dans leur
+      coin. Un message qui arrive se pose donc sous le bord bas de la zone visible, contre la
+      saisie, et il faut faire défiler à la main pour lire ce qu'on vient de recevoir.
+    </p>
+    <p>Deux règles, celles de n'importe quelle messagerie :</p>
+    <ul class="plain">
+      <li>à l'ouverture d'un fil, on est en bas ;</li>
+      <li>
+        un message qui arrive fait descendre le fil <b>seulement si on était déjà en bas</b> —
+        remonter dans l'historique doit tenir.
+      </li>
+    </ul>
+    <p class="warn">
+      <b>À vérifier à l'écran</b> — si un message est réellement rendu <i>derrière</i> la saisie et
+      pas seulement hors champ, c'est un second défaut, de géométrie celui-là. La capture le dira ;
+      le correctif n'est pas le même.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — ouvrir un fil de 30 tours : le dernier message est visible sans rien toucher.
+      Remonter de 500 px, envoyer : la position ne bouge pas. Revenir en bas, envoyer : ça suit.
+    </p>
+  </div>
+
   <h2>L'ordre</h2>
   <p>
     <b>B avant A.</b> Le doublon est le seul des trois qui soit visible par d'autres que toi : il a
@@ -579,6 +612,19 @@
       l'écran, la question se repose autrement. À trancher ensuite.
     </li>
   </ul>
+
+  <h2>Un risque sur la boucle de revue</h2>
+  <p>
+    <code>codex review</code> est le seul relecteur autorisé pour une PR, et
+    <b>tu signales que la dernière version refuse de coder depuis la CLI</b> (version installée et
+    dernière publiée : <code>codex-cli 0.153.4</code>).
+  </p>
+  <p>
+    Ça n'empêche pas d'écrire ces plans, mais ça empêche de <b>fermer</b> une PR : la règle dit que
+    si Codex manque ou échoue, on le dit et on s'arrête — jamais de repli sur un relecteur Claude,
+    qui serait un fallback silencieux. À éprouver avant d'ouvrir la première PR, pour savoir si la
+    boucle revue → correctif → revue tient encore.
+  </p>
 
   <p class="foot">
     Source versionnée : <code>docs/plans/parler-c-est-se-souvenir.md</code>. Rien n'est codé avant
