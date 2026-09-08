@@ -708,6 +708,23 @@
       faire depuis la page Memories.
     </li>
     <li>
+      <b>Le correctif répétait le bug qu'il répare</b> — le constat le plus utile des six. Le bloc
+      annonçait « c'est vraiment ta première exécution » dès que l'état était vide. Or la table naît
+      vide : la première exécution de chaque routine EXISTANTE l'aurait lue ainsi, et une routine
+      qui annonce aurait réannoncé. Il dit maintenant ce qu'il sait et rien de plus.
+    </li>
+    <li>
+      <b>Une garde n'est une garantie que si elle couvre tous les chemins.</b> Celle qui interdit
+      deux exécutions simultanées d'une même routine ne vivait que dans le cron ; l'outil et le
+      bouton « Run now » inséraient sans regarder. Deux passes de revue pour trouver les deux
+      autres.
+    </li>
+    <li>
+      <b>La course, elle, reste ouverte — et c'est dit.</b> Les trois chemins lisent puis insèrent,
+      sans verrou commun : deux lancements simultanés passent encore. La fermer demande une
+      migration qui doit décider du sort des installations où deux runs coexistent déjà.
+    </li>
+    <li>
       <b>La consigne de la routine dit encore d'utiliser la mémoire.</b> C'est de la donnée, pas du
       code — à mettre à jour depuis Automations.
     </li>

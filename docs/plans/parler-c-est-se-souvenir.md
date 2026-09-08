@@ -266,6 +266,22 @@ savoir si la boucle review → fix → review tient encore.
   ne distingue un journal d'une connaissance. Les repérer demanderait une
   heuristique textuelle — une règle inventée. C'est un geste de Quentin, depuis
   la page Memories.
+- **Le correctif répétait le bug qu'il répare** (revue Codex, passe 5, le
+  constat le plus utile des six). Le bloc annonçait « genuinely its first run »
+  dès que l'état était vide. Or la table naît vide : la première exécution de
+  chaque routine EXISTANTE, après la mise à jour, l'aurait lue comme un premier
+  run — et une routine qui annonce aurait réannoncé. Le bloc dit maintenant ce
+  qu'il sait et rien de plus : « nothing recorded yet. This does NOT mean the
+  routine has never run. » Deux assertions NÉGATIVES gardent le piège fermé.
+- **Une garde n'est une garantie que si elle couvre tous les chemins.** Celle
+  qui interdit deux exécutions simultanées d'une même routine ne vivait que
+  dans le cron ; l'outil `run_schedule` et le bouton « Run now » inséraient sans
+  regarder. Il a fallu deux passes de revue pour trouver les deux autres.
+- **La course reste ouverte, et c'est dit.** Les trois chemins lisent puis
+  insèrent, sans verrou commun : deux lancements simultanés passent encore. La
+  fermer demande un index unique partiel, donc une migration qui doit décider du
+  sort des installations où deux runs vivants coexistent déjà. Au backlog du
+  harnais, pas bâclé ici.
 - **La consigne de la routine de Quentin dit encore d'utiliser `query_memory`.**
   C'est de la donnée, pas du code. À mettre à jour depuis /automations, ou à me
   demander explicitement.
