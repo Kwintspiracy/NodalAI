@@ -1,107 +1,64 @@
-# Demande de review — PR A (#10), observabilité des sessions de code
-
-Branche `feat/code-observability` → `main`. 2 commits.
-
-**Ton rôle : essayer de me démonter, pas de me confirmer.** Deux verdicts valent
-— « le constat tient » et « le constat est faux ». Un troisième ne vaut pas :
-« ça a l'air bien ».
-
-Ne corrige rien. Rends un rapport. Un point que tu ne peux pas vérifier se
-rapporte **NON VÉRIFIÉ**, jamais conclu par supposition.
-
----
+# Demande de review — PR A « le fil dit la vérité »
 
 ## Ce que la PR affirme
 
-Qu'une session `code_task` était invisible pendant qu'elle tournait, qu'on ne
-savait pas quel CLI l'avait exécutée, et qu'un dépassement du plafond de capture
-produisait une erreur accusant le CLI au lieu de notre propre plafond.
+Quatre points du plan « Parler, c'est se souvenir » :
 
-## Priorité 1 — le découpage de flux est-il correct ?
+1. `telegram_send_message` rend `{sent: true}` au lieu de `{messageId}` — un
+   agent avait lu le sien comme un message de l'utilisateur. Le rejoueur
+   d'historique rend la même forme.
+2. `ThreadScroller` : un fil s'ouvre en bas et suit, SEULEMENT si le lecteur y
+   était déjà.
+3. `/chat` en deux tableaux : les chats de canal repliés par chat, les
+   conversations du dashboard en dessous.
+4. Le nom d'un chat vient de l'allowlist, jamais d'un extrait de message.
 
-C'est le seul code réellement nouveau, et il tourne sur **chaque octet** que
-produit un CLI. Un défaut ici touche toutes les sessions.
+Le cinquième point du plan (un envoi appartient au fil de son chat) est
+DÉLIBÉRÉMENT hors de cette PR : il change ce qu'est un tour de conversation.
 
-`process.ts`, fonction `emitLines` et la vidange dans `finish` :
+## Questions, par priorité
 
-1. **Le découpage résiste-t-il à un chunk qui coupe une ligne en deux ?** Un
-   `data` peut se terminer au milieu d'un objet JSON. Trace ce qui arrive à
-   `lineBuf` sur deux chunks successifs.
-2. **Et à un `\r\n` ?** Les deux CLI tournent sous Windows ici. Je découpe sur
-   `\n` et j'applique `.trim()` — est-ce que ça suffit dans tous les cas, ou
-   est-ce que je laisse passer un `\r` quelque part ?
-3. **La vidange finale peut-elle émettre deux fois la même ligne ?** `finish`
-   émet `lineBuf + outDecoder.end()`. Si `close` et le minuteur se déclenchent
-   tous les deux, le garde `settled` suffit-il ?
-4. **`outDecoder.end()` appelé dans `finish` casse-t-il l'accumulation de
-   `stdout` ?** Le décodeur est partagé entre les deux chemins.
-5. Un caractère multi-octets (é, emoji) coupé entre deux chunks : je passe par
-   `StringDecoder`, mais **le vérifier** plutôt que me croire.
+### P0
 
-## Priorité 2 — l'appariement des événements
+1. `packages/tools/src/communication/telegram-send-message.ts` ne rend plus
+   `messageId`. Un appelant en production en dépendait-il ? Vérifier
+   `apps/runner/src/delivery/outbox.ts` (le receipt vient-il bien de
+   l'adaptateur et non de l'outil ?) et tout autre lecteur.
+2. `apps/runner/src/job/thread-history.ts` rejoue désormais `{sent: true}` pour
+   les tours passés. Un tour rejoué et un tour réel se ressemblent-ils
+   exactement, ou reste-t-il une différence que le modèle peut lire ?
 
-`live-events.ts` transforme des lignes en paires `tool_use` → `tool_result`.
+### P1
 
-1. **Les formes que je parse sont-elles les vraies ?** Je me suis appuyé sur ma
-   lecture des formats `stream-json` (claude) et `--json` (codex). Confronte-les
-   à la documentation ou à une trace réelle. **Si une forme est fausse, le
-   correctif ne produit rien du tout** — et rien ne le signalerait, puisque
-   l'absence de ligne ressemble à une session sans outil.
-2. **Une paire jamais fermée fuit-elle ?** `pending` grandit à chaque `use`. Une
-   session qui ouvre mille outils sans en fermer un seul garde-t-elle mille
-   entrées en mémoire ?
-3. **Les ids peuvent-ils se collisionner** entre deux sessions du même job ?
-   `toolCallId` est écrit en base ; deux `code_task` dans un même job partagent
-   le `jobId`.
-4. `redactSecretsForAudit` est appliqué à l'entrée. **L'est-il à la sortie ?**
-   Le résultat d'un outil peut contenir un secret lu dans un fichier.
+3. `apps/web/src/lib/chat-list.ts` — `groupChatLists` suppose que les lignes
+   arrivent les plus récentes d'abord pour désigner le fil COURANT d'un chat.
+   Cette garantie tient-elle chez tous les appelants ? (`listAllConversationsAction`
+   trie par `updated_at desc`.) Que se passe-t-il si deux fils ont le même
+   `updated_at` ?
+4. `listChatNamesAction` (apps/web/src/lib/conversation-actions.ts) lit les
+   allowlists de TOUS les agents de l'entité. Une fuite entre entités est-elle
+   possible ? Le filtre passe par `agents.entity_id`.
+5. `ThreadScroller` : le drapeau `selfScroll` est remis à false au PREMIER
+   événement de défilement reçu. Un défilement programmatique peut-il émettre
+   ZÉRO événement (si la position ne change pas) et laisser le drapeau armé,
+   faisant ignorer le geste SUIVANT du lecteur ?
 
-## Priorité 3 — ce que le point 2 corrige vraiment
+### P2
 
-J'affirme dans la PR avoir **corrigé ma propre spec** : une sortie tronquée
-n'était pas silencieuse, elle échouait déjà.
-
-Vérifie ce constat corrigé, pas l'original :
-
-1. Les trois cas d'échec que je liste sont-ils exacts ? Lis les deux analyseurs.
-2. Existe-t-il un **quatrième cas** où une troncature passerait effectivement
-   inaperçue ? C'est ce que je cherchais et n'ai pas trouvé — trouve-le si il
-   existe.
-3. Le nouveau message est-il déclenché au bon endroit ? `run.truncated` couvre
-   **stdout ET stderr** (le même drapeau sert aux deux). Une troncature de
-   stderr seule produirait-elle un message qui accuse le plafond à tort ?
-
-## Priorité 4 — mes tests prouvent-ils quelque chose ?
-
-Applique la question qui compte : **si je casse le produit, ce test rougit-il ?**
-
-| Mutation | Attendu |
-|---|---|
-| Livrer les lignes en fin de course au lieu du fil de l'eau | rougit — **exécutée, 1 rouge sur 4** |
-| Retirer la vidange de la dernière ligne dans `finish` | rougit |
-| Faire renvoyer `null` à `parseLiveToolEvent` pour claude | rougit |
-| Retirer `providers` de la requête `cli_runs` | ? — **je n'ai aucun test dessus** |
-
-La dernière ligne est un aveu : les points 4 et 5 n'ont **aucun test**. Dis si
-c'est acceptable pour de l'affichage, ou si un test de la couche action est dû.
-
-## Priorité 5 — ce que je n'ai pas mesuré
-
-Le crochet tourne sur chaque chunk et fait un `JSON.parse` par ligne. Une
-session verbeuse en produit des milliers.
-
-- Est-ce que ça ralentit une session réelle de façon perceptible ?
-- Les insertions sont sans attente (`void db.insert(...)`). Mille outils
-  produisent mille insertions concurrentes — le pool y survit-il ?
-
-Je n'ai mesuré ni l'un ni l'autre. Si tu ne peux pas les exécuter, dis-le.
+6. La suppression d'une conversation de canal n'est plus offerte sur /chat (le
+   tableau du haut n'a ni sélection ni bouton). Régression assumée ou trou ?
 
 ## Hors périmètre
 
-Le nommage « CLI » (PR B), le serveur MCP (PR C), et les 5 tests de
-`delivery-guard` qui dépendent du chemin du dépôt — trou d'outillage connu.
+- Le rattachement des envois au fil de leur chat (PR suivante).
+- Le nettoyage des vieux fils d'un chat (45 sur la base de test).
+- L'aperçu d'un chat, qui montre le `result` brut d'un job (« [Delegated to
+  Lead-Dev (failed) — actions: … ») : il vient de la même source qu'avant, et
+  c'est la PR suivante qui lui donnera la bonne matière.
 
-## Ce que je n'attends pas
+## Ce dont je doute moi-même
 
-Un avis sur le style ou le nommage. Une liste de constats, chacun avec le
-fichier, la ligne, et **ce qui casse concrètement**.
+- `chatLabel` invente « Direct » quand l'allowlist ne nomme pas le chat. Est-ce
+  un mensonge acceptable, ou faut-il montrer l'identifiant ?
+- Le `#` devant un salon : convention Slack/Discord appliquée aussi à un groupe
+  Telegram, où elle n'a pas cours.
