@@ -1,0 +1,529 @@
+<title>Créer, c'est prouver</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap"
+/>
+<style>
+  /* Mêmes jetons que le backlog vivant et le plan des pierres : ces trois
+     documents se lisent à la suite, ils ne doivent pas se ressembler « à peu
+     près ». */
+  :root {
+    --bg: #f7f6f3;
+    --surface: #ffffff;
+    --surface-2: #efede8;
+    --ink: #1f2328;
+    --ink-2: #4b5158;
+    --ink-3: #7a8087;
+    --rule: #e3e0d9;
+    --accent: #3d6b8e;
+    --accent-soft: #e7eef4;
+    --ok: #2e7d4f;
+    --ok-bg: #e5f2ea;
+    --amber: #9a6a12;
+    --amber-bg: #f7efdc;
+    --p0: #b3362c;
+    --p0-bg: #f9e9e7;
+    --shadow: 0 1px 3px rgba(31, 35, 40, 0.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --bg: #16181c;
+      --surface: #1f2228;
+      --surface-2: #262a31;
+      --ink: #e8e6e1;
+      --ink-2: #b3b0aa;
+      --ink-3: #82807b;
+      --rule: #33373f;
+      --accent: #7ba7c9;
+      --accent-soft: #24323d;
+      --ok: #6fbf8f;
+      --ok-bg: #22342a;
+      --amber: #d9a94f;
+      --amber-bg: #3a3120;
+      --p0: #e0796f;
+      --p0-bg: #3a2523;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+  }
+  :root[data-theme='dark'] {
+    --bg: #16181c;
+    --surface: #1f2228;
+    --surface-2: #262a31;
+    --ink: #e8e6e1;
+    --ink-2: #b3b0aa;
+    --ink-3: #82807b;
+    --rule: #33373f;
+    --accent: #7ba7c9;
+    --accent-soft: #24323d;
+    --ok: #6fbf8f;
+    --ok-bg: #22342a;
+    --amber: #d9a94f;
+    --amber-bg: #3a3120;
+    --p0: #e0796f;
+    --p0-bg: #3a2523;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    margin: 0;
+    padding: 40px 20px 80px;
+  }
+  .wrap {
+    max-width: 820px;
+    margin: 0 auto;
+  }
+  h1,
+  h2 {
+    font-family: 'Sora', 'Segoe UI', system-ui, sans-serif;
+    text-wrap: balance;
+  }
+  h1 {
+    font-size: 30px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .stamp {
+    color: var(--ink-3);
+    font-size: 13.5px;
+    margin: 0 0 28px;
+  }
+  h2 {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--ink-3);
+    margin: 42px 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+  }
+  p {
+    margin: 0 0 12px;
+    color: var(--ink-2);
+  }
+  b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  code {
+    font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    font-size: 0.92em;
+  }
+
+  /* La phrase qui porte tout le lot */
+  .thesis {
+    background: var(--accent-soft);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 0 0 8px;
+    font-size: 16.5px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .thesis b {
+    font-weight: 600;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 1px 9px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .pill.s {
+    background: var(--ok-bg);
+    color: var(--ok);
+  }
+  .pill.m {
+    background: var(--amber-bg);
+    color: var(--amber);
+  }
+  .pill.xs {
+    background: var(--surface-2);
+    color: var(--ink-2);
+  }
+
+  .tablewrap {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13.5px;
+  }
+  th {
+    text-align: left;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink-3);
+    font-weight: 600;
+  }
+  th,
+  td {
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  tr:last-child td {
+    border-bottom: none;
+  }
+  td {
+    color: var(--ink-2);
+  }
+  td:first-child {
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  .card h3 {
+    font-size: 15.5px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: var(--ink);
+  }
+  .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+    flex: none;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-family: 'Sora', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .card .size {
+    margin-left: auto;
+  }
+  .proof {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    background: var(--surface-2);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  .proof b {
+    color: var(--ink-3);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.07em;
+  }
+  .warn {
+    margin: 10px 0 0;
+    padding: 10px 14px;
+    background: var(--p0-bg);
+    border: 1px solid var(--p0);
+    border-radius: 8px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+  }
+  .warn b {
+    color: var(--p0);
+  }
+
+  ul {
+    margin: 0 0 12px;
+    padding-left: 20px;
+    color: var(--ink-2);
+  }
+  li {
+    margin-bottom: 6px;
+  }
+
+  .foot {
+    margin-top: 44px;
+    font-size: 12.5px;
+    color: var(--ink-3);
+    border-top: 1px solid var(--rule);
+    padding-top: 14px;
+  }
+  @media (max-width: 560px) {
+    body {
+      padding: 24px 12px 60px;
+    }
+    h1 {
+      font-size: 24px;
+    }
+    .thesis {
+      font-size: 15px;
+    }
+  }
+</style>
+
+<div class="wrap">
+  <h1>Créer, c'est prouver</h1>
+  <p class="stamp">
+    Plan de la PR qui suit · 07/09/2026 · une PR, un lot, mergée dans la semaine — la règle prise
+    après une PR de 70 000 lignes que plus personne ne pouvait relire
+  </p>
+
+  <p class="thesis">
+    Quand un agent <b>crée</b> quelque chose, l'écran doit dire <b>ce qu'il a fait</b>, et Nodal
+    doit le <b>vérifier</b> — sans que tu aies rien à configurer.
+  </p>
+  <p style="font-size: 13.5px; color: var(--ink-3)">
+    Les cinq points viennent de la même session : la conversation « Créer un skill avec CSS et HTML
+    ». Trois affirmations s'y contredisaient en apparence, et l'écran cachait la seule chose qui
+    aurait donné raison à Quentin.
+  </p>
+
+  <h2>Suivi</h2>
+  <div class="tablewrap">
+    <table>
+      <tr>
+        <th>#</th>
+        <th>Ce qui change</th>
+        <th>Pour qui l'utilise</th>
+        <th>Taille</th>
+      </tr>
+      <tr>
+        <td>1</td>
+        <td>Le nom du fichier se lit sur la carte</td>
+        <td>on voit enfin QUELS fichiers ont été écrits</td>
+        <td><span class="pill s">S</span></td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>La consigne passée au travail se déplie</td>
+        <td>on voit ce que l'agent a vraiment demandé au job</td>
+        <td><span class="pill s">S</span></td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>Un fichier créé est typé pour ce qu'il EST</td>
+        <td>un skill n'est plus un « projet de code »</td>
+        <td><span class="pill m">M</span></td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>Un document se vérifie tout seul</td>
+        <td>« Vérifié » veut enfin dire quelque chose</td>
+        <td><span class="pill m">M</span></td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>La page Approvals passe en anglais</td>
+        <td>le tableau de bord parle une seule langue</td>
+        <td><span class="pill xs">XS</span></td>
+      </tr>
+    </table>
+  </div>
+
+  <h2>Ce que tu verras changer</h2>
+  <p>
+    <b>Trois fichiers écrits ne se ressemblent plus.</b> Aujourd'hui la carte affiche le chemin
+    absolu, coupé à droite : trois écritures montrent trois fois le même préfixe et jamais le nom du
+    fichier. Tu as cru voir « trois diffs sur le même fichier ». C'étaient <code>SKILL.md</code>,
+    <code>base.css</code> et <code>base.html</code> — exactement les trois fichiers que tu avais
+    demandés.
+  </p>
+  <p>
+    <b>La consigne passée au travail devient lisible.</b> La ligne « Handed to the work » est
+    tronquée à une ligne. Elle porte 1 649 caractères, et c'est là qu'on voit qu'Alfred a inventé
+    des exigences que personne ne lui avait données. Tu le lui as reproché ; l'écran te cachait la
+    preuve.
+  </p>
+  <p>
+    <b>Un skill cesse d'être un projet de code.</b> L'outil d'écriture étiquette tout ce qu'il écrit
+    « projet de code ». Nodal cherche alors les commandes de test du dossier, n'en trouve pas, et
+    affiche « non configuré » sur un travail qui n'avait aucun test à lancer.
+  </p>
+  <p>
+    <b>Et un document se vérifie, sans réglage.</b> C'est ta règle :
+    <i>une vérification a lieu dès qu'il y a création de quelque chose</i>. Pour un document, cela
+    ne veut pas dire lancer des tests — cela veut dire constater qu'il existe, qu'il se lit, qu'il
+    n'est pas vide, et qu'il est bien formé selon son type. Rien de tout cela n'exécute quoi que ce
+    soit : aucune approbation, aucun écran, aucune configuration.
+  </p>
+
+  <h2>Ce que ça ne contient pas</h2>
+  <ul>
+    <li>
+      <b>Le coût d'un tour de chat</b> — 18 500 jetons pour dire bonjour, quatre chantiers mesurés
+      hier. C'est la PR d'après. Les mélanger referait une PR fleuve.
+    </li>
+    <li>
+      <b>Les commandes de projet découvertes et approuvées dans le canal</b> (v7-C) et
+      <b>les critères tirés de la demande</b> (v7-D) — ils supposent le typage de cette PR.
+    </li>
+    <li>
+      <b>Le vérificateur d'envoi</b> (« le message est-il arrivé ») — il lit la file d'envoi, pas un
+      fichier : autre chemin, autre lot.
+    </li>
+    <li>
+      <b>« New conversation » sur la page Files</b> — c'est ton arbitrage, pas un chantier. Je ne le
+      retire que si tu le dis.
+    </li>
+  </ul>
+
+  <h2>Les cinq points</h2>
+
+  <div class="card">
+    <h3><span class="num">1</span> Le nom du fichier se lit <span class="pill s size">S</span></h3>
+    <p>
+      Le nom de base passe en tête ; le dossier suit, en gris, tronqué par la <b>gauche</b> — c'est
+      la fin d'un chemin qui porte le sens. Le chemin complet reste au survol.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — trois fichiers d'un même dossier : les trois noms se distinguent, aucun ne
+      contient le préfixe commun.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>
+      <span class="num">2</span> La consigne passée au travail se déplie
+      <span class="pill s size">S</span>
+    </h3>
+    <p>
+      Une ligne repliée, la consigne entière dépliée, dans le style des notes. Pas de composant neuf
+      : celui des blocs dépliables existe.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — une consigne de 1 649 caractères se lit en entier une fois dépliée ; repliée,
+      elle tient sur une ligne.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>
+      <span class="num">3</span> Un fichier créé est typé pour ce qu'il est
+      <span class="pill m size">M</span>
+    </h3>
+    <p>
+      La règle devient mécanique, zéro LLM : le fichier est-il sous un projet <b>déclaré</b> ? Alors
+      « projet de code », comme aujourd'hui. Sinon « document ». C'est ce que le plan v7 disait déjà
+      — la brique avait déplacé la décision vers l'outil sans changer sa réponse.
+    </p>
+    <p class="warn">
+      <b>À faire dans la même PR</b> — le type « document » est aujourd'hui <b>refusé</b> : il n'a
+      pas de règle de nommage et lève une erreur. Il faut donc écrire la sienne ici, la même que
+      celle déjà partagée par la page Code et le fil. Sans cela, typer un skill en « document » le
+      ferait échouer au lieu d'être vérifié.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — un fichier écrit dans un projet déclaré reste « projet de code » ; le même
+      fichier écrit dans le dossier partagé devient « document » ; aucun des deux ne lève.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>
+      <span class="num">4</span> Un document se vérifie tout seul <span class="pill m size">M</span>
+    </h3>
+    <p>Un vérificateur <b>sans pouvoir</b> : il ouvre le fichier, rien de plus, et constate.</p>
+    <div class="tablewrap" style="margin: 10px 0">
+      <table>
+        <tr>
+          <th>Constat</th>
+          <th>Vrai pour</th>
+        </tr>
+        <tr>
+          <td>le fichier existe là où c'est annoncé</td>
+          <td>tous</td>
+        </tr>
+        <tr>
+          <td>il n'est pas vide</td>
+          <td>tous</td>
+        </tr>
+        <tr>
+          <td>il se décode</td>
+          <td>tous</td>
+        </tr>
+        <tr>
+          <td>il est bien formé</td>
+          <td>un markdown a un titre · un CSS s'analyse · un HTML se referme</td>
+        </tr>
+      </table>
+    </div>
+    <p>
+      Une extension inconnue s'arrête aux trois premiers constats — et le dit, plutôt que d'inventer
+      une règle. Le résultat s'écrit là où toutes les preuves s'écrivent : le récapitulatif de
+      livraison et la barre d'état n'ont rien à apprendre.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — un markdown sans titre est rouge et dit pourquoi ; un CSS invalide est rouge ;
+      les trois fichiers du skill sont verts ; un fichier supprimé entre l'écriture et la
+      vérification est rouge, pas absent.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>
+      <span class="num">5</span> La page Approvals en anglais <span class="pill xs size">XS</span>
+    </h3>
+    <p>
+      « Approuver une fois », « Toujours pour cet outil » dans un tableau de bord anglais. Vu hier,
+      jamais traité.
+    </p>
+  </div>
+
+  <h2>L'ordre</h2>
+  <p>
+    1 et 2 d'abord : ce sont des heures, et ils rendent lisible le fil sur lequel on va juger le
+    reste. Puis 5, qui est une minute. Puis 3 et 4 <b>ensemble</b> : le 3 seul rendrait un skill non
+    vérifiable au lieu de mal vérifié.
+  </p>
+
+  <h2>Ce que cette PR ne prétend pas régler</h2>
+  <ul>
+    <li>
+      Un agent peut toujours écrire « vérifié » dans sa prose sans que rien ne l'ait prouvé. Le mot
+      lui appartient ; l'écran dira juste, à côté, ce que Nodal a réellement constaté.
+    </li>
+    <li>
+      Un agent en runtime CLI n'écrit pas ses appels au modèle là où le fil les lit : son fil ne
+      peut compter ni jetons ni coût. La barre dit « no usage recorded » plutôt qu'un faux zéro.
+    </li>
+    <li>
+      La création d'un agent n'est pas une transaction, et supprimer le ROOT n'a pas de règle de
+      succession. Les deux sont au backlog du harnais.
+    </li>
+  </ul>
+
+  <p class="foot">
+    Source versionnée : <code>docs/plans/creer-c-est-prouver.md</code>. Rien n'est codé avant ton
+    go.
+  </p>
+</div>
