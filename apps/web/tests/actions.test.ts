@@ -3723,6 +3723,10 @@ describe('runScheduleNowAction', () => {
             notifyOnSuccess: true,
           },
         ],
+        // La garde de chevauchement (PR #47) : aucun run vivant pour cette
+        // routine. Elle s'intercale entre la lecture de la routine et la
+        // résolution du chat du propriétaire.
+        [],
         [{ chatId: '12345' }], // resolveOwnerChatId lookup
       ],
       insert: [{ id: jobId }],
@@ -3765,13 +3769,17 @@ describe('runScheduleNowAction', () => {
   it('leaves chatId null when the schedule did not opt into a confirmation (notify OFF → silent run)', async () => {
     const jobId = 'aaaaaaaa-0000-0000-0000-000000000220';
     currentDb = makeDbMixed({
-      select: [
-        {
-          agentId: 'aaaaaaaa-0000-0000-0000-000000000221',
-          task: 'Silent maintenance',
-          chatId: null,
-          notifyOnSuccess: false,
-        },
+      selectQueue: [
+        [
+          {
+            agentId: 'aaaaaaaa-0000-0000-0000-000000000221',
+            task: 'Silent maintenance',
+            chatId: null,
+            notifyOnSuccess: false,
+          },
+        ],
+        // Garde de chevauchement (PR #47) : aucun run vivant.
+        [],
       ],
       insert: [{ id: jobId }],
     }) as typeof currentDb;
@@ -3798,13 +3806,17 @@ describe('runScheduleNowAction', () => {
     currentDb = makeDbMixed({
       // A single select is expected — an explicit schedule.chatId short-circuits
       // the `??` before resolveOwnerChatId's own SELECT would ever run.
-      select: [
-        {
-          agentId: 'aaaaaaaa-0000-0000-0000-000000000231',
-          task: 'Post the standup',
-          chatId: 'explicit-target-chat',
-          notifyOnSuccess: true,
-        },
+      selectQueue: [
+        [
+          {
+            agentId: 'aaaaaaaa-0000-0000-0000-000000000231',
+            task: 'Post the standup',
+            chatId: 'explicit-target-chat',
+            notifyOnSuccess: true,
+          },
+        ],
+        // Garde de chevauchement (PR #47) : aucun run vivant.
+        [],
       ],
       insert: [{ id: jobId }],
     }) as typeof currentDb;
@@ -3822,9 +3834,11 @@ describe('runScheduleNowAction', () => {
     const insertValues = valuesFn?.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
     // An explicit schedule target wins over the owner default.
     expect(insertValues?.['chatId']).toBe('explicit-target-chat');
-    // Only the schedule SELECT ran — resolveOwnerChatId's SELECT was skipped.
+    // DEUX SELECT : la routine, puis la garde de chevauchement (PR #47). Celui
+    // de resolveOwnerChatId, lui, est bien court-circuité — c'est ce que ce
+    // compte prouve, et un troisième appel voudrait dire qu'il a tourné.
     const selectSpy = (currentDb as unknown as { select: ReturnType<typeof vi.fn> }).select;
-    expect(selectSpy).toHaveBeenCalledTimes(1);
+    expect(selectSpy).toHaveBeenCalledTimes(2);
     fetchSpy.mockRestore();
   });
 
@@ -3834,15 +3848,19 @@ describe('runScheduleNowAction', () => {
     const jobId = 'aaaaaaaa-0000-0000-0000-000000000241';
     const priorRun = new Date('2026-07-01T09:00:00.000Z');
     currentDb = makeDbMixed({
-      select: [
-        {
-          agentId: 'aaaaaaaa-0000-0000-0000-000000000242',
-          task: 'Watch inbox since prevRunAt',
-          chatId: null,
-          notifyOnSuccess: false,
-          name: 'Inbox watcher',
-          lastRun: priorRun,
-        },
+      selectQueue: [
+        [
+          {
+            agentId: 'aaaaaaaa-0000-0000-0000-000000000242',
+            task: 'Watch inbox since prevRunAt',
+            chatId: null,
+            notifyOnSuccess: false,
+            name: 'Inbox watcher',
+            lastRun: priorRun,
+          },
+        ],
+        // Garde de chevauchement (PR #47) : aucun run vivant.
+        [],
       ],
       insert: [{ id: jobId }],
     }) as typeof currentDb;
@@ -3871,15 +3889,19 @@ describe('runScheduleNowAction', () => {
   it("trigger_context.prevRunAt is null on a schedule's first-ever manual run", async () => {
     const jobId = 'aaaaaaaa-0000-0000-0000-000000000251';
     currentDb = makeDbMixed({
-      select: [
-        {
-          agentId: 'aaaaaaaa-0000-0000-0000-000000000252',
-          task: 'First fire',
-          chatId: null,
-          notifyOnSuccess: false,
-          name: 'Fresh schedule',
-          lastRun: null,
-        },
+      selectQueue: [
+        [
+          {
+            agentId: 'aaaaaaaa-0000-0000-0000-000000000252',
+            task: 'First fire',
+            chatId: null,
+            notifyOnSuccess: false,
+            name: 'Fresh schedule',
+            lastRun: null,
+          },
+        ],
+        // Garde de chevauchement (PR #47) : aucun run vivant.
+        [],
       ],
       insert: [{ id: jobId }],
     }) as typeof currentDb;

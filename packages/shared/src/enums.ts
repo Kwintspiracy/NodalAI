@@ -62,7 +62,18 @@ export function isTerminalJobStatus(status: string): boolean {
  * seulement dans `runScheduleTick`, si bien qu'un lancement MANUEL
  * (`run_schedule`) la contournait — et un run relancé à la main pendant qu'un
  * autre attend une approbation lui périme son état sous les pieds (revue Codex,
- * PR #47, passe 2). La liste est donc ici, où les deux chemins la lisent.
+ * PR #47, passe 2). La liste est donc ici, où les TROIS chemins la lisent :
+ * `runScheduleTick`, l'outil `run_schedule`, et `runScheduleNowAction` (le
+ * bouton « Run now » du dashboard).
+ *
+ * ⚠️ CE QUE CETTE GARDE NE FAIT PAS. Les trois chemins LISENT puis INSÈRENT,
+ * sans verrou commun ni contrainte d'unicité : deux lancements simultanés
+ * peuvent constater « aucun run vivant » et insérer chacun le leur (revue
+ * Codex, PR #47, passe 4). La garde ferme l'oubli — trois chemins sur trois la
+ * portent — pas la course. La fermer demande un index unique partiel sur
+ * `agent_jobs (schedule_id) WHERE status IN (…)`, donc une migration qui doit
+ * d'abord décider du sort des installations où deux runs vivants coexistent
+ * déjà : c'est un lot à soi, pas une ligne de plus ici.
  */
 export const LIVE_JOB_STATUSES: readonly JobStatus[] = [
   'pending',
