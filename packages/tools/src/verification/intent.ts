@@ -257,9 +257,17 @@ async function resolveDeliverables(
         // Les projets réellement VISÉS, résolus sans expansion : le périmètre
         // large d'un shell ne doit pas les diluer. Ce sont eux, et eux seuls,
         // que l'écran présentera comme des livrables.
+        // L'EXPANSION s'applique aussi aux cibles VISÉES : une racine attachée
+        // sans manifeste est remplacée par ses enfants, si bien qu'un shell
+        // lancé À la racine produisait la clé de la racine d'un côté et celles
+        // des enfants de l'autre — aucune correspondance, ciblage perdu (revue
+        // Codex, PR #49).
         const addressedKeys = new Set(
           resolveProjectRoots({
-            targets: group.filter((t) => t.scope !== 'precaution'),
+            targets: await expandWorkspaceRoots(
+              group.filter((t) => t.scope !== 'precaution'),
+              workspaceRoots,
+            ),
             workspaceRoots,
             hasMarker,
           }).map((p) => p.key),

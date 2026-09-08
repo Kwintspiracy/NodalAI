@@ -13308,6 +13308,9 @@ async function upsertCodeProject(
     verifyApprovedManifestHash?: string | null;
     verifyApprovedAt?: Date | null;
     verifyApprovedBy?: string | null;
+    /** Qui décide de la séquence de preuve — voir `code_projects.verify_source`. */
+    verifySource?: 'owner' | 'agent' | null;
+    verifyDeclaredByJobId?: string | null;
   },
 ): Promise<void> {
   const key = projectKey(projectPath);
@@ -13418,6 +13421,12 @@ export async function setCodeProjectVerifyCommandsAction(
       verifyApprovedManifestHash: null,
       verifyApprovedAt: null,
       verifyApprovedBy: null,
+      // Le propriétaire reprend la main : la séquence est la SIENNE, même si
+      // un agent l'avait déclarée avant. Sans ces deux lignes, l'écran
+      // continuait d'afficher « Declared by the agent » après une réécriture
+      // humaine (revue Codex, PR #49).
+      verifySource: 'owner',
+      verifyDeclaredByJobId: null,
     });
     revalidatePath('/code');
     return ok(undefined);
@@ -13635,6 +13644,10 @@ export async function approveCodeProjectVerifyManifestAction(
       verifyApprovedManifestHash: current,
       verifyApprovedAt: new Date(),
       verifyApprovedBy: session.userId,
+      // Approuver, c'est FAIRE SIENNE la séquence : l'écran doit dire
+      // « Approved » et non plus « Declared by the agent » (revue Codex, PR #49).
+      verifySource: 'owner',
+      verifyDeclaredByJobId: null,
     });
     revalidatePath('/code');
     return ok(undefined);

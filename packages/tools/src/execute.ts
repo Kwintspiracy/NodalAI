@@ -52,6 +52,15 @@ export const CODE_EXECUTION_TOOL_NAMES: readonly string[] = [
   'skill_file_write',
   'create_mcp',
   'attach_mcp',
+  // DÉCLARER une commande de preuve, c'est la faire exécuter plus tard, à la
+  // finalisation, hors de tout flux d'approbation. La première version de cet
+  // outil se contentait du même `defaultApproval` que `run_command` et
+  // manquait donc les quatre gardes qui comptent : le mode autonome levait son
+  // approbation, une règle wildcard la balayait, le frein global l'ignorait, et
+  // le refus des commandes catastrophiques ne s'y appliquait pas. Un agent
+  // pouvait enregistrer une commande que `run_command` aurait REFUSÉE (revue
+  // Codex, PR #49).
+  'declare_verification',
 ];
 
 const CODE_EXECUTION_TOOL_SET = new Set(CODE_EXECUTION_TOOL_NAMES);
@@ -323,11 +332,22 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
   // `node -e`, …): an opaque payload can smuggle any destruction, so it is
   // forced to a human here and refused even after approval on the resume path
   // (owner's decision, A2). No separate softer tier.
+  const commandesJugees =
+    tool.name === 'run_command'
+      ? [String((validatedInput as { command?: unknown })?.command ?? '')]
+      : tool.name === 'declare_verification'
+        ? // Une preuve déclarée s'exécutera sans repasser ici : ses commandes
+          // doivent franchir le même plancher MAINTENANT, ou jamais.
+          ((validatedInput as { commands?: { command?: unknown }[] })?.commands ?? []).map((c) =>
+            String(c?.command ?? ''),
+          )
+        : [];
+
   if (
-    tool.name === 'run_command' &&
+    commandesJugees.length > 0 &&
     effectiveAction !== 'block' &&
     effectiveAction !== 'require_approval' &&
-    isCatastrophicCommand(String((validatedInput as { command?: unknown })?.command ?? ''))
+    commandesJugees.some(isCatastrophicCommand)
   ) {
     effectiveAction = 'require_approval';
   }

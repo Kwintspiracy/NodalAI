@@ -26,7 +26,7 @@
 // flux d'approbation.
 
 import { z } from 'zod';
-import { codeProjects, eq, and } from '@nodal-agents/db';
+import { codeProjects, jobDeliverableVerificationState, eq, and } from '@nodal-agents/db';
 import {
   hashVerificationManifest,
   projectKey,
@@ -103,6 +103,35 @@ export const declareVerificationTool: ToolDefinition<
         reason:
           `No registered project at ${path}. Register it first (register_project), ` +
           'then declare its verification.',
+      };
+    }
+
+    // CE job a-t-il produit quelque chose DANS ce projet ? La déclaration d'une
+    // preuve n'est pas une opinion sur le travail d'autrui : sans cette garde,
+    // un agent délégué pouvait déclarer — donc faire exécuter — une séquence
+    // sur n'importe quel projet de l'espace, y compris en remplaçant celle que
+    // le propriétaire avait approuvée (revue Codex, PR #49).
+    //
+    // La trace existe déjà : l'intention de mutation écrit une ligne ADRESSÉE
+    // pour chaque livrable qu'un outil a nommé. On lit cette ligne, on n'en
+    // fabrique pas une nouvelle.
+    const [touche] = await ctx.db
+      .select({ id: jobDeliverableVerificationState.id })
+      .from(jobDeliverableVerificationState)
+      .where(
+        and(
+          eq(jobDeliverableVerificationState.jobId, ctx.jobId),
+          eq(jobDeliverableVerificationState.canonicalKey, key),
+          eq(jobDeliverableVerificationState.addressed, true),
+        ),
+      )
+      .limit(1);
+    if (!touche) {
+      return {
+        declared: false,
+        reason:
+          `This job did not produce anything in ${path}. Declare a verification only for what ` +
+          'you built or changed in this run.',
       };
     }
 

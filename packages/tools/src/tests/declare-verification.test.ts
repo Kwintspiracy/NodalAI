@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { spinUpTestDb, seedMinimal } from '@nodal-agents/db/test-utils';
-import { codeProjects, eq } from '@nodal-agents/db';
+import { codeProjects, jobDeliverableVerificationState, eq } from '@nodal-agents/db';
 import {
   hashVerificationManifest,
   projectKey,
@@ -55,7 +55,24 @@ beforeAll(async () => {
   seed = await seedMinimal(db);
 });
 
+/**
+ * La trace qu'un outil a NOMMÉ ce projet pendant ce job — écrite en vrai par
+ * l'intention de mutation. Sans elle, la déclaration est refusée : on ne
+ * déclare une preuve que pour ce qu'on a produit.
+ */
+async function poserLaTrace(cle = projectKey(PROJET), addressed = true): Promise<void> {
+  await db.insert(jobDeliverableVerificationState).values({
+    jobId: seed.jobId,
+    deliverableType: 'code_project',
+    canonicalKey: cle,
+    dirtyGeneration: 1,
+    decisionStatus: 'dirty',
+    addressed,
+  });
+}
+
 beforeEach(async () => {
+  await db.delete(jobDeliverableVerificationState);
   await db.delete(codeProjects);
   await db.insert(codeProjects).values({
     entityId: seed.entityId,
@@ -68,6 +85,7 @@ beforeEach(async () => {
 
 describe('declare_verification', () => {
   it('écrit les commandes de l’agent, et les rend EXÉCUTABLES', async () => {
+    await poserLaTrace();
     const out = await declareVerificationTool.execute(
       {
         project_path: PROJET,
@@ -104,6 +122,7 @@ describe('declare_verification', () => {
   });
 
   it('une déclaration plus tard REMPLACE la précédente, hash compris', async () => {
+    await poserLaTrace();
     await declareVerificationTool.execute(
       { project_path: PROJET, commands: [{ command: 'node --check app.js' }] },
       ctx(),
@@ -136,6 +155,7 @@ describe('declare_verification', () => {
   });
 
   it('le délai par défaut est posé, pas laissé vide', async () => {
+    await poserLaTrace();
     await declareVerificationTool.execute(
       { project_path: PROJET, commands: [{ command: 'node --check app.js' }] },
       ctx(),
@@ -143,6 +163,31 @@ describe('declare_verification', () => {
     expect((await projet())?.verifyCommands).toEqual([
       { command: 'node --check app.js', timeoutSeconds: 120 },
     ]);
+  });
+
+  it('un job qui n’a RIEN produit ici est refusé, en le disant', async () => {
+    // Revue Codex PR #49 : sans cette garde, un agent délégué pouvait déclarer
+    // — donc faire exécuter — une séquence sur n'importe quel projet de
+    // l'espace, y compris en remplaçant celle du propriétaire.
+    const out = await declareVerificationTool.execute(
+      { project_path: PROJET, commands: [{ command: 'node --check app.js' }] },
+      ctx(),
+    );
+    expect(out.declared).toBe(false);
+    if (!out.declared) expect(out.reason).toContain('did not produce anything');
+    expect((await projet())?.verifyCommands).toBeNull();
+  });
+
+  it('une trace de PRÉCAUTION ne suffit pas : il faut avoir VISÉ ce projet', async () => {
+    // Un shell salit tout son périmètre par précaution. Cela ne fait pas de
+    // chaque dossier voisin quelque chose qu'on a produit.
+    await poserLaTrace(projectKey(PROJET), false);
+    const out = await declareVerificationTool.execute(
+      { project_path: PROJET, commands: [{ command: 'node --check app.js' }] },
+      ctx(),
+    );
+    expect(out.declared).toBe(false);
+    expect((await projet())?.verifyCommands).toBeNull();
   });
 
   it('demande une approbation, comme la commande qu’elle fera tourner', () => {

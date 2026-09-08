@@ -558,7 +558,7 @@ describe('Autonomy never grants code execution (P0 review fix)', () => {
     }
   });
 
-  it('les SIX outils d’exécution de code sont hors de portée de la relaxation', () => {
+  it('les SEPT outils d’exécution de code sont hors de portée de la relaxation', () => {
     // Le chemin d'intégration est prouvé ci-dessus par run_command et par
     // run_skill_script ; ici on fige la LISTE elle-même, qui est ce qu'un
     // futur ajout d'outil risque d'oublier. (code_task ne peut pas passer par
@@ -571,6 +571,10 @@ describe('Autonomy never grants code execution (P0 review fix)', () => {
       'skill_file_write',
       'create_mcp',
       'attach_mcp',
+      // DÉCLARER une commande de preuve la fait exécuter plus tard, à la
+      // finalisation, hors de tout flux d'approbation : l'autonomie ne doit pas
+      // plus pouvoir la relâcher que `run_command` (revue Codex, PR #49).
+      'declare_verification',
     ]) {
       expect(isCodeExecutionTool(name), `${name} peut être auto-approuvé par l’autonomie`).toBe(
         true,
@@ -591,6 +595,7 @@ describe('Autonomy never grants code execution (P0 review fix)', () => {
         'attach_mcp',
         'code_task',
         'create_mcp',
+        'declare_verification',
         'run_command',
         'run_skill_script',
         'skill_file_write',
