@@ -52,6 +52,25 @@ export function isTerminalJobStatus(status: string): boolean {
   return (TERMINAL_STATUSES as readonly string[]).includes(status);
 }
 
+/**
+ * Le complément : un job qui porte un de ces statuts est encore VIVANT — il
+ * tourne, ou il attend quelque chose qui le fera repartir.
+ *
+ * Sert à ne pas lancer deux fois la même chose. Incident du 11/07/2026 : un
+ * tick de cron a démarré une routine dont le run précédent tournait encore, et
+ * deux instances du même watcher ont travaillé en parallèle. La garde vivait
+ * seulement dans `runScheduleTick`, si bien qu'un lancement MANUEL
+ * (`run_schedule`) la contournait — et un run relancé à la main pendant qu'un
+ * autre attend une approbation lui périme son état sous les pieds (revue Codex,
+ * PR #47, passe 2). La liste est donc ici, où les deux chemins la lisent.
+ */
+export const LIVE_JOB_STATUSES: readonly JobStatus[] = [
+  'pending',
+  'processing',
+  'awaiting_approval',
+  'awaiting_delegation',
+];
+
 // agent_tasks.status CHECK constraint
 export const TASK_STATUSES = ['todo', 'in_progress', 'done', 'cancelled', 'blocked'] as const;
 export const TaskStatusSchema = z.enum(TASK_STATUSES);

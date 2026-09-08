@@ -136,6 +136,7 @@ const EXPECTED_CARDS: Record<string, ToolCard> = {
   run_schedule: 'text',
   run_skill_script: 'terminal',
   save_memory: 'text',
+  save_routine_state: 'text',
   search_history: 'search',
   send_audio: 'sent',
   send_file: 'sent',

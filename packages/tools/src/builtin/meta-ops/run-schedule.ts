@@ -7,11 +7,13 @@ import { z } from 'zod';
 import {
   eq,
   and,
+  inArray,
   agentSchedules,
   agentJobs,
   resolveOwnerChatId,
   resolveOwnerConversation,
 } from '@nodal-agents/db';
+import { LIVE_JOB_STATUSES } from '@nodal-agents/shared';
 import type { ChannelKind } from '@nodal-agents/delivery';
 import type { ToolDefinition } from '../../types';
 
@@ -50,6 +52,29 @@ export const runScheduleTool: ToolDefinition<typeof RunScheduleInput, RunSchedul
 
     if (!sched) return { ok: false, error: `No schedule named "${input.name}" in this workspace.` };
     if (!sched.task) return { ok: false, error: `Schedule "${input.name}" has no task to run.` };
+
+    // Jamais deux exécutions de la MÊME routine en même temps. `runScheduleTick`
+    // refuse depuis l'incident du 11/07/2026 (deux instances du même watcher en
+    // parallèle) ; ce chemin-ci, le lancement manuel, ne regardait rien — une
+    // routine qui poste pouvait poster deux fois, et un run qui attend une
+    // approbation se faisait périmer son état par le run lancé entre-temps
+    // (revue Codex, PR #47, passe 2). Refus EXPLICITE, jamais une file
+    // silencieuse : l'appelant doit savoir que rien n'a été lancé.
+    const [live] = await ctx.db
+      .select({ id: agentJobs.id, status: agentJobs.status })
+      .from(agentJobs)
+      .where(
+        and(eq(agentJobs.scheduleId, sched.id), inArray(agentJobs.status, [...LIVE_JOB_STATUSES])),
+      )
+      .limit(1);
+    if (live) {
+      return {
+        ok: false,
+        error:
+          `Schedule "${input.name}" is already running (job ${live.id}, ${live.status}). ` +
+          'Nothing was queued — wait for that run to finish, or cancel it first.',
+      };
+    }
 
     // Mirror the cron tick: carry a delivery target only if the schedule opted
     // into a success confirmation (else it runs silently, like a normal fire).

@@ -19,7 +19,7 @@ import {
   getBindingCredentials,
 } from '@nodal-agents/db';
 import type { AnyDrizzleDb } from '@nodal-agents/db';
-import { resolveTimezone } from '@nodal-agents/shared';
+import { resolveTimezone, LIVE_JOB_STATUSES } from '@nodal-agents/shared';
 import {
   getAdapter,
   resolveTransportChannel,
@@ -33,7 +33,6 @@ import type { JobId } from '@nodal-agents/orchestration';
 
 // Job statuses that mean "this schedule already has a run in flight" — the
 // no-overlap guard (F2, Event Triggers Brique 3).
-const LIVE_JOB_STATUSES = ['pending', 'processing', 'awaiting_approval', 'awaiting_delegation'];
 
 // A live job older than this is very likely stuck, not just long-running —
 // escalate the log so it's noticed, but still skip: reaping stuck jobs is the
@@ -155,7 +154,9 @@ export async function runScheduleTick(
     const [liveJob] = await db
       .select({ id: agentJobs.id, createdAt: agentJobs.createdAt })
       .from(agentJobs)
-      .where(and(eq(agentJobs.scheduleId, sched.id), inArray(agentJobs.status, LIVE_JOB_STATUSES)))
+      .where(
+        and(eq(agentJobs.scheduleId, sched.id), inArray(agentJobs.status, [...LIVE_JOB_STATUSES])),
+      )
       .orderBy(desc(agentJobs.createdAt))
       .limit(1);
     if (liveJob) {
