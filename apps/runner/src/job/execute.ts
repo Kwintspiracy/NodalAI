@@ -23,6 +23,7 @@ import {
   entities as entitiesTable,
   getDecryptedCredentialById,
   getChannelBinding,
+  readScheduleState,
 } from '@nodal-agents/db';
 import type { ApprovalRequestRow, JobTriggerContext } from '@nodal-agents/db';
 import {
@@ -1100,6 +1101,23 @@ async function runJob(
         task: job.task,
       })
     : null;
+  // L'état de la routine dont ce job est une exécution — relu tel quel, jamais
+  // cherché. Chargé ici pour être rendu dans le bloc `## Runtime` : la routine
+  // voit ce qu'elle a enregistré la dernière fois avant de décider si elle doit
+  // refaire quelque chose (voir packages/db/src/schema/schedule-state.ts).
+  //
+  // Cet état est figé dans le prompt ÉCRIT du job : une reprise (après
+  // approbation, après compaction) relit `job.systemPrompt` sans repasser par
+  // `buildSystemPrompt`, donc sans relire la table. C'est le bon comportement
+  // pour l'usage visé — « l'état au début de CE run » — et le seul scénario où
+  // il tromperait suppose qu'une AUTRE exécution de la même routine écrive
+  // pendant l'attente. `runScheduleTick` refuse précisément de lancer une
+  // routine dont un job est encore vivant (run-schedules.ts, garde de
+  // l'incident du 11/07), donc ce chevauchement ne se produit pas par le cron.
+  // Un run relancé à la main pendant une approbation le pourrait : c'est dit
+  // ici plutôt que corrigé, faute d'avoir observé le cas (revue Codex, PR #47).
+  const routineState = job.scheduleId ? await readScheduleState(db, job.scheduleId) : null;
+
   const jobContext: JobContext = {
     origin: job.channel ?? 'unknown',
     // LA liste, celle que les outils ont — partagé compris. Le prompt la
@@ -1118,6 +1136,10 @@ async function runJob(
     })(),
     ...(workspaceGit ? { workspaceGit } : {}),
     ...(conversationContext ? { conversation: conversationContext } : {}),
+    // Le tableau vide compte : il dit au modèle « première exécution », ce qui
+    // n'est pas la même chose que « pas une routine » (absent). D'où le test
+    // sur null et non sur la longueur.
+    ...(routineState !== null ? { routineState } : {}),
     deployment,
   };
 
@@ -1159,6 +1181,16 @@ async function runJob(
   const fileWriteToolNames: string[] =
     fileWritableSkillSlugs.length > 0 ? ['skill_file_write'] : [];
   const fileWriteToolDefs: AnyToolDef[] = fileWriteToolNames
+    .map((n) => registry.get(n))
+    .filter((t): t is AnyToolDef => t !== undefined);
+
+  // save_routine_state — offert UNIQUEMENT quand ce job vient d'une routine.
+  // C'est la contrepartie du bloc `## Routine state` du prompt : la routine
+  // relit son état au début du run et le repose à la fin, sans passer par la
+  // mémoire (voir packages/db/src/schema/schedule-state.ts pour le doublon
+  // Discord qui a rendu cette table nécessaire).
+  const routineStateToolNames: string[] = job.scheduleId ? ['save_routine_state'] : [];
+  const routineStateToolDefs: AnyToolDef[] = routineStateToolNames
     .map((n) => registry.get(n))
     .filter((t): t is AnyToolDef => t !== undefined);
 
@@ -1571,6 +1603,7 @@ async function runJob(
         ...metaToolDefs,
         ...scriptToolDefs,
         ...fileWriteToolDefs,
+        ...routineStateToolDefs,
         ...capabilityTools,
       ];
     } else {
@@ -1634,6 +1667,7 @@ async function runJob(
             ...metaToolNames,
             ...scriptToolNames,
             ...fileWriteToolNames,
+            ...routineStateToolNames,
           ],
         },
         registry,

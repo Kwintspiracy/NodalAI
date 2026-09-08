@@ -1,0 +1,737 @@
+<title>Parler, c'est se souvenir</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap"
+/>
+<style>
+  /* Mêmes jetons que « Créer, c'est prouver » : les deux plans se lisent à la
+     suite, ils doivent se ressembler exactement, pas à peu près. */
+  :root {
+    --bg: #f7f6f3;
+    --surface: #ffffff;
+    --surface-2: #efede8;
+    --ink: #1f2328;
+    --ink-2: #4b5158;
+    --ink-3: #7a8087;
+    --rule: #e3e0d9;
+    --accent: #3d6b8e;
+    --accent-soft: #e7eef4;
+    --ok: #2e7d4f;
+    --ok-bg: #e5f2ea;
+    --amber: #9a6a12;
+    --amber-bg: #f7efdc;
+    --p0: #b3362c;
+    --p0-bg: #f9e9e7;
+    --shadow: 0 1px 3px rgba(31, 35, 40, 0.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --bg: #16181c;
+      --surface: #1f2228;
+      --surface-2: #262a31;
+      --ink: #e8e6e1;
+      --ink-2: #b3b0aa;
+      --ink-3: #82807b;
+      --rule: #33373f;
+      --accent: #7ba7c9;
+      --accent-soft: #24323d;
+      --ok: #6fbf8f;
+      --ok-bg: #22342a;
+      --amber: #d9a94f;
+      --amber-bg: #3a3120;
+      --p0: #e0796f;
+      --p0-bg: #3a2523;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+  }
+  :root[data-theme='dark'] {
+    --bg: #16181c;
+    --surface: #1f2228;
+    --surface-2: #262a31;
+    --ink: #e8e6e1;
+    --ink-2: #b3b0aa;
+    --ink-3: #82807b;
+    --rule: #33373f;
+    --accent: #7ba7c9;
+    --accent-soft: #24323d;
+    --ok: #6fbf8f;
+    --ok-bg: #22342a;
+    --amber: #d9a94f;
+    --amber-bg: #3a3120;
+    --p0: #e0796f;
+    --p0-bg: #3a2523;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    margin: 0;
+    padding: 40px 20px 80px;
+  }
+  .wrap {
+    max-width: 820px;
+    margin: 0 auto;
+  }
+  h1,
+  h2 {
+    font-family: 'Sora', 'Segoe UI', system-ui, sans-serif;
+    text-wrap: balance;
+  }
+  h1 {
+    font-size: 30px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .stamp {
+    color: var(--ink-3);
+    font-size: 13.5px;
+    margin: 0 0 28px;
+  }
+  h2 {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--ink-3);
+    margin: 42px 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+  }
+  p {
+    margin: 0 0 12px;
+    color: var(--ink-2);
+  }
+  b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  code {
+    font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    font-size: 0.92em;
+  }
+
+  .thesis {
+    background: var(--accent-soft);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 0 0 8px;
+    font-size: 16.5px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .thesis b {
+    font-weight: 600;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 1px 9px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .pill.s {
+    background: var(--ok-bg);
+    color: var(--ok);
+  }
+  .pill.m {
+    background: var(--amber-bg);
+    color: var(--amber);
+  }
+  .pill.pr {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .tablewrap {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13.5px;
+  }
+  th {
+    text-align: left;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink-3);
+    font-weight: 600;
+  }
+  th,
+  td {
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  tr:last-child td {
+    border-bottom: none;
+  }
+  td {
+    color: var(--ink-2);
+  }
+  td:first-child {
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  .card h3 {
+    font-size: 15.5px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: var(--ink);
+  }
+  .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+    flex: none;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-family: 'Sora', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .card .size {
+    margin-left: auto;
+  }
+  .proof {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    background: var(--surface-2);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  .proof b {
+    color: var(--ink-3);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.07em;
+  }
+  .warn {
+    margin: 10px 0 0;
+    padding: 10px 14px;
+    background: var(--p0-bg);
+    border: 1px solid var(--p0);
+    border-radius: 8px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+  }
+  .warn b {
+    color: var(--p0);
+  }
+
+  /* Les trois preuves : citations tirées de la base, pas des reformulations. */
+  .quote {
+    margin: 10px 0;
+    padding: 10px 16px;
+    border-left: 3px solid var(--rule);
+    font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border-radius: 0 8px 8px 0;
+    overflow-x: auto;
+  }
+  .replay {
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 13px;
+    counter-reset: tour;
+  }
+  .replay li {
+    display: flex;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px dashed var(--rule);
+    color: var(--ink-2);
+  }
+  .replay li:last-child {
+    border-bottom: none;
+  }
+  .replay .when {
+    flex: none;
+    width: 58px;
+    color: var(--ink-3);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .replay li.gap {
+    color: var(--p0);
+    font-weight: 600;
+  }
+  .replay li.gap .when {
+    color: var(--p0);
+  }
+
+  ul.plain {
+    margin: 0 0 12px;
+    padding-left: 20px;
+    color: var(--ink-2);
+  }
+  ul.plain li {
+    margin-bottom: 6px;
+  }
+
+  .foot {
+    margin-top: 44px;
+    font-size: 12.5px;
+    color: var(--ink-3);
+    border-top: 1px solid var(--rule);
+    padding-top: 14px;
+  }
+  @media (max-width: 560px) {
+    body {
+      padding: 24px 12px 60px;
+    }
+    h1 {
+      font-size: 24px;
+    }
+    .thesis {
+      font-size: 15px;
+    }
+  }
+</style>
+
+<div class="wrap">
+  <h1>Parler, c'est se souvenir</h1>
+  <p class="stamp">
+    Deux PR · 08/09/2026 · tout ce qui suit est lu en base, appel d'outil par appel d'outil — rien
+    n'est déduit
+  </p>
+
+  <p class="thesis">
+    Alfred a parlé dans ton fil <b>sans y écrire</b>, il a republié une annonce
+    <b>déjà faite</b> dix jours plus tôt, et il a répondu aux
+    <b>accusés de réception de ses propres messages</b>.
+  </p>
+  <p style="font-size: 13.5px; color: var(--ink-3)">
+    Nuit du 07 au 08/09, fil Telegram <code>a7aa39e4</code> et routine
+    <code>Check-Nodal-Agents-GitHub-Updates</code>. Trois causes distinctes, et
+    <b style="color: var(--ink-3)">aucune n'est un défaut du modèle</b>.
+  </p>
+
+  <h2>Suivi</h2>
+  <div class="tablewrap">
+    <table>
+      <tr>
+        <th>#</th>
+        <th>PR</th>
+        <th>Ce qui change</th>
+        <th>Taille</th>
+        <th>État</th>
+      </tr>
+      <tr>
+        <td>1</td>
+        <td><span class="pill pr">B · la routine</span></td>
+        <td>Une routine a un état à elle, pas un souvenir</td>
+        <td><span class="pill m">M</span></td>
+        <td><span class="pill s">PR #47</span></td>
+      </tr>
+      <tr>
+        <td>1b</td>
+        <td><span class="pill pr">B · la routine</span></td>
+        <td>La mémoire n'est pas un journal de bord</td>
+        <td><span class="pill s">S</span></td>
+        <td><span class="pill s">PR #47</span></td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td><span class="pill pr">A · le fil</span></td>
+        <td>Ce qu'un agent dit dans un chat appartient au fil de ce chat</td>
+        <td><span class="pill m">M</span></td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td><span class="pill pr">A · le fil</span></td>
+        <td>Un envoi rend « envoyé », pas un identifiant à interpréter</td>
+        <td><span class="pill s">S</span></td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td><span class="pill pr">A · le fil</span></td>
+        <td>La page Chat sépare les canaux des conversations</td>
+        <td><span class="pill m">M</span></td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td><span class="pill pr">A · le fil</span></td>
+        <td>Le fil descend tout seul quand un message arrive</td>
+        <td><span class="pill s">S</span></td>
+        <td>—</td>
+      </tr>
+    </table>
+  </div>
+
+  <h2>Preuve 1 — le doublon Discord</h2>
+  <p>
+    La routine tourne deux à trois fois par jour, et sa consigne lui dit où ranger son état :
+    <i
+      >« Read the last-known announced version with query_memory. This memory IS your stored state.
+      »</i
+    >
+  </p>
+  <div class="tablewrap">
+    <table>
+      <tr>
+        <th>Run</th>
+        <th>Ce que <code>query_memory</code> a rendu en tête</th>
+        <th>Verdict</th>
+      </tr>
+      <tr>
+        <td>07/09 01:00</td>
+        <td>v0.8.8 — already announced on Discord</td>
+        <td>rien de nouveau ✓</td>
+      </tr>
+      <tr>
+        <td>07/09 06:01</td>
+        <td>v0.8.8 — already announced on Discord</td>
+        <td>rien de nouveau ✓</td>
+      </tr>
+      <tr>
+        <td>07/09 15:00</td>
+        <td>v0.8.8 — already announced on Discord</td>
+        <td>rien de nouveau ✓</td>
+      </tr>
+      <tr>
+        <td>08/09 01:00</td>
+        <td>un fait sur le vault Obsidian « HP AI Training »</td>
+        <td>republie sur #announcements ✗</td>
+      </tr>
+    </table>
+  </div>
+  <p style="margin-top: 12px">
+    Le fait qui répondait juste <b>n'est plus dans la table</b>. Pas archivé : supprimé. Les chemins
+    ont été vérifiés un par un — le curateur archive et ne supprime jamais,
+    <code>mark_memory_outdated</code> archive, <code>save_memory</code> n'écrase rien. Le seul code
+    qui supprime pour de bon est appelé par la page Memories et la page Root context.
+    <b>Aucun agent n'a pu le faire.</b>
+  </p>
+
+  <h2>Preuve 2 — le trou dans le fil</h2>
+  <p>Les tours réellement rejoués au modèle quand tu as écrit « Je comprend pas » :</p>
+  <ul class="replay">
+    <li><span class="when">26/08</span> Fais-moi une app en HTML… IGDB</li>
+    <li><span class="when">26/08</span> Mets en ligne sur cloudflare</li>
+    <li>
+      <span class="when">26/08</span> Je peux pas juste m'authentifier avec mon compte steam ?
+    </li>
+    <li><span class="when">26/08</span> Fais l'option la plus simple</li>
+    <li><span class="when">26/08</span> T'en est où ?</li>
+    <li><span class="when">26/08</span> Allo ?</li>
+    <li><span class="when">26/08</span> Quelle url utiliser pour accéder à nodal en lan !</li>
+    <li class="gap"><span class="when">08/09</span> l'annonce de la v0.8.8 — ABSENTE</li>
+    <li><span class="when">08/09</span> Je comprend pas. Elle est déjà publiée la 0.8.8</li>
+  </ul>
+  <p style="margin-top: 12px">
+    Le prompt système (54 804 caractères) ne contient ni <code>0.8.8</code>, ni
+    <code>changelog</code>, ni <code>announce</code> — les trois ont été cherchés. Ce que le modèle
+    s'est dit, enregistré dans le job :
+  </p>
+  <div class="quote">
+    User confused — replying to "0.8.8"? They mention a published version. … Context unclear. Ask
+    clarifying question.
+  </div>
+  <p>
+    Le fil est reconstruit avec <code>WHERE conversation_id = …</code>. Le travail de la routine
+    porte <code>NULL</code>, alors qu'il a bien écrit sur ton chat. Telegram t'affiche un fil
+    continu ; Nodal en relit un troué.
+  </p>
+
+  <h2>Preuve 3 — les accusés de réception pris pour tes réponses</h2>
+  <p>Dans le même tour, juste après l'envoi qui rend <code>{messageId: "2311"}</code> :</p>
+  <div class="quote">
+    User replied "2311"? That's odd — messageId "2311" means it came from a different chat? … likely
+    they mean port 2311? Earlier I said port 3000
+  </div>
+  <p>
+    Puis la même chose avec « 2312 ». Trois tours menés contre ses propres identifiants, et
+    plusieurs messages décousus envoyés pour une seule question. Cet identifiant ne lui sert à rien
+    : il est consommé par la file d'envoi, et le rejoueur d'historique remplace d'ailleurs toutes
+    les valeurs passées par le mot <code>history</code>.
+  </p>
+
+  <h2>PR B — la routine se souvient de ce qu'elle a fait</h2>
+  <div class="card">
+    <h3><span class="num">1</span> Un état à elle <span class="pill m size">M</span></h3>
+    <p>
+      Une clé, une valeur, écrite et relue <b>sans LLM</b>, portée par la routine et visible sur son
+      écran. Pas un fait en langage naturel noyé dans 37 souvenirs, retrouvé par recherche floue et
+      effaçable d'un clic depuis une page qui ne dit nulle part qu'une routine en dépend.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — vider entièrement la mémoire, lancer la routine : elle ne republie pas. Poser
+      un état plus ancien que le dépôt : elle republie une fois, une seule.
+    </p>
+    <p style="margin: 10px 0 0; font-size: 13.5px">
+      La mémoire reste ce qu'elle est, pour ce à quoi elle sert : ce que l'agent sait de toi. On lui
+      retire seulement un rôle qu'elle ne pouvait pas tenir.
+    </p>
+  </div>
+
+  <h2>PR A — le fil dit la vérité</h2>
+  <div class="card">
+    <h3>
+      <span class="num">1b</span> La mémoire n'est pas un journal de bord
+      <span class="pill s size">S</span>
+    </h3>
+    <p>Sur les 37 faits que porte aujourd'hui la mémoire d'Alfred :</p>
+    <div class="tablewrap" style="margin: 10px 0">
+      <table>
+        <tr>
+          <th>Ce que c'est</th>
+          <th>Combien</th>
+        </tr>
+        <tr>
+          <td>Journaux de routines</td>
+          <td>
+            <b>13</b> — « Nodal-Agents latest version: v0.8.x » ×7, « AcmeCorp SDK release watch »
+            ×6
+          </td>
+        </tr>
+        <tr>
+          <td>Journaux d'actions</td>
+          <td>2 — « Note Tyranids.md créée », « Dossier Warhammer 40000 créé »</td>
+        </tr>
+        <tr>
+          <td>Ce que l'agent sait de toi</td>
+          <td>16 visibles — langue, fuseau, ComfyUI, délégation à Prompt-Master…</td>
+        </tr>
+      </table>
+    </div>
+    <p>
+      Plus d'un tiers de la table est du compte rendu. La routine AcmeCorp a laissé six lignes à
+      elle seule, une par exécution. Ce qui sauve l'écran aujourd'hui, c'est que le curateur finit
+      par les archiver — une seule des 13 est encore visible. Il amortit le bruit, il n'empêche
+      rien, et il amortit aussi les vraies mémoires.
+    </p>
+    <p>
+      <b>Un filtre traiterait le symptôme.</b> Le point 1 coupe la source. Restent deux gestes :
+      <b>ranger le passé</b> — les 13 lignes de journal ne remontent plus, archivées et non
+      détruites, puisqu'un fait supprimé pour de bon est exactement ce qui a causé le doublon ; et
+      <b>poser le principe dans l'écran</b> — la page Memories montre ce que l'agent sait de toi, un
+      journal ne s'y affiche que derrière un filtre éteint par défaut.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — après un run de routine, la page Memories affiche exactement le même nombre de
+      faits qu'avant.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>
+      <span class="num">2</span> Ce qui est dit dans un chat appartient à son fil
+      <span class="pill m size">M</span>
+    </h3>
+    <p>
+      Aujourd'hui un tour de fil <b>est</b> un job. Un job de routine n'appartient à aucun fil, et
+      un même run peut parler dans <b>plusieurs</b> chats — celui du 08/09 a écrit sur Discord
+      <i>et</i> sur Telegram. Le tour ne peut donc pas être le job : c'est l'<b>envoi</b>, rattaché
+      au fil du chat où il part.
+    </p>
+    <p class="warn">
+      <b>À vérifier avant de coder</b> — ce que deviennent les routines qui écrivent dans un chat où
+      personne ne répond jamais : un fil qui grossit d'un tour par jour sans interlocuteur. Le
+      budget de relecture doit rester borné.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — après un run de routine qui annonce quelque chose, le tour suivant de
+      l'utilisateur dans ce chat rejoue l'annonce. Aujourd'hui il ne la rejoue pas : c'est la
+      mutation qui doit rougir.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">3</span> Un envoi rend « envoyé » <span class="pill s size">S</span></h3>
+    <p>
+      Le modèle reçoit « envoyé ». L'identifiant reste côté runner, où il sert vraiment. Rien de ce
+      que le modèle reçoit ne doit ressembler à un message.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — rejouer le tour du 08/09 : le modèle ne produit plus de tour sur « 2311 ».
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>
+      <span class="num">4</span> La page Chat sépare les canaux des conversations
+      <span class="pill m size">M</span>
+    </h3>
+    <p>Deux tableaux, l'un au-dessus de l'autre.</p>
+    <ul class="plain">
+      <li>
+        <b>En haut, les canaux.</b> Une ligne <b>par chat</b>, pas par canal : Telegram a un privé
+        et des groupes, Discord plusieurs salons. Pas de titre tiré d'un message — le nom du chat
+        (on sait déjà le lire : « #announcements »), sinon l'identifiant. Ces fils ne se ferment
+        jamais et ne se nettoient pas.
+      </li>
+      <li>
+        <b>En bas, les conversations du dashboard.</b> Jetables, créées par « New conversation »,
+        renommées par l'IA.
+      </li>
+    </ul>
+    <p>
+      Ça règle du même coup le titre figé : un fil Telegram de dix jours s'appelait « Fais-moi une
+      app en HTML, en récupérant l'API de IGDB » parce que le titre est posé au premier message et
+      ne change jamais. Nommé par son chat, le problème disparaît — et le titrage par l'IA, qui ne
+      couvre que le dashboard, n'a pas à être étendu aux canaux.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3><span class="num">5</span> Le fil descend tout seul <span class="pill s size">S</span></h3>
+    <p>
+      Aujourd'hui <b>rien ne fait défiler le fil</b>. Aucun écran de conversation n'en contient la
+      moindre ligne — seuls le panneau de logs et l'onboarding l'ont réimplémenté chacun dans leur
+      coin. Un message qui arrive se pose donc sous le bord bas de la zone visible, contre la
+      saisie, et il faut faire défiler à la main pour lire ce qu'on vient de recevoir.
+    </p>
+    <p>Deux règles, celles de n'importe quelle messagerie :</p>
+    <ul class="plain">
+      <li>à l'ouverture d'un fil, on est en bas ;</li>
+      <li>
+        un message qui arrive fait descendre le fil <b>seulement si on était déjà en bas</b> —
+        remonter dans l'historique doit tenir.
+      </li>
+    </ul>
+    <p class="warn">
+      <b>À vérifier à l'écran</b> — si un message est réellement rendu <i>derrière</i> la saisie et
+      pas seulement hors champ, c'est un second défaut, de géométrie celui-là. La capture le dira ;
+      le correctif n'est pas le même.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — ouvrir un fil de 30 tours : le dernier message est visible sans rien toucher.
+      Remonter de 500 px, envoyer : la position ne bouge pas. Revenir en bas, envoyer : ça suit.
+    </p>
+  </div>
+
+  <h2>L'ordre</h2>
+  <p>
+    <b>B avant A.</b> Le doublon est le seul des trois qui soit visible par d'autres que toi : il a
+    laissé deux annonces identiques dans un Discord public. C'est aussi la plus petite et la plus
+    autonome. Puis A, en commençant par le point 3, qui est une heure.
+  </p>
+  <p>
+    <b>Et cette pierre passe avant « Créer, c'est prouver »</b> : un agent qui republie une annonce
+    publique coûte plus cher qu'un nom de fichier tronqué.
+  </p>
+
+  <h2>Ce que ça ne contient pas</h2>
+  <ul class="plain">
+    <li><b>Le coût d'un tour de chat</b> — toujours la PR d'après.</li>
+    <li>
+      <b>Une alerte quand on supprime une mémoire dont dépend une routine</b> — après B, plus aucune
+      routine n'en dépend : l'alerte n'aurait plus d'objet.
+    </li>
+    <li>
+      <b><code>/new</code> découvrable depuis un canal</b> — une fois les canaux séparés dans
+      l'écran, la question se repose autrement. À trancher ensuite.
+    </li>
+  </ul>
+
+  <h2>Un risque sur la boucle de revue</h2>
+  <p>
+    <code>codex review</code> est le seul relecteur autorisé pour une PR, et
+    <b>tu signales que la dernière version refuse de coder depuis la CLI</b> (version installée et
+    dernière publiée : <code>codex-cli 0.153.4</code>).
+  </p>
+  <p>
+    Ça n'empêche pas d'écrire ces plans, mais ça empêche de <b>fermer</b> une PR : la règle dit que
+    si Codex manque ou échoue, on le dit et on s'arrête — jamais de repli sur un relecteur Claude,
+    qui serait un fallback silencieux. À éprouver avant d'ouvrir la première PR, pour savoir si la
+    boucle revue → correctif → revue tient encore.
+  </p>
+
+  <h2>Ce que la livraison a appris (PR #47)</h2>
+  <ul class="plain">
+    <li>
+      <b>Le plafond de clés ne pouvait pas être une contrainte SQL.</b> Une contrainte sait borner
+      une longueur, pas un nombre de lignes : il a fallu un verrou par routine.
+    </li>
+    <li>
+      <b>Deux doutes du plan étaient infondés</b>, vérifiés plutôt que supposés : le bloc
+      <code>## Runtime</code> est dans la moitié volatile du prompt, donc jamais servi périmé par le
+      cache ; et un agent délégué n'hérite pas de la routine, donc n'obtient pas l'outil.
+    </li>
+    <li>
+      <b>La routine n'était pas la seule source de journaux en mémoire.</b> Le skill Obsidian livré
+      avec le produit invitait lui-même à enregistrer « I wrote X.md in the vault » quatre lignes
+      avant d'interdire la pratique. Corrigé, et la règle posée dans le socle commun.
+    </li>
+    <li>
+      <b>Ranger les 13 lignes existantes reste ouvert.</b> Aucun marqueur en base ne distingue un
+      journal d'une connaissance : les repérer demanderait une règle inventée. C'est un geste à
+      faire depuis la page Memories.
+    </li>
+    <li>
+      <b>Le correctif répétait le bug qu'il répare</b> — le constat le plus utile des six. Le bloc
+      annonçait « c'est vraiment ta première exécution » dès que l'état était vide. Or la table naît
+      vide : la première exécution de chaque routine EXISTANTE l'aurait lue ainsi, et une routine
+      qui annonce aurait réannoncé. Il dit maintenant ce qu'il sait et rien de plus.
+    </li>
+    <li>
+      <b>Une garde n'est une garantie que si elle couvre tous les chemins.</b> Celle qui interdit
+      deux exécutions simultanées d'une même routine ne vivait que dans le cron ; l'outil et le
+      bouton « Run now » inséraient sans regarder. Deux passes de revue pour trouver les deux
+      autres.
+    </li>
+    <li>
+      <b>La course, elle, reste ouverte — et c'est dit.</b> Les trois chemins lisent puis insèrent,
+      sans verrou commun : deux lancements simultanés passent encore. La fermer demande une
+      migration qui doit décider du sort des installations où deux runs coexistent déjà.
+    </li>
+    <li>
+      <b>La consigne de la routine dit encore d'utiliser la mémoire.</b> C'est de la donnée, pas du
+      code — à mettre à jour depuis Automations.
+    </li>
+  </ul>
+
+  <p class="foot">
+    Source versionnée : <code>docs/plans/parler-c-est-se-souvenir.md</code>. Rien n'est codé avant
+    ton go.
+  </p>
+</div>

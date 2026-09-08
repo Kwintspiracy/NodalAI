@@ -25,6 +25,15 @@ import type { SpaceListRow } from './actions.ts';
 export type ScheduleGroup = {
   /** L'id de l'automatisation, ou son nom, ou la tâche — le premier connu. */
   key: string;
+  /**
+   * L'identifiant RÉEL de la routine, `null` pour un run qui n'en porte pas.
+   *
+   * Distinct de `key`, qui se rabat sur le nom puis la tâche pour grouper. Tout
+   * ce qui s'attache à la ROUTINE elle-même — son état, d'abord — se cherche
+   * par ce champ : un run ancien dont le nom vaut par malchance l'uuid d'une
+   * autre routine prendrait sinon l'état de celle-ci (revue Codex, PR #47).
+   */
+  scheduleId: string | null;
   name: string;
   agentName: string;
   agentSlug: string | null;
@@ -49,7 +58,16 @@ export function groupSpaces(rows: readonly SpaceListRow[]): SpacesList {
       conversations.push(r);
       continue;
     }
-    const key = r.scheduleId ?? r.scheduleName ?? r.task;
+    // La clé porte sa PROVENANCE. Sans le préfixe, un run ancien sans
+    // identifiant dont le nom vaut l'uuid d'une autre routine tombait dans le
+    // même groupe qu'elle : deux routines fusionnées, et l'état de l'une
+    // affiché sous l'autre (revue Codex, PR #47).
+    const key =
+      r.scheduleId !== null
+        ? `id:${r.scheduleId}`
+        : r.scheduleName !== null
+          ? `name:${r.scheduleName}`
+          : `task:${r.task}`;
     const g = groups.get(key);
     if (g) {
       g.runs.push(r);
@@ -59,6 +77,7 @@ export function groupSpaces(rows: readonly SpaceListRow[]): SpacesList {
     }
     groups.set(key, {
       key,
+      scheduleId: r.scheduleId,
       name: r.scheduleName ?? firstLine(r.task),
       agentName: r.agentName,
       agentSlug: r.agentSlug,

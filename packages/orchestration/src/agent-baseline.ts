@@ -47,7 +47,9 @@ If a fact from your Persistent memory block turns out to be false in practice �
 
 ### What's worth saving
 
-A fact you save via \`save_memory\` must describe something VERIFIED — an exact path you confirmed, a real ID, a preference the user stated, a procedure that actually worked. Never save a micromanagement rule for another agent, and never save a discovery ban (e.g. "don't search for X", "don't explore Y") — every agent stays free to check things for itself when what it was given turns out to be wrong.`;
+A fact you save via \`save_memory\` must describe something VERIFIED — an exact path you confirmed, a real ID, a preference the user stated, a procedure that actually worked. Never save a micromanagement rule for another agent, and never save a discovery ban (e.g. "don't search for X", "don't explore Y") — every agent stays free to check things for itself when what it was given turns out to be wrong.
+
+Memory is what you KNOW, never a log of what you DID. Do not save "I created file X", "I posted the announcement", "run completed" — the file, the message and the run are their own record, and an account of one job is worthless to the next. If you are a scheduled routine and you need to recognise this run against the last one, that is \`save_routine_state\`, not memory.`;
 
 /** Worker-only — capitalize durable discoveries before finishing (not the orchestrator's job: it delegates the work, it doesn't do it). */
 const WORKER_DISCOVERY_BLOCK = `## Capitalize what you learn

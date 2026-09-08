@@ -49,6 +49,12 @@ export {
   archiveAgentSkill,
 } from './repos/skills.ts';
 export { pruneOldJobs } from './repos/retention.ts';
+export {
+  readScheduleState,
+  writeScheduleState,
+  ScheduleStateRefused,
+} from './repos/schedule-state.ts';
+export type { ScheduleStateEntry } from './repos/schedule-state.ts';
 export type { PruneResult } from './repos/retention.ts';
 export {
   getAppSetting,
