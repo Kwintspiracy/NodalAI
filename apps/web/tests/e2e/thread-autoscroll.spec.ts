@@ -112,6 +112,41 @@ test('C — remonter APRÈS un fil déjà en bas : le geste du lecteur n’est p
   expect(m!.scrollTop, 'le lecteur a été ramené en bas malgré son geste').toBeLessThan(64);
 });
 
+test('D — remonter PENDANT qu’un défilement automatique est en vol', async ({ page }) => {
+  // Revue Codex PR #48, passe 3. Le navigateur FUSIONNE les événements de
+  // défilement d'un même élément (CSSOM View §13.2) : compter ceux qu'on a
+  // provoqués ne peut pas marcher, puisqu'on ne sait pas combien arriveront.
+  //
+  // L'entrelacement : le contenu grandit, le composant descend, et le lecteur
+  // remonte AVANT que l'événement ne soit distribué. L'unique événement reçu
+  // porte alors la position du LECTEUR, et se faisait prendre pour le nôtre.
+  test.skip((await openScrollableThread(page)) <= 200, 'aucun fil assez long dans cette base');
+
+  await page.evaluate(async () => {
+    const el = document.querySelector<HTMLElement>('[data-thread-scroller]');
+    const inner = el?.firstElementChild as HTMLElement | null;
+    if (!el || !inner) return;
+    // Le contenu grandit : le composant va descendre tout seul.
+    inner.appendChild(document.createElement('div')).style.height = '900px';
+    // Laisser l'observateur agir…
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    // …puis remonter TOUT DE SUITE, dans le même tour de boucle.
+    el.scrollTop = 0;
+  });
+
+  // Et une nouvelle croissance : c'est elle qui ramenait le lecteur en bas.
+  await page.evaluate(() => {
+    const inner = document.querySelector<HTMLElement>('[data-thread-scroller]')
+      ?.firstElementChild as HTMLElement | null;
+    if (inner) inner.appendChild(document.createElement('div')).style.height = '900px';
+  });
+  await page.waitForTimeout(600);
+
+  const m = await scrollMetrics(page);
+  expect(m).not.toBeNull();
+  expect(m!.scrollTop, 'le lecteur a été ramené en bas malgré sa remontée').toBeLessThan(64);
+});
+
 test('B — remonter dans l’historique tient : on n’est pas ramené en bas', async ({ page }) => {
   test.skip((await openScrollableThread(page)) <= 200, 'aucun fil assez long dans cette base');
 

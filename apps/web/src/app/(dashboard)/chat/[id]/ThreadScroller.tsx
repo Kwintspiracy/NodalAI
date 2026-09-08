@@ -55,20 +55,19 @@ export default function ThreadScroller({
   /** Faut-il suivre le bas ? Vrai tant que le lecteur n'a pas remonté. */
   const follow = useRef(true);
   /**
-   * Combien de défilements que NOUS avons provoqués attendent encore leur
-   * événement.
+   * La dernière position que NOUS avons écrite, ou `null` si le dernier
+   * mouvement vient du lecteur.
    *
-   * Sans ce garde-fou, le composant se sabote : écrire `scrollTop` déclenche
-   * `onScroll`, la mesure y est lue pendant que la hauteur bouge encore, et le
-   * suivi se coupe tout seul dès le premier message. Constaté au navigateur —
-   * le fil s'ouvrait à 243 px du bas au lieu d'être en bas.
+   * Pourquoi une POSITION et non un compteur : le navigateur FUSIONNE les
+   * événements de défilement d'un même élément (CSSOM View §13.2). On ne sait
+   * donc pas combien d'événements suivront nos écritures — un compteur restait
+   * armé, ou se vidait sur le geste du lecteur, et l'avalait (revue Codex,
+   * PR #48, passes 2 et 3, chacune ayant trouvé un entrelacement de plus).
    *
-   * Un COMPTEUR et non un drapeau : deux défilements rapprochés armaient puis
-   * désarmaient le drapeau avant que le premier événement n'arrive, et cet
-   * événement en vol passait alors pour un geste du lecteur (revue Codex,
-   * PR #48, passe 2).
+   * Une position, elle, se compare : l'événement porte celle du lecteur ou la
+   * nôtre, quel qu'ait été le nombre d'événements en route.
    */
-  const pendingSelfScrolls = useRef(0);
+  const selfScrollTop = useRef<number | null>(null);
 
   /**
    * Descendre, sans que notre propre geste passe pour celui du lecteur.
@@ -85,12 +84,10 @@ export default function ThreadScroller({
    * posé avant que l'événement n'arrive.
    */
   const scrollToBottom = (el: HTMLDivElement) => {
-    const before = el.scrollTop;
     el.scrollTop = el.scrollHeight;
-    // Rien n'a bougé (le fil était déjà en bas) : aucun événement ne viendra,
-    // donc rien à attendre. Compter quand même ferait avaler le prochain geste
-    // du lecteur.
-    if (el.scrollTop !== before) pendingSelfScrolls.current += 1;
+    // La position EFFECTIVE après écriture, pas celle qu'on visait : le
+    // navigateur borne `scrollTop` à ce que le contenu permet.
+    selfScrollTop.current = el.scrollTop;
   };
 
   // AVANT la peinture : ouvrir un fil sur son dernier message, sans que le
@@ -112,6 +109,20 @@ export default function ThreadScroller({
     if (!el || typeof ResizeObserver === 'undefined') return;
     const observed = el.firstElementChild ?? el;
     const ro = new ResizeObserver(() => {
+      // `follow` ne suffit pas : il n'est mis à jour qu'à la RÉCEPTION d'un
+      // événement de défilement, et l'observateur peut se déclencher avant que
+      // celui du lecteur n'ait été distribué. Sur une arrivée rapide, on
+      // ramenait donc en bas quelqu'un qui venait de remonter (revue Codex,
+      // PR #48, passe 3 — reproduit par la spec « en vol »).
+      //
+      // La position tranche sans attendre : si elle n'est plus celle que nous
+      // avons écrite, quelqu'un d'autre l'a changée.
+      const bougeParLeLecteur =
+        selfScrollTop.current !== null && el.scrollTop !== selfScrollTop.current;
+      if (bougeParLeLecteur) {
+        follow.current = false;
+        return;
+      }
       if (follow.current) scrollToBottom(el);
     });
     ro.observe(observed);
@@ -128,21 +139,19 @@ export default function ThreadScroller({
       onScroll={() => {
         const el = ref.current;
         if (!el) return;
-        // En bas, quelle qu'en soit la raison : on suit, et le compte des
-        // défilements en attente n'a plus d'objet. Cette branche d'abord, pour
-        // que le compteur ne puisse jamais rester bloqué et avaler un geste.
+        // En bas, quelle qu'en soit la raison : on suit.
         if (staysAtBottom(el)) {
-          pendingSelfScrolls.current = 0;
+          selfScrollTop.current = null;
           follow.current = true;
           return;
         }
-        // Pas en bas, mais un de NOS défilements est encore en vol : il vise le
-        // bas par construction, et le mesurer en route conclurait le contraire.
-        if (pendingSelfScrolls.current > 0) {
-          pendingSelfScrolls.current -= 1;
-          return;
-        }
-        // Pas en bas, rien en vol : le lecteur a remonté. On cesse de suivre.
+        // Pas en bas, mais la position est EXACTEMENT celle que nous avons
+        // écrite : c'est notre propre défilement qui arrive, pas un geste. Le
+        // cas se produit quand le contenu grandit sans que le bas soit
+        // atteignable d'un coup.
+        if (selfScrollTop.current !== null && el.scrollTop === selfScrollTop.current) return;
+        // Pas en bas, et la position n'est pas la nôtre : le lecteur a remonté.
+        selfScrollTop.current = null;
         follow.current = false;
       }}
     >
