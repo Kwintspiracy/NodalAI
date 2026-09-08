@@ -85,6 +85,33 @@ test('A — un fil long s’ouvre sur son dernier message', async ({ page }) => 
   expect(m!.scrollHeight - m!.scrollTop - m!.clientHeight).toBeLessThan(64);
 });
 
+test('C — remonter APRÈS un fil déjà en bas : le geste du lecteur n’est pas avalé', async ({
+  page,
+}) => {
+  // Revue Codex PR #48, constat 5. Ouvrir un fil déjà en bas ne produit aucun
+  // événement de défilement : le drapeau « c'est nous qui défilons » restait
+  // armé et avalait le PREMIER vrai geste du lecteur, qui se faisait alors
+  // ramener en bas à la première croissance du contenu.
+  test.skip((await openScrollableThread(page)) <= 200, 'aucun fil assez long dans cette base');
+
+  // Le fil s'ouvre en bas. Un premier geste, tout de suite : il doit compter.
+  await page.evaluate(() => {
+    const el = document.querySelector<HTMLElement>('[data-thread-scroller]');
+    if (el) el.scrollTop = 0;
+  });
+  // Forcer le contenu à grandir : c'est ce qui ramenait le lecteur en bas.
+  await page.evaluate(() => {
+    const el = document.querySelector<HTMLElement>('[data-thread-scroller]');
+    const inner = el?.firstElementChild as HTMLElement | null;
+    if (inner) inner.appendChild(document.createElement('div')).style.height = '900px';
+  });
+  await page.waitForTimeout(600);
+
+  const m = await scrollMetrics(page);
+  expect(m).not.toBeNull();
+  expect(m!.scrollTop, 'le lecteur a été ramené en bas malgré son geste').toBeLessThan(64);
+});
+
 test('B — remonter dans l’historique tient : on n’est pas ramené en bas', async ({ page }) => {
   test.skip((await openScrollableThread(page)) <= 200, 'aucun fil assez long dans cette base');
 

@@ -64,10 +64,24 @@ export default function ThreadScroller({
    */
   const selfScroll = useRef(false);
 
-  /** Descendre, sans que notre propre geste passe pour celui du lecteur. */
+  /**
+   * Descendre, sans que notre propre geste passe pour celui du lecteur.
+   *
+   * Le drapeau n'est armé que si la position a VRAIMENT bougé. Armé
+   * inconditionnellement, il restait en attente d'un événement qui ne venait
+   * jamais quand le fil était déjà en bas — et c'est alors le geste SUIVANT du
+   * lecteur, un vrai celui-là, qui se faisait avaler : il remontait, son
+   * défilement était ignoré, et la première croissance du contenu le ramenait
+   * en bas (revue Codex, PR #48, constat 5).
+   *
+   * L'écriture est synchrone, l'événement asynchrone : lire `scrollTop` juste
+   * après l'affectation dit si le navigateur a bougé, et le drapeau est donc
+   * posé avant que l'événement n'arrive.
+   */
   const scrollToBottom = (el: HTMLDivElement) => {
-    selfScroll.current = true;
+    const before = el.scrollTop;
     el.scrollTop = el.scrollHeight;
+    selfScroll.current = el.scrollTop !== before;
   };
 
   // AVANT la peinture : ouvrir un fil sur son dernier message, sans que le

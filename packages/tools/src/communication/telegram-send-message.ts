@@ -41,11 +41,13 @@ type TelegramSendMessageInput = z.infer<typeof TelegramSendMessageInput>;
  * Cet outil rendait `{messageId}`. Le 08/09/2026, un agent a lu le sien comme
  * un message de l'utilisateur — « User replied "2311"? … likely they mean port
  * 2311? » — et a tenu trois tours contre les identifiants de ses propres
- * envois, pour une seule question posée. L'identifiant ne lui servait à rien :
- * il est consommé par la file d'envoi (`outbox.ts`, le receipt), et le rejoueur
- * d'historique remplace de toute façon les valeurs passées avant de les
- * remontrer. Ce que le modèle relit ne doit rien contenir qui ressemble à un
- * message.
+ * envois, pour une seule question posée.
+ *
+ * L'identifiant ne servait à personne SUR CE CHEMIN : la file d'envoi
+ * (`outbox.ts`) fait ses propres envois par l'adaptateur et construit son
+ * receipt à partir de CEUX-LÀ — elle ne lit jamais la sortie de cet outil
+ * (revue Codex, PR #48, qui a corrigé la première version de ce commentaire).
+ * Ce que le modèle relit ne doit rien contenir qui ressemble à un message.
  */
 type TelegramSendMessageOutput = { sent: true };
 

@@ -45,6 +45,23 @@ describe('groupChatLists', () => {
     expect(channels[0]?.currentConversationId).toBe('recent');
   });
 
+  it('à dates ÉGALES, le fil courant reste le même d’un chargement à l’autre', () => {
+    // Revue Codex PR #48, constat 3 : `updated_at` seul ne départage pas deux
+    // fils posés à la même seconde — un backfill, ou deux `/new` en rafale. Le
+    // lien de la ligne pouvait alors désigner l'un ou l'autre selon l'humeur du
+    // plan d'exécution. L'action départage par `id` ; ici on vérifie que le
+    // regroupement respecte l'ordre reçu, qui est donc déterministe.
+    const meme = new Date('2026-09-08T01:00:00Z');
+    const rows = [
+      row({ id: 'bbb', channel: 'telegram', chatId: '199791464', updatedAt: meme }),
+      row({ id: 'aaa', channel: 'telegram', chatId: '199791464', updatedAt: meme }),
+    ];
+    expect(groupChatLists(rows).channels[0]?.currentConversationId).toBe('bbb');
+    // Le même jeu dans l'autre sens désigne l'autre : c'est bien l'ORDRE reçu
+    // qui décide, et c'est à l'action de le rendre stable.
+    expect(groupChatLists([...rows].reverse()).channels[0]?.currentConversationId).toBe('aaa');
+  });
+
   it('un chat par CHAT, pas par canal : le privé et le groupe restent deux lignes', () => {
     const { channels } = groupChatLists([
       row({ id: 'p', channel: 'telegram', chatId: '199791464' }),

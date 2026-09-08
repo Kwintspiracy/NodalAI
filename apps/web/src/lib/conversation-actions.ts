@@ -241,7 +241,12 @@ export async function listAllConversationsAction(): Promise<ActionResult<Convers
           inArray(conversations.origin, ['user', 'project']),
         ),
       )
-      .orderBy(desc(conversations.updatedAt))
+      // `id` DÉPARTAGE à date égale. Sans lui, deux fils du même chat posés à
+      // la même seconde — un backfill, deux `/new` en rafale — sortaient dans
+      // un ordre laissé au plan d'exécution, et la ligne du chat ouvrait
+      // tantôt l'un tantôt l'autre (revue Codex, PR #48). Même remède que
+      // `resolveConversation` côté runner, pour la même raison.
+      .orderBy(desc(conversations.updatedAt), desc(conversations.id))
       .limit(LIST_MAX);
     if (rows.length === 0) return ok([]);
 

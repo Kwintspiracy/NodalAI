@@ -26,15 +26,23 @@ import type { ChannelChatRow } from '@/lib/chat-list.ts';
  * « demandé » son accès, donc aucun `requester_name` n'a été enregistré. Son
  * identifiant seul ne lui dirait rien ; « Direct » dit ce que c'est.
  */
+/** Les canaux où « #salon » est la convention que l'utilisateur lit ailleurs. */
+const HASH_CHANNELS = new Set(['discord', 'slack']);
+
 function chatLabel(row: ChannelChatRow): string {
   const salon = row.kind === 'channel' || row.kind === 'group';
   if (row.name !== null && row.name !== '') {
     // Le `#` distingue un salon d'un privé : sur Discord et Slack, l'allowlist
     // enregistre le même nom pour les deux, et deux lignes se ressemblaient
-    // trait pour trait.
-    return salon ? `#${row.name}` : row.name;
+    // trait pour trait. Ailleurs il ne se dit pas — un groupe Telegram ne
+    // s'écrit pas « #groupe » (revue Codex, PR #48).
+    return salon && HASH_CHANNELS.has(row.channel) ? `#${row.name}` : row.name;
   }
-  return salon ? `Group ${row.chatId}` : 'Direct';
+  // Sans nom, on dit ce qu'on SAIT. « Direct » n'est vrai que pour un chat dont
+  // on connaît la nature privée ; l'écrire par défaut rendait indistinguables
+  // tous les chats anonymes, quels qu'ils soient (revue Codex, PR #48).
+  if (row.kind === 'private') return 'Direct';
+  return salon ? `Group ${row.chatId}` : row.chatId;
 }
 
 /** « telegram » → « Telegram ». Le canal, nommé comme l'utilisateur le nomme. */

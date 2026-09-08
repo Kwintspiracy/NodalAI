@@ -294,11 +294,14 @@ export async function loadThreadHistory(opts: LoadThreadHistoryOptions): Promise
               type: 'tool-result',
               toolCallId: callId,
               toolName: sendTool,
-              // La MÊME forme que l'outil rend en vrai (`{sent: true}`), pour
-              // qu'un tour rejoué ne se distingue pas d'un tour réel. L'ancienne
-              // valeur, `{messageId: 'history'}`, était doublement mauvaise :
-              // elle mentait sur la forme, et elle donnait au modèle une chaîne
-              // à interpréter — ce dont il s'est justement saisi le 08/09 en
+              // La même forme de RÉSULTAT que l'outil rend en vrai
+              // (`{sent: true}`). Un tour rejoué reste reconnaissable par
+              // ailleurs — identifiant `history-tool-N`, texte tronqué, lignes
+              // d'actions ajoutées — et cette ligne ne prétend pas le contraire
+              // (revue Codex, PR #48, qui a corrigé la première version de ce
+              // commentaire). Ce qu'elle corrige est plus étroit et suffisant :
+              // `{messageId: 'history'}` donnait au modèle une CHAÎNE à
+              // interpréter, exactement ce dont il s'est saisi le 08/09 en
               // prenant « 2311 » pour une réponse de l'utilisateur.
               output: { type: 'json', value: { sent: true } },
             },
