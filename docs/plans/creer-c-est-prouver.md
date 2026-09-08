@@ -140,7 +140,14 @@ l'écriture et la vérification est rouge, pas absent.
 « Toujours pour cet outil » dans un tableau de bord anglais. Vu le 07/09,
 jamais traité.
 
-## L'ordre, et pourquoi
+## Sa place dans la file
+
+Cette PR passe **après** les deux de « Parler, c'est se souvenir »
+(`docs/plans/parler-c-est-se-souvenir.md`, 08/09) : un agent qui republie une
+annonce dans un Discord public, et qui répond aux accusés de réception de ses
+propres messages, coûte plus cher qu'un nom de fichier tronqué.
+
+## L'ordre interne, et pourquoi
 
 1 et 2 d'abord : ce sont des heures, et ils rendent lisible le fil sur lequel
 on va juger le reste. Puis 5, qui est une minute. Puis 3, qui ne casse rien
