@@ -294,7 +294,13 @@ export async function loadThreadHistory(opts: LoadThreadHistoryOptions): Promise
               type: 'tool-result',
               toolCallId: callId,
               toolName: sendTool,
-              output: { type: 'json', value: { messageId: 'history' } },
+              // La MÊME forme que l'outil rend en vrai (`{sent: true}`), pour
+              // qu'un tour rejoué ne se distingue pas d'un tour réel. L'ancienne
+              // valeur, `{messageId: 'history'}`, était doublement mauvaise :
+              // elle mentait sur la forme, et elle donnait au modèle une chaîne
+              // à interpréter — ce dont il s'est justement saisi le 08/09 en
+              // prenant « 2311 » pour une réponse de l'utilisateur.
+              output: { type: 'json', value: { sent: true } },
             },
           ],
         } as ModelMessage,

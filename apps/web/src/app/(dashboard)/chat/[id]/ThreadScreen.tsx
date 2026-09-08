@@ -11,6 +11,7 @@
 // géométrie ne doit pas diverger d'un écran à l'autre.
 
 import type { ReactNode } from 'react';
+import ThreadScroller from './ThreadScroller.tsx';
 
 export default function ThreadScreen({
   children,
@@ -26,9 +27,12 @@ export default function ThreadScreen({
 }) {
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-6 pb-2 sm:px-8 lg:px-9">
-        {children}
-      </div>
+      <ThreadScroller className="min-h-0 flex-1 overflow-y-auto px-5 pt-6 pb-2 sm:px-8 lg:px-9">
+        {/* Un seul enfant : c'est LUI dont la hauteur est observée. Sans ce
+            conteneur, l'observateur suivrait la zone de défilement, dont la
+            hauteur ne bouge jamais — et rien ne descendrait. */}
+        <div>{children}</div>
+      </ThreadScroller>
       {composer !== undefined && (
         <div className="shrink-0 px-5 pt-2 pb-3 sm:px-8 lg:px-9">{composer}</div>
       )}
