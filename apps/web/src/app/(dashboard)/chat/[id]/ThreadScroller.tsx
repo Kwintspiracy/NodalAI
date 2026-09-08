@@ -20,6 +20,33 @@
 // sans nouveau rendu (une image qui finit de charger, un bloc qu'on déplie).
 // Observer la HAUTEUR attrape les deux, et rien d'autre.
 
+// CE QUI RESTE IMPARFAIT, ET POURQUOI ON S'ARRÊTE LÀ.
+//
+// Quatre passes de revue ont trouvé quatre entrelacements dans ce composant de
+// vingt lignes. Les deux derniers (revue Codex, PR #48, passe 4) sont des
+// courses SOUS LA FRAME : le lecteur défile et le contenu grandit avant que
+// l'événement de son geste n'ait été distribué.
+//
+//   1. Il remonte depuis le bas, le contenu grandit aussitôt : l'observateur ne
+//      voit encore aucun mouvement et le ramène en bas, une fois.
+//   2. Il redescend jusqu'en bas après avoir lu l'historique, le contenu grandit
+//      aussitôt : son geste est jugé sur la nouvelle hauteur, donc « pas en
+//      bas », et le suivi reste éteint.
+//
+// Les deux se réparent au geste SUIVANT : dans le premier cas sa remontée est
+// alors prise en compte, dans le second son retour en bas rallume le suivi.
+// Aucun ne piège durablement, aucun n'a été observé hors d'un test qui force la
+// course dans un seul tour de boucle.
+//
+// Les fermer vraiment demanderait de mémoriser la hauteur en même temps que la
+// position et de juger chaque geste à l'aune de ce que le lecteur VOYAIT — donc
+// un second état à tenir cohérent, pour un défaut qui s'efface au geste
+// suivant. Le remède serait plus fragile que le mal. La technique qui les
+// supprime par construction, elle, est le conteneur inversé
+// (`flex-direction: column-reverse`), qui laisse le navigateur coller au bas
+// sans une ligne de JavaScript — mais elle impose de rendre le fil à l'envers,
+// ce qui est un chantier à soi.
+
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 
 /**
