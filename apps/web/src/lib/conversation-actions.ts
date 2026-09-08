@@ -37,6 +37,8 @@ import {
   llmCalls,
   toolCalls,
   verificationRuns,
+  telegramAllowedChats,
+  channelAllowedConversations,
 } from '@nodal-agents/db';
 import { normalizePath, stripGroupPrefix } from '@nodal-agents/shared';
 import { plainText } from '@/components/Markdown.tsx';
@@ -318,6 +320,76 @@ export async function listAllConversationsAction(): Promise<ActionResult<Convers
   } catch (err) {
     console.error('[listAllConversationsAction]', err);
     return fail('db_error', 'Failed to load conversations');
+  }
+}
+
+/** Ce que l'allowlist sait d'un chat : son nom, et sa nature. */
+export type ChatIdentities = Readonly<Record<string, { name: string | null; kind: string | null }>>;
+
+/**
+ * Le NOM de chaque chat de canal — la personne ou le salon à l'autre bout.
+ *
+ * Clé `<canal>:<chatId>`, la même que `chatKey` (lib/chat-list.ts). La source
+ * est l'allowlist d'approbation : elle porte `requester_name`, déclaré par qui
+ * a demandé l'accès. Telegram vit encore dans sa table historique
+ * (`telegram_allowed_chats`), les autres canaux dans
+ * `channel_allowed_conversations` — deux requêtes, jamais une par ligne.
+ *
+ * Un chat sans nom rend `null` plutôt que d'être absent : c'est le cas du
+ * PROPRIÉTAIRE, qui a branché le bot lui-même et que personne n'a « demandé ».
+ * L'écran montre alors l'identifiant, qui est au moins vrai.
+ */
+export async function listChatNamesAction(): Promise<ActionResult<ChatIdentities>> {
+  try {
+    const session = await getSession();
+    if (!session.entityId) return fail('no_entity', 'No active entity');
+    const db = getDb();
+
+    const agentIds = await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.entityId, session.entityId));
+    if (agentIds.length === 0) return ok({});
+    const ids = agentIds.map((a) => a.id);
+
+    const [telegram, others] = await Promise.all([
+      db
+        .select({
+          chatId: telegramAllowedChats.chatId,
+          name: telegramAllowedChats.requesterName,
+        })
+        .from(telegramAllowedChats)
+        .where(inArray(telegramAllowedChats.agentId, ids)),
+      db
+        .select({
+          channel: channelAllowedConversations.channel,
+          chatId: channelAllowedConversations.conversationId,
+          name: channelAllowedConversations.requesterName,
+          kind: channelAllowedConversations.kind,
+        })
+        .from(channelAllowedConversations)
+        .where(inArray(channelAllowedConversations.agentId, ids)),
+    ]);
+
+    const names: Record<string, { name: string | null; kind: string | null }> = {};
+    // Telegram n'a pas de colonne `kind` : la convention de l'API Bot veut
+    // qu'un identifiant négatif soit un groupe, un positif un privé.
+    for (const r of telegram) {
+      names[`telegram:${r.chatId}`] = {
+        name: r.name,
+        kind: r.chatId.startsWith('-') ? 'group' : 'private',
+      };
+    }
+    // Les lignes channel-neutres passent APRÈS : quand un chat Telegram existe
+    // des deux côtés (migration en cours), la table historique reste la source.
+    for (const r of others) {
+      const key = `${r.channel}:${r.chatId}`;
+      if (!(key in names)) names[key] = { name: r.name, kind: r.kind };
+    }
+    return ok(names);
+  } catch (err) {
+    console.error('[listChatNamesAction]', err);
+    return fail('db_error', 'Failed to load chat names');
   }
 }
 

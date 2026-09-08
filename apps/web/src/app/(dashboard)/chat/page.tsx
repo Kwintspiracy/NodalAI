@@ -7,21 +7,32 @@
 // n'est qu'un moyen d'y accéder.
 
 import PageShell from '@/components/ui/PageShell';
-import { listAllConversationsAction } from '@/lib/conversation-actions.ts';
+import { listAllConversationsAction, listChatNamesAction } from '@/lib/conversation-actions.ts';
+import { groupChatLists } from '@/lib/chat-list.ts';
+import ChannelChatsTable from './ChannelChatsTable.tsx';
 import ConversationsList from './ConversationsList.tsx';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ChatPage() {
-  const result = await listAllConversationsAction();
+  const [result, names] = await Promise.all([
+    listAllConversationsAction(),
+    // Le nom des chats de canal. Une lecture qui échoue ne doit pas emporter la
+    // page : les chats s'affichent alors par leur identifiant.
+    listChatNamesAction(),
+  ]);
+  const { channels, dashboard } = groupChatLists(
+    result.ok ? result.data : [],
+    names.ok ? names.data : {},
+  );
 
   return (
-    <PageShell
-      title="Chat"
-      subtitle="Every conversation, from the dashboard and from your channels."
-    >
+    <PageShell title="Chat" subtitle="Your channels, and the conversations you started here.">
       {result.ok ? (
-        <ConversationsList rows={result.data} />
+        <>
+          <ChannelChatsTable rows={channels} />
+          <ConversationsList rows={dashboard} />
+        </>
       ) : (
         <p className="text-sm text-err">{result.message}</p>
       )}
