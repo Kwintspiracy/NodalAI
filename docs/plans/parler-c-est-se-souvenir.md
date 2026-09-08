@@ -21,6 +21,7 @@ déduits. **Aucun n'est un défaut du modèle.**
 | # | PR | Ce qui change | Taille |
 |---|----|---------------|--------|
 | 1 | B — la routine | Une routine a un état à elle, pas un souvenir | M |
+| 1b | B — la routine | La mémoire n'est pas un journal de bord | S |
 | 2 | A — le fil | Ce qu'un agent dit dans un chat appartient au fil de ce chat | M |
 | 3 | A — le fil | Un envoi rend « envoyé », pas un identifiant à interpréter | S |
 | 4 | A — le fil | La page Chat sépare les canaux des conversations | M |
@@ -107,6 +108,38 @@ une fois, une seule.
 **Ce que ça ne change pas** : la mémoire reste ce qu'elle est, pour ce à quoi
 elle sert (ce que l'agent sait de Quentin). On lui retire seulement un rôle
 qu'elle ne pouvait pas tenir.
+
+### La mémoire n'est pas un journal de bord — S
+
+Quentin, 08/09 : *« à chaque fois qu'une routine fait son job, elle crée une
+mémoire et on s'en sort pas »*. Compté en base, sur 37 faits :
+
+| Ce que c'est | Combien |
+|---|---|
+| Journaux de routines | **13** — « Nodal-Agents latest version: v0.8.x » ×7, « AcmeCorp SDK release watch » ×6 |
+| Journaux d'actions | 2 — « Note Tyranids.md créée », « Dossier Warhammer 40000 créé » |
+| Ce que l'agent sait de Quentin | 16 visibles — langue, fuseau, ComfyUI, délégation à Prompt-Master… |
+
+Plus d'un tiers de la table est du compte rendu. La routine AcmeCorp a laissé
+six lignes à elle seule : « initial state recorded on first run », puis
+« updated state (01:25) », puis « latest release as of 01:25 »… une par
+exécution. Ce qui sauve l'écran aujourd'hui, c'est que le curateur finit par les
+archiver — une seule des 13 est encore visible. Il amortit le bruit, il
+n'empêche rien, et il amortit aussi les vraies mémoires.
+
+**Un filtre traiterait le symptôme.** Le point 1 coupe la source : après lui une
+routine n'écrit plus dans la mémoire, elle écrit son état. Ce qui reste à faire
+tient en deux gestes :
+
+- **Ranger le passé** : les 13 lignes de journal existantes ne remontent plus
+  dans la page Memories. Archivées, pas détruites — un fait supprimé pour de
+  bon est exactement ce qui a causé le doublon.
+- **Poser le principe dans l'écran** : la page Memories montre ce que l'agent
+  sait de l'utilisateur. Si un journal doit rester consultable, c'est derrière
+  un filtre éteint par défaut, jamais dans la liste principale.
+
+*Preuve* : après un run de routine, la page Memories affiche exactement le même
+nombre de faits qu'avant.
 
 ## PR A — le fil dit la vérité
 
