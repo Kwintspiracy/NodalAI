@@ -1105,6 +1105,17 @@ async function runJob(
   // cherché. Chargé ici pour être rendu dans le bloc `## Runtime` : la routine
   // voit ce qu'elle a enregistré la dernière fois avant de décider si elle doit
   // refaire quelque chose (voir packages/db/src/schema/schedule-state.ts).
+  //
+  // Cet état est figé dans le prompt ÉCRIT du job : une reprise (après
+  // approbation, après compaction) relit `job.systemPrompt` sans repasser par
+  // `buildSystemPrompt`, donc sans relire la table. C'est le bon comportement
+  // pour l'usage visé — « l'état au début de CE run » — et le seul scénario où
+  // il tromperait suppose qu'une AUTRE exécution de la même routine écrive
+  // pendant l'attente. `runScheduleTick` refuse précisément de lancer une
+  // routine dont un job est encore vivant (run-schedules.ts, garde de
+  // l'incident du 11/07), donc ce chevauchement ne se produit pas par le cron.
+  // Un run relancé à la main pendant une approbation le pourrait : c'est dit
+  // ici plutôt que corrigé, faute d'avoir observé le cas (revue Codex, PR #47).
   const routineState = job.scheduleId ? await readScheduleState(db, job.scheduleId) : null;
 
   const jobContext: JobContext = {

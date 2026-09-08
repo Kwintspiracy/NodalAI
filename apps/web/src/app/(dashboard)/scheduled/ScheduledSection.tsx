@@ -141,7 +141,9 @@ export default function ScheduledSection({
                 </span>
                 <StatusPill variant={statusVariant(g.lastRun.status)} />
               </DisclosureButton>
-              {isOpen && <RoutineState entries={routineState[g.key] ?? []} />}
+              {isOpen && (
+                <RoutineState entries={(g.scheduleId && routineState[g.scheduleId]) || []} />
+              )}
               {isOpen && <ScheduleRunList runs={g.runs} />}
             </div>
           );

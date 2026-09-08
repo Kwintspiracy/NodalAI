@@ -26,6 +26,25 @@ const row = (over: Partial<SpaceListRow>): SpaceListRow => ({
 });
 
 describe('groupSpaces', () => {
+  // Revue Codex PR #47, constat 6. La clé d'un groupe vaut
+  // `scheduleId ?? scheduleName ?? task` : un run sans identifiant dont le NOM
+  // est l'uuid d'une autre routine prenait la clé de celle-ci, et l'écran des
+  // routines lui affichait l'état d'autrui. Le groupe porte donc son
+  // `scheduleId` RÉEL, et c'est lui, jamais la clé, qui va chercher l'état.
+  it('un groupe sans identifiant de routine ne prend pas l’état d’une autre', () => {
+    const autre = '308071a8-2585-41fa-bbe2-a0f01d823f35';
+    const groups = groupSpaces([
+      // Un run ancien, sans scheduleId, dont le nom EST l'uuid d'une autre routine.
+      row({ id: 'r1', channel: 'cron', scheduleId: null, scheduleName: autre }),
+      row({ id: 'r2', channel: 'cron', scheduleId: autre, scheduleName: 'Changelog' }),
+    ]).scheduled;
+
+    const orphelin = groups.find((g) => g.name === autre);
+    const vraie = groups.find((g) => g.name === 'Changelog');
+    expect(orphelin?.scheduleId).toBeNull();
+    expect(vraie?.scheduleId).toBe(autre);
+  });
+
   it('sépare les conversations des automatisations, et groupe celles-ci par automatisation', () => {
     const rows = [
       row({
@@ -68,8 +87,8 @@ describe('groupSpaces', () => {
     const g = groupSpaces(rows);
     expect(g.conversations.map((r) => r.id)).toEqual(['t1', 'd1']);
     expect(g.scheduled.map((s) => [s.key, s.name, s.runs.length, s.lastRun.id, s.failed])).toEqual([
-      ['S', 'Changelog', 3, 'c3', 1],
-      ['W', 'Veille hebdo', 1, 'w1', 0],
+      ['id:S', 'Changelog', 3, 'c3', 1],
+      ['id:W', 'Veille hebdo', 1, 'w1', 0],
     ]);
     expect(g.scheduled[0]?.totalCostUsd).toBeCloseTo(0.1, 6);
   });
@@ -130,7 +149,7 @@ describe('groupSpaces — deux automatisations homonymes (revue passe 26)', () =
       row({ id: 'b1', channel: 'cron', scheduleId: 'digest-b', scheduleName: 'Digest' }),
     ];
     const groups = groupSpaces(rows).scheduled;
-    expect(groups.map((g) => g.key).sort()).toEqual(['digest-a', 'digest-b']);
+    expect(groups.map((g) => g.key).sort()).toEqual(['id:digest-a', 'id:digest-b']);
     expect(groups.every((g) => g.name === 'Digest' && g.runs.length === 1)).toBe(true);
   });
 

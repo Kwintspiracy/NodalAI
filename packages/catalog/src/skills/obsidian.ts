@@ -40,7 +40,7 @@ When you do a web search (\`firecrawl_search\` / \`firecrawl_scrape\`) AND the t
 1. **MANDATORY Step 1 above:** \`file_list\` + possibly \`file_read\` to see whether a draft already exists.
 2. **Do the research in a MAX of 4-6 turns** (1-2 search + 2-4 targeted scrape). Do not exceed this.
 3. **AS SOON AS you have enough material, call \`file_write\` IMMEDIATELY.** Not later. Not after save_memory. Not after "one more search to double-check".
-4. **AFTER \`file_write\`:** OPTIONALLY a single short \`save_memory\` (max 200 chars, like "I wrote X.md in the vault about Y"). NOT the content of the research.
+4. **AFTER \`file_write\`:** nothing to record. The note IS the record — do NOT call \`save_memory\` to say you wrote it. Memory holds what you know about the USER, not an account of what you did.
 5. **Finish:** \`telegram_send_message\` (if jobContext.telegram_chat_id) + \`return_result{status:'success'}\` in the same turn.
 
 ### ❌ Anti-patterns to ABSOLUTELY AVOID

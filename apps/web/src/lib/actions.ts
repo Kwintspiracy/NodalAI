@@ -2460,7 +2460,20 @@ export async function listRoutineStatesAction(): Promise<
       })
       .from(scheduleState)
       .innerJoin(agentSchedules, eq(agentSchedules.id, scheduleState.scheduleId))
-      .where(eq(agentSchedules.entityId, session.entityId))
+      .innerJoin(agents, eq(agents.id, agentSchedules.agentId))
+      // `agent_schedules.entity_id` est NULLABLE, et une égalité SQL avec NULL
+      // n'est jamais vraie : une routine ancienne sans entité voyait son état
+      // disparaître de l'écran (revue Codex, PR #47). On se rabat alors sur
+      // l'entité de son AGENT, qui, lui, est obligatoire sur la routine. Sans
+      // fuite possible : les deux branches comparent à l'entité de la session,
+      // et une routine dont ni elle ni son agent n'a d'entité reste invisible —
+      // rien ne permettrait de l'attribuer.
+      .where(
+        or(
+          eq(agentSchedules.entityId, session.entityId),
+          and(isNull(agentSchedules.entityId), eq(agents.entityId, session.entityId)),
+        ),
+      )
       .orderBy(asc(scheduleState.key));
 
     const bySchedule: Record<string, Array<{ key: string; value: string; updatedAt: Date }>> = {};

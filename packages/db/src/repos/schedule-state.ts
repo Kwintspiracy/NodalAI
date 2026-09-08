@@ -60,7 +60,9 @@ export async function readScheduleState(
  *    cette table remplace. Écraser une clé existante reste toujours permis.
  *
  * L'`INSERT … ON CONFLICT` fait le remplacement en une instruction : deux runs
- * qui se chevauchent ne peuvent pas laisser la ligne à moitié écrite.
+ * qui se chevauchent ne peuvent pas laisser la ligne à moitié écrite. Le
+ * PLAFOND, lui, ne tient que grâce au verrou pris ci-dessous — une contrainte
+ * SQL sait borner une longueur, pas un nombre de lignes.
  */
 export async function writeScheduleState(
   db: AnyDrizzleDb,
@@ -82,43 +84,58 @@ export async function writeScheduleState(
     );
   }
 
-  // Le plafond ne compte que si la clé est NEUVE : réécrire une clé connue est
-  // le cas nominal et ne doit jamais être refusé, même à la limite.
-  const [existing] = await db
-    .select({ key: scheduleState.key })
-    .from(scheduleState)
-    .where(and(eq(scheduleState.scheduleId, scheduleId), eq(scheduleState.key, k)))
-    .limit(1);
-  if (!existing) {
-    const [{ n }] = (await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(scheduleState)
-      .where(eq(scheduleState.scheduleId, scheduleId))) as [{ n: number }];
-    if (n >= SCHEDULE_STATE_MAX_KEYS) {
-      throw new ScheduleStateRefused(
-        `This routine already holds ${n} state keys, the maximum. Reuse one of its existing ` +
-          'keys instead of adding another — state is not a log.',
-      );
-    }
-  }
+  // TRANSACTION + VERROU sur la routine. Le plafond se vérifiait par un SELECT
+  // suivi d'un INSERT séparé : deux écritures concurrentes de clés NEUVES
+  // comptaient chacune 19 et inséraient chacune la leur, pour 21 clés au bout
+  // (revue Codex, PR #47, constat 1). Aucune contrainte SQL ne borne un nombre
+  // de lignes — c'est donc ici que la borne doit tenir.
+  //
+  // Le verrou est XACT et porte sur la ROUTINE : il tombe au COMMIT, et deux
+  // routines différentes ne s'attendent jamais. Même motif que
+  // `resolveConversation` dans le runner, pour la même raison.
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${`schedule_state:${scheduleId}`}))`,
+    );
 
-  const now = new Date();
-  const [row] = await db
-    .insert(scheduleState)
-    .values({ scheduleId, key: k, value, createdAt: now, updatedAt: now })
-    .onConflictDoUpdate({
-      target: [scheduleState.scheduleId, scheduleState.key],
-      set: { value, updatedAt: now },
-    })
-    .returning({
-      key: scheduleState.key,
-      value: scheduleState.value,
-      updatedAt: scheduleState.updatedAt,
-    });
-  if (!row) {
-    // Un INSERT … RETURNING qui ne rend rien n'a pas de repli honnête : le
-    // modèle a besoin de savoir si son état est posé (invariant #4).
-    throw new Error('schedule_state_write_failed');
-  }
-  return { key: row.key, value: row.value, updatedAt: row.updatedAt };
+    // Le plafond ne compte que si la clé est NEUVE : réécrire une clé connue est
+    // le cas nominal et ne doit jamais être refusé, même à la limite.
+    const [existing] = await tx
+      .select({ key: scheduleState.key })
+      .from(scheduleState)
+      .where(and(eq(scheduleState.scheduleId, scheduleId), eq(scheduleState.key, k)))
+      .limit(1);
+    if (!existing) {
+      const [{ n }] = (await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(scheduleState)
+        .where(eq(scheduleState.scheduleId, scheduleId))) as [{ n: number }];
+      if (n >= SCHEDULE_STATE_MAX_KEYS) {
+        throw new ScheduleStateRefused(
+          `This routine already holds ${n} state keys, the maximum. Reuse one of its existing ` +
+            'keys instead of adding another — state is not a log.',
+        );
+      }
+    }
+
+    const now = new Date();
+    const [row] = await tx
+      .insert(scheduleState)
+      .values({ scheduleId, key: k, value, createdAt: now, updatedAt: now })
+      .onConflictDoUpdate({
+        target: [scheduleState.scheduleId, scheduleState.key],
+        set: { value, updatedAt: now },
+      })
+      .returning({
+        key: scheduleState.key,
+        value: scheduleState.value,
+        updatedAt: scheduleState.updatedAt,
+      });
+    if (!row) {
+      // Un INSERT … RETURNING qui ne rend rien n'a pas de repli honnête : le
+      // modèle a besoin de savoir si son état est posé (invariant #4).
+      throw new Error('schedule_state_write_failed');
+    }
+    return { key: row.key, value: row.value, updatedAt: row.updatedAt };
+  });
 }
