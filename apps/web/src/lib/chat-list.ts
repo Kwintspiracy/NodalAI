@@ -66,20 +66,12 @@ export type ChatLists = {
  */
 export type ChatNames = Readonly<Record<string, { name: string | null; kind: string | null }>>;
 
-/**
- * La clé d'un chat, du point de vue de l'écran.
- *
- * L'AGENT en fait partie, et c'est le point délicat : le runner identifie un
- * fil par (entité, agent, canal, chat) — voir `resolveConversation`. Deux bots
- * d'agents différents qui parlent au même utilisateur Telegram tiennent donc
- * deux fils distincts. Grouper sur le seul couple canal/chat les fusionnait, et
- * le second disparaissait des deux tableaux (revue Codex, PR #48, passe 2).
- *
- * Le canal en fait partie aussi : deux canaux peuvent porter le même id.
- */
-export function chatKey(agentId: string | null, channel: string, chatId: string): string {
-  return `${agentId ?? 'sans-agent'}:${channel}:${chatId}`;
-}
+// La clé d'un chat vit dans son PROPRE module : l'action qui interroge la base
+// en a besoin autant que ce regroupement, et l'importer d'ici créait un cycle
+// (chat-list → conversation-actions → chat-list) que dependency-cruiser refuse,
+// `import type` ou non. Réexportée pour que rien ne change à l'usage.
+import { chatKey } from './chat-key.ts';
+export { chatKey };
 
 /**
  * Le fil COURANT d'un chat, au sens du runner : le dernier OUVERT.
@@ -128,6 +120,7 @@ function estPlusCourant(a: ConversationListRow, courant: ConversationListRow): b
 export function groupChatLists(
   rows: readonly ConversationListRow[],
   names: ChatNames = {},
+  currentByChat: Readonly<Record<string, string>> = {},
 ): ChatLists {
   const channels = new Map<string, ChannelChatRow>();
   /** La ligne d'où vient le fil courant de chaque chat, pour la comparer. */
@@ -141,11 +134,19 @@ export function groupChatLists(
     }
     const key = chatKey(r.agentId, r.channel, r.chatId);
     const nameKey = `${r.channel}:${r.chatId}`;
+    // La BASE a désigné le fil courant de ce chat : on ne le recalcule pas.
+    // Une ligne qui n'est pas ce fil ne peut donc pas prendre sa place, même si
+    // elle arrive en premier ou paraît plus récente.
+    const designe = currentByChat[key];
     const seen = channels.get(key);
     if (seen) {
       seen.conversationCount += 1;
       const courant = courants.get(key);
-      if (courant && estPlusCourant(r, courant)) {
+      const prend =
+        designe !== undefined
+          ? r.id === designe
+          : courant !== undefined && estPlusCourant(r, courant);
+      if (prend) {
         courants.set(key, r);
         seen.currentConversationId = r.id;
         seen.lastPreview = r.lastPreview;
@@ -162,14 +163,20 @@ export function groupChatLists(
       // qui est le même quel que soit l'agent qui lui parle.
       name: names[nameKey]?.name ?? null,
       kind: names[nameKey]?.kind ?? null,
-      currentConversationId: r.id,
+      // Le fil désigné, même s'il n'est PAS dans les lignes chargées : la
+      // fenêtre de la liste peut l'avoir laissé dehors, et le lien doit mener
+      // là où ira le prochain message, pas au fil le plus visible.
+      currentConversationId: designe ?? r.id,
       conversationCount: 1,
       agentName: r.agentName,
       agentSlug: r.agentSlug,
       agentAvatarUrl: r.agentAvatarUrl,
       updatedAt: r.updatedAt,
-      lastPreview: r.lastPreview,
-      turns: r.turns,
+      // L'aperçu et les tours décrivent le fil COURANT. Tant qu'on n'a pas
+      // rencontré sa ligne, on ne les invente pas : une ligne muette est plus
+      // vraie que le dernier mot d'un autre fil.
+      lastPreview: designe === undefined || designe === r.id ? r.lastPreview : null,
+      turns: designe === undefined || designe === r.id ? r.turns : 0,
     });
   }
 

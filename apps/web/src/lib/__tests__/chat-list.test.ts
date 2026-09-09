@@ -152,6 +152,98 @@ describe('groupChatLists', () => {
     expect(groupChatLists([...rows].reverse()).channels[0]?.currentConversationId).toBe('bbb');
   });
 
+  it('la DÉSIGNATION de la base gagne sur tout calcul local', () => {
+    // Revue Codex PR #48, passe 6. Trois façons dont le calcul local se
+    // trompait — fenêtre de 200 lignes, millisecondes contre microsecondes,
+    // `NULL` que PostgreSQL place DEVANT en tri décroissant — et une seule
+    // réponse : c'est la base qui désigne, avec la règle du runner.
+    //
+    // Ici la ligne « la plus récente » selon toute lecture locale est A ; la
+    // base désigne B. C'est B qui gagne.
+    const { channels } = groupChatLists(
+      [
+        row({
+          id: 'A',
+          channel: 'telegram',
+          chatId: '199791464',
+          createdAt: new Date('2026-09-08T10:00:00Z'),
+        }),
+        row({
+          id: 'B',
+          channel: 'telegram',
+          chatId: '199791464',
+          createdAt: new Date('2026-09-01T10:00:00Z'),
+        }),
+      ],
+      {},
+      { 'a1:telegram:199791464': 'B' },
+    );
+    expect(channels[0]?.currentConversationId).toBe('B');
+  });
+
+  it('un fil courant HORS de la fenêtre reste celui que la ligne ouvre', () => {
+    // La liste est coupée à 200 lignes triées par `updated_at` : le fil courant
+    // peut ne pas en faire partie. La ligne doit quand même y mener — sinon
+    // elle ouvre un fil que le prochain message n'alimentera pas, ce qui est
+    // exactement le défaut de la passe 5.
+    const { channels } = groupChatLists(
+      [row({ id: 'dans-la-fenetre', channel: 'telegram', chatId: '199791464' })],
+      {},
+      { 'a1:telegram:199791464': 'hors-fenetre' },
+    );
+    expect(channels[0]?.currentConversationId).toBe('hors-fenetre');
+    // Et l'écran ne prête pas à ce fil l'aperçu d'un autre : il se tait.
+    expect(channels[0]?.lastPreview).toBeNull();
+    expect(channels[0]?.turns).toBe(0);
+  });
+
+  it('la ligne garde l’aperçu du fil courant quand il EST chargé', () => {
+    const { channels } = groupChatLists(
+      [
+        row({
+          id: 'A',
+          channel: 'telegram',
+          chatId: '199791464',
+          lastPreview: 'le vieux fil',
+          turns: 9,
+        }),
+        row({
+          id: 'B',
+          channel: 'telegram',
+          chatId: '199791464',
+          lastPreview: 'le fil courant',
+          turns: 2,
+        }),
+      ],
+      {},
+      { 'a1:telegram:199791464': 'B' },
+    );
+    expect(channels[0]?.currentConversationId).toBe('B');
+    expect(channels[0]?.lastPreview).toBe('le fil courant');
+    expect(channels[0]?.turns).toBe(2);
+  });
+
+  it('sans désignation, le regroupement dégrade au lieu de disparaître', () => {
+    // Une lecture qui échoue rend une carte vide. L'approximation locale reste
+    // alors le meilleur choix disponible — dégradée, jamais absente, et jamais
+    // une page vide.
+    const { channels } = groupChatLists([
+      row({
+        id: 'recent',
+        channel: 'telegram',
+        chatId: '199791464',
+        createdAt: new Date('2026-09-08T10:00:00Z'),
+      }),
+      row({
+        id: 'ancien',
+        channel: 'telegram',
+        chatId: '199791464',
+        createdAt: new Date('2026-09-01T10:00:00Z'),
+      }),
+    ]);
+    expect(channels[0]?.currentConversationId).toBe('recent');
+  });
+
   it('un fil sans date de création ne prend jamais la place du fil courant', () => {
     // `created_at` est nullable côté lecture. Un `null` est traité comme le
     // plus ancien : il ne peut pas usurper la ligne, et il ne la fait pas non
