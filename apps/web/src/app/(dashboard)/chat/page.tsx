@@ -29,7 +29,7 @@ export default async function ChatPage() {
     // retombe sur son approximation — dégradée, jamais absente.
     listCurrentThreadByChatAction(),
   ]);
-  const { channels, dashboard, missingCurrent } = groupChatLists(
+  const { channels, dashboard, missingCurrent, hiddenByWindow } = groupChatLists(
     result.ok ? result.data : [],
     names.ok ? names.data : {},
     currents.ok ? currents.data : {},
@@ -39,7 +39,11 @@ export default async function ChatPage() {
     <PageShell title="Chat" subtitle="Your channels, and the conversations you started here.">
       {result.ok ? (
         <>
-          <ChannelChatsTable rows={channels} missingCurrent={missingCurrent} />
+          <ChannelChatsTable
+            rows={channels}
+            missingCurrent={missingCurrent}
+            hiddenByWindow={hiddenByWindow}
+          />
           <ConversationsList rows={dashboard} />
         </>
       ) : (

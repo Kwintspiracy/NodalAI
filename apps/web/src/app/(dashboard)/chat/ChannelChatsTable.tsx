@@ -16,6 +16,7 @@ import Link from 'next/link';
 import AgentAvatar from '@/components/ui/AgentAvatar';
 import Table, { THead, Th, Tr, Td } from '@/components/ui/Table';
 import { MonoMicroTag } from '@/components/ui/MonoMicroTag';
+import { LIST_MAX } from '@/lib/chat-key.ts';
 import { relativeTime, truncate } from '@/lib/format-time';
 import type { ChannelChatRow } from '@/lib/chat-list.ts';
 
@@ -53,12 +54,17 @@ function channelLabel(channel: string): string {
 export default function ChannelChatsTable({
   rows,
   missingCurrent = false,
+  hiddenByWindow = 0,
 }: {
   rows: ChannelChatRow[];
   /** La base n'a pas pu désigner le fil courant d'au moins un chat. */
   missingCurrent?: boolean;
+  /** Des chats existent mais aucune de leurs conversations n'est dans la fenêtre. */
+  hiddenByWindow?: number;
 }) {
-  if (rows.length === 0) return null;
+  // Zéro ligne mais des chats cachés par la fenêtre : la section doit
+  // apparaître QUAND MÊME, pour dire qu'elle est vide à tort.
+  if (rows.length === 0 && hiddenByWindow === 0) return null;
   return (
     <section className="mb-8">
       <div className="mb-2 flex items-baseline gap-2">
@@ -69,8 +75,15 @@ export default function ChannelChatsTable({
       </div>
       {missingCurrent && (
         <p className="text-body-12 text-ink-3 mb-2">
-          Some chats can’t be opened right now — their current thread couldn’t be read. Reload in a
-          moment.
+          Chats marked “unavailable” below can’t be opened right now — their current thread couldn’t
+          be read. Reload in a moment.
+        </p>
+      )}
+      {hiddenByWindow > 0 && (
+        <p className="text-body-12 text-ink-3 mb-2">
+          {hiddenByWindow} more {hiddenByWindow === 1 ? 'chat is' : 'chats are'} not listed: the
+          list shows the {LIST_MAX} most recently active conversations, and none of theirs made it
+          in.
         </p>
       )}
       <Table>
@@ -111,7 +124,13 @@ export default function ChannelChatsTable({
                     {chatLabel(r)}
                   </Link>
                 ) : (
-                  <span className="text-body-13 text-ink-3">{chatLabel(r)}</span>
+                  // L'état est DIT sur la ligne, pas seulement suggéré par une
+                  // nuance de gris et l'absence de lien : sur cinquante chats,
+                  // il fallait sinon deviner lequel n'ouvre rien (revue Codex,
+                  // PR #48, passe 8).
+                  <span className="text-body-13 text-ink-3">
+                    {chatLabel(r)} <MonoMicroTag tone="ink">unavailable</MonoMicroTag>
+                  </span>
                 )}
               </Td>
               <Td className="hidden md:table-cell">

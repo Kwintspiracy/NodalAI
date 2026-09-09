@@ -19,3 +19,13 @@
 export function chatKey(agentId: string | null, channel: string, chatId: string): string {
   return `${agentId ?? 'sans-agent'}:${channel}:${chatId}`;
 }
+
+/**
+ * Le plafond de la liste des conversations.
+ *
+ * Il vit ICI, et pas dans l'action, parce que l'ÉCRAN doit pouvoir le citer :
+ * quand des chats n'ont aucune conversation dans la fenêtre, la page dit
+ * combien il en manque et pourquoi. Un fichier `'use server'` ne peut exporter
+ * que des fonctions asynchrones — la constante n'y était pas partageable.
+ */
+export const LIST_MAX = 200;

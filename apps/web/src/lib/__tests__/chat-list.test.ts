@@ -83,6 +83,32 @@ describe('groupChatLists', () => {
     expect(missingCurrent).toBe(true);
   });
 
+  it('un chat que la FENÊTRE n’a pas rapporté est compté, pas escamoté', () => {
+    // Revue Codex PR #48, passe 8. La liste est plafonnée : si 200 autres
+    // conversations passent devant, un chat entier n'a plus aucune ligne — et
+    // il disparaissait sans que rien ne le dise. La désignation, elle, couvre
+    // TOUS les chats de l'entité : la différence est exactement ce qui manque.
+    const { channels, hiddenByWindow } = groupChatLists(
+      [row({ id: 'A', channel: 'telegram', chatId: '111' })],
+      {},
+      { 'a1:telegram:111': 'A', 'a1:telegram:222': 'B', 'a1:telegram:333': 'C' },
+    );
+    expect(channels).toHaveLength(1);
+    expect(hiddenByWindow, 'deux chats connus de la base, absents de la fenêtre').toBe(2);
+  });
+
+  it('rien de caché quand la fenêtre rapporte tous les chats', () => {
+    const { hiddenByWindow } = groupChatLists(
+      [
+        row({ id: 'A', channel: 'telegram', chatId: '111' }),
+        row({ id: 'B', channel: 'telegram', chatId: '222' }),
+      ],
+      {},
+      { 'a1:telegram:111': 'A', 'a1:telegram:222': 'B' },
+    );
+    expect(hiddenByWindow).toBe(0);
+  });
+
   it('avec désignation partout, l’écran n’a rien à signaler', () => {
     const { missingCurrent } = groupChatLists(
       [row({ id: 'A', channel: 'telegram', chatId: '199791464' })],
