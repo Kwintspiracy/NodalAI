@@ -69,7 +69,11 @@ export default function NewProjectButton() {
   const agent = terrains?.find((t) => t.agentId === agentId) ?? null;
   const workspace = agent?.workspaces.find((w) => w.id === workspaceId) ?? null;
   const preview = workspace ? previewProjectPath(workspace.path, subfolder.trim()) : null;
-  const ready = name.trim() !== '' && workspace !== null && preview !== null;
+  // Un sous-dossier vide sur un terrain qui porte déjà des projets sera refusé
+  // par l'action : le bouton reste éteint plutôt que d'appeler pour rien.
+  const viseLeTerrainOccupe = subfolder.trim() === '' && (workspace?.heldProjects.length ?? 0) > 0;
+  const ready =
+    name.trim() !== '' && workspace !== null && preview !== null && !viseLeTerrainOccupe;
 
   function reset(): void {
     setName('');
@@ -193,13 +197,24 @@ export default function NewProjectButton() {
               {/* Laisser le champ vide prend le dossier ENTIER, et le
                   placeholder ne le disait pas assez fort : le 08/09/2026, un
                   projet « Recipes » est devenu tout le dossier `Dev`, qui en
-                  portait dix-huit autres. L'action refuse désormais ce
-                  chevauchement — l'écran le dit AVANT le clic. */}
-              {preview !== null && subfolder.trim() === '' && (
-                <p className="text-body-12 text-ink-3 mt-1">
-                  The whole folder becomes the project. It cannot already contain one.
-                </p>
-              )}
+                  portait dix-huit autres.
+                  Le 09/09, le refus est arrivé AU CLIC — un mur qui nommait un
+                  projet sur quatre sans dire qu'un nom de sous-dossier suffisait.
+                  L'écran le sait avant : il a la liste. */}
+              {preview !== null &&
+                subfolder.trim() === '' &&
+                ((workspace?.heldProjects.length ?? 0) > 0 ? (
+                  <p className="text-body-12 text-err mt-1">
+                    This folder already holds {workspace?.heldProjects.length ?? 0}{' '}
+                    {(workspace?.heldProjects.length ?? 0) === 1 ? 'project' : 'projects'} (
+                    {(workspace?.heldProjects ?? []).slice(0, 4).join(', ')}
+                    {(workspace?.heldProjects.length ?? 0) > 4 ? '…' : ''}). Name a subfolder above.
+                  </p>
+                ) : (
+                  <p className="text-body-12 text-ink-3 mt-1">
+                    The whole folder becomes the project. It cannot already contain one.
+                  </p>
+                ))}
             </div>
           </div>
 

@@ -170,7 +170,20 @@ export type ProjectTerrain = {
   agentId: string;
   agentName: string;
   agentSlug: string;
-  workspaces: Array<{ id: string; label: string; path: string }>;
+  workspaces: Array<{
+    id: string;
+    label: string;
+    path: string;
+    /**
+     * Les projets DÉJÀ enregistrés dans ce dossier.
+     *
+     * L'écran en a besoin AVANT le clic : un terrain qui en contient refuse un
+     * sous-dossier vide, et le découvrir au clic est un mur. Quentin l'a heurté
+     * le 09/09/2026 — « This folder contains the project podium-app » — sur un
+     * terrain qui en portait quatre.
+     */
+    heldProjects: string[];
+  }>;
 };
 
 // ─── Auth helper ─────────────────────────────────────────────────────────────
@@ -330,6 +343,16 @@ export async function listProjectTerrainsAction(): Promise<ActionResult<ProjectT
       .where(eq(agents.entityId, session.entityId))
       .orderBy(agents.name, agentWorkspaces.position, agentWorkspaces.label);
 
+    // Les projets enregistrés de l'entité, une fois — pas une requête par
+    // terrain : la modale s'ouvre sur un bouton qu'on ne cliquera peut-être pas.
+    const registres = await db
+      .select({ path: codeProjects.projectPath })
+      .from(codeProjects)
+      .where(
+        and(eq(codeProjects.entityId, session.entityId), isNotNull(codeProjects.registeredAt)),
+      );
+    const cheminsProjets = registres.map((r) => normalizePath(r.path));
+
     const byAgent = new Map<string, ProjectTerrain>();
     for (const r of rows) {
       let terrain = byAgent.get(r.agentId);
@@ -342,7 +365,17 @@ export async function listProjectTerrainsAction(): Promise<ActionResult<ProjectT
         };
         byAgent.set(r.agentId, terrain);
       }
-      terrain.workspaces.push({ id: r.workspaceId, label: r.label, path: r.path });
+      const wsPath = normalizePath(r.path);
+      terrain.workspaces.push({
+        id: r.workspaceId,
+        label: r.label,
+        path: r.path,
+        // Contenance stricte : le terrain lui-même n'est pas « un projet qu'il
+        // contient », c'est le cas `already_registered`, dit autrement.
+        heldProjects: cheminsProjets
+          .filter((p) => isUnderPath(p, wsPath) && p !== wsPath)
+          .map((p) => p.slice(p.lastIndexOf('/') + 1)),
+      });
     }
     return ok([...byAgent.values()]);
   } catch (err) {
@@ -567,9 +600,23 @@ export async function createProjectAction(
           isUnderPath(autre, path) ||
           (cheminReel !== null && autreReel !== null && isUnderPath(autreReel, cheminReel));
         if (contient) {
+          // Le refus NOMME LE GESTE, et dit combien de projets sont en cause.
+          // La première version citait le premier trouvé et concluait « pick a
+          // folder that does not overlap one » : sur un terrain qui en portait
+          // quatre, elle donnait l'impression d'un cas isolé et ne disait pas
+          // qu'un simple nom de sous-dossier suffisait (Quentin, 09/09/2026).
+          const dedans = registres
+            .map((r) => normalizePath(r.path))
+            .filter((p) => isUnderPath(p, path) && p !== path)
+            .map((p) => p.slice(p.lastIndexOf('/') + 1));
+          const combien =
+            dedans.length === 1
+              ? `the project "${dedans[0]}"`
+              : `${dedans.length} projects (${dedans.slice(0, 4).join(', ')}${dedans.length > 4 ? '…' : ''})`;
           return fail(
             'overlaps_registered',
-            `This folder contains the project "${autre}". Pick a folder that does not overlap one.`,
+            `This folder already holds ${combien}. Name a subfolder above to create the new ` +
+              'project inside it.',
           );
         }
       }

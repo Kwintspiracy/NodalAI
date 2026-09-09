@@ -208,15 +208,61 @@ describe('createProjectAction', () => {
       subfolder: '',
       kind: 'code',
     });
-    expect(result).toEqual({
-      ok: false,
-      code: 'overlaps_registered',
-      message: `This folder contains the project "${terrain.path}/projet-x". Pick a folder that does not overlap one.`,
-    });
+    // Le refus NOMME LE GESTE : sans ça, l'écran donne un mur — vécu le
+    // 09/09/2026, sur un terrain qui portait quatre projets et dont le message
+    // n'en citait qu'un.
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('overlaps_registered');
+    expect(result.message).toContain('already holds the project "projet-x"');
+    expect(result.message, 'le geste, pas seulement le refus').toContain('Name a subfolder above');
 
     // Aucune ligne n'a été enregistrée pour le terrain.
     const ligne = await ligneDuProjet(terrain.path);
     expect(ligne?.registeredAt ?? null).toBeNull();
+  });
+
+  it('le refus COMPTE les projets en cause, il n’en nomme pas qu’un', async () => {
+    // Sur le terrain de Quentin, quatre projets ; le message n'en citait qu'un
+    // et laissait croire à un cas isolé.
+    const { createProjectAction } = await import('../project-actions.ts');
+    await mkdir(join(racine, 'voisin-a'), { recursive: true });
+    await mkdir(join(racine, 'voisin-b'), { recursive: true });
+    for (const nom of ['voisin-a', 'voisin-b']) {
+      const r = await createProjectAction({
+        name: nom,
+        agentId: seed.agentId,
+        workspaceId: terrain.workspaceId,
+        subfolder: nom,
+        kind: 'code',
+      });
+      expect(r.ok, `préparation : ${nom}`).toBe(true);
+    }
+
+    const result = await createProjectAction({
+      name: 'Tout le terrain',
+      agentId: seed.agentId,
+      workspaceId: terrain.workspaceId,
+      subfolder: '',
+      kind: 'code',
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // Trois projets : projet-x (posé par le test d'avant) et les deux voisins.
+    expect(result.message).toContain('3 projects');
+    expect(result.message).toContain('Name a subfolder above');
+  });
+
+  it('les terrains disent ce qu’ils CONTIENNENT déjà — avant le clic', async () => {
+    // L'écran a la liste : il éteint le bouton et nomme les projets au lieu de
+    // laisser l'action refuser après coup.
+    const { listProjectTerrainsAction } = await import('../project-actions.ts');
+    const r = await listProjectTerrainsAction();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const ws = r.data.flatMap((t) => t.workspaces).find((w) => w.id === terrain.workspaceId);
+    expect(ws, 'le terrain du test est là').toBeDefined();
+    expect(ws?.heldProjects, 'projet-x y est enregistré').toContain('projet-x');
   });
 
   it('un dossier DANS un projet enregistré est refusé aussi', async () => {
