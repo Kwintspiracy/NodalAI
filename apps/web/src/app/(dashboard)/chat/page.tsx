@@ -32,7 +32,8 @@ export default async function ChatPage() {
   const { channels, dashboard, missingCurrent, hiddenByWindow } = groupChatLists(
     result.ok ? result.data : [],
     names.ok ? names.data : {},
-    currents.ok ? currents.data : {},
+    currents.ok ? currents.data.current : {},
+    currents.ok ? currents.data.listable : [],
   );
 
   return (

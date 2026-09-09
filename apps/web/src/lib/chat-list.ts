@@ -115,6 +115,14 @@ export function groupChatLists(
   rows: readonly ConversationListRow[],
   names: ChatNames = {},
   currentByChat: Readonly<Record<string, string>> = {},
+  /**
+   * Les chats ÉLIGIBLES à la liste. Par défaut, ceux qui ont une désignation —
+   * ce qui convient à un test unitaire pur, mais PAS à la page : un chat peut
+   * être désigné sans être listable (son seul fil est un entretien d'accueil),
+   * et le compter comme manquant ferait dire à l'écran qu'un plafond l'a
+   * écarté, ce qui serait faux.
+   */
+  listableChats: readonly string[] = Object.keys(currentByChat),
 ): ChatLists {
   const channels = new Map<string, ChannelChatRow>();
   const dashboard: ConversationListRow[] = [];
@@ -171,10 +179,11 @@ export function groupChatLists(
     });
   }
 
-  // Ce que la base connaît et que la fenêtre n'a pas rapporté. La désignation
-  // couvre TOUS les chats de l'entité, sans plafond : la différence avec ce
-  // qu'on a pu grouper est exactement ce qui manque à l'écran.
-  const hiddenByWindow = Math.max(0, Object.keys(currentByChat).length - channels.size);
+  // Les chats listables qui n'ont AUCUNE ligne. On les compte un par un, on ne
+  // soustrait pas deux tailles : les deux lectures ne sont pas atomiques, et un
+  // chat créé entre elles compensait exactement un chat manquant — 1 − 1 = 0,
+  // et le silence redevenait invisible (revue Codex, PR #48, passe 9).
+  const hiddenByWindow = listableChats.filter((k) => !channels.has(k)).length;
 
   return {
     channels: [...channels.values()],

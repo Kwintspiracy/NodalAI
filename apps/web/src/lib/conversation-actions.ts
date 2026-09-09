@@ -105,7 +105,17 @@ export type ConversationListRow = {
  *
  * Clé `<agentId>:<channel>:<chatId>` — la même que `chatKey` côté écran.
  */
-export type CurrentThreadByChat = Readonly<Record<string, string>>;
+export type CurrentThreadByChat = {
+  /** Le fil courant de chaque chat — clé `chatKey`, valeur l'identifiant. */
+  readonly current: Readonly<Record<string, string>>;
+  /**
+   * Les chats qui ont au moins une conversation ÉLIGIBLE à la liste. Sert à
+   * compter ce qui manque à l'écran, et seulement à ça : un chat désigné mais
+   * non éligible n'a rien à faire dans la liste, son absence n'est pas un
+   * silence.
+   */
+  readonly listable: readonly string[];
+};
 
 export type ConversationThreadView = {
   conversation: {
@@ -409,12 +419,43 @@ export async function listCurrentThreadByChatAction(): Promise<ActionResult<Curr
         desc(conversations.id),
       );
 
-    const out: Record<string, string> = {};
+    // Les chats ÉLIGIBLES à la liste — ceux qui ont au moins une conversation
+    // que `listAllConversationsAction` accepterait.
+    //
+    // C'est une question DIFFÉRENTE de la désignation, et les confondre faisait
+    // mentir l'écran (revue Codex, PR #48, passe 9) : la désignation ne filtre
+    // pas l'origine, parce qu'elle copie le runner. Un chat dont le seul fil est
+    // un entretien d'accueil y figure donc — et il était compté comme « écarté
+    // par le plafond » alors qu'aucune conversation listable ne le remplit.
+    // Le plafond n'y est pour rien, et le dire était faux.
+    const eligibles = await db
+      .selectDistinct({
+        agentId: conversations.agentId,
+        channel: conversations.channel,
+        chatId: conversations.chatId,
+      })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.entityId, session.entityId),
+          isNotNull(conversations.chatId),
+          ne(conversations.chatId, ''),
+          ne(conversations.channel, 'dashboard'),
+          inArray(conversations.origin, ['user', 'project']),
+        ),
+      );
+
+    const current: Record<string, string> = {};
     for (const r of rows) {
       if (r.chatId === null) continue;
-      out[chatKey(r.agentId, r.channel, r.chatId)] = r.id;
+      current[chatKey(r.agentId, r.channel, r.chatId)] = r.id;
     }
-    return ok(out);
+    const listable: string[] = [];
+    for (const r of eligibles) {
+      if (r.chatId === null) continue;
+      listable.push(chatKey(r.agentId, r.channel, r.chatId));
+    }
+    return ok({ current, listable });
   } catch (err) {
     console.error('[listCurrentThreadByChatAction]', err);
     return fail('db_error', 'Failed to resolve current threads');

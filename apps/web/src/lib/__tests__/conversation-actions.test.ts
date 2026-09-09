@@ -1095,7 +1095,7 @@ describe('listCurrentThreadByChatAction — la base désigne, avec la règle du 
     const { listCurrentThreadByChatAction } = await actions();
     const r = await listCurrentThreadByChatAction();
     if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
-    expect(r.data[cle('desig-1')]).toBe(attendu);
+    expect(r.data.current[cle('desig-1')]).toBe(attendu);
   });
 
   it('départage deux fils de la même MICROSECONDE, sous la résolution d’une Date', async () => {
@@ -1131,7 +1131,7 @@ describe('listCurrentThreadByChatAction — la base désigne, avec la règle du 
     const { listCurrentThreadByChatAction } = await actions();
     const r = await listCurrentThreadByChatAction();
     if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
-    expect(r.data[cle('desig-2')]).toBe(attendu);
+    expect(r.data.current[cle('desig-2')]).toBe(attendu);
   });
 
   it('à `created_at` strictement ÉGAUX, le plus GRAND identifiant gagne', async () => {
@@ -1161,7 +1161,7 @@ describe('listCurrentThreadByChatAction — la base désigne, avec la règle du 
     const { listCurrentThreadByChatAction } = await actions();
     const r = await listCurrentThreadByChatAction();
     if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
-    expect(r.data[cle('desig-3')]).toBe(grand);
+    expect(r.data.current[cle('desig-3')]).toBe(grand);
   });
 
   it('un fil SANS date de création gagne — c’est ce que fait le runner, et on le copie', async () => {
@@ -1186,7 +1186,7 @@ describe('listCurrentThreadByChatAction — la base désigne, avec la règle du 
     const { listCurrentThreadByChatAction } = await actions();
     const r = await listCurrentThreadByChatAction();
     if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
-    expect(r.data[cle('desig-4')]).toBe(sansDate);
+    expect(r.data.current[cle('desig-4')]).toBe(sansDate);
   });
 
   it('UNE seule ligne par chat, et aucune pour le dashboard', async () => {
@@ -1217,7 +1217,7 @@ describe('listCurrentThreadByChatAction — la base désigne, avec la règle du 
 
     // Trois fils, UNE désignation — et c'est le dernier ouvert, alors qu'il
     // porte la date de modification la plus ancienne des trois.
-    expect(r.data[cle('desig-5')]).toBe(dernier);
+    expect(r.data.current[cle('desig-5')]).toBe(dernier);
     // Un dictionnaire écrase les doublons : le compte des lignes rendues par la
     // requête se vérifie à la source, pas sur lui.
     const lignes = await testDb
@@ -1236,6 +1236,6 @@ describe('listCurrentThreadByChatAction — la base désigne, avec la règle du 
     expect(lignes).toHaveLength(1);
     expect(lignes[0]?.id).toBe(dernier);
     // Aucune clé ne désigne un fil du dashboard : ils n'ont pas de chat.
-    expect(Object.keys(r.data).some((k) => k.includes(':dashboard:'))).toBe(false);
+    expect(Object.keys(r.data.current).some((k) => k.includes(':dashboard:'))).toBe(false);
   });
 });
