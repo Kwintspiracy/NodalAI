@@ -491,6 +491,29 @@ describe('l’intention de mutation, posée par executeTool', () => {
     expect(parCle.get(keyOf(join(ws, 'alpha'))), 'une précaution n’est pas produite').toBe(false);
   });
 
+  it('un shell qui sort en ERREUR ne marque pas le projet produit', async () => {
+    // Revue Codex PR #49, passe 3. `isPresentedFailure` ne lisait que la carte
+    // `text` ; `run_command` rend une carte `terminal`, donc un `exit 1`
+    // passait pour une production réussie — et autorisait à déclarer une
+    // preuve sur un projet où rien n'avait abouti.
+    await mkdir(join(ws, 'zeta'), { recursive: true });
+
+    const res = await executeTool(
+      runCommandTool as never,
+      { purpose: 'test', command: 'exit 1', cwd: 'zeta' },
+      ctx(),
+      autoApprove('run_command'),
+    );
+    // L'outil RÉPOND (le shell a tourné) : ce n'est pas une erreur du seam.
+    expect(res.outcome).toBe('success');
+
+    const parCle = new Map((await statesOf(jobId)).map((r) => [r.canonicalKey, r]));
+    const zeta = parCle.get(keyOf(join(ws, 'zeta')));
+    expect(zeta?.dirtyGeneration, 'la garde reste conservatrice : c’est sale').toBe(1);
+    expect(zeta?.addressed, 'le cwd a bien été VISÉ').toBe(true);
+    expect(zeta?.produced, 'mais la commande a échoué').toBe(false);
+  });
+
   it('une tentative qui n’écrit RIEN salit le projet sans le marquer produit', async () => {
     // Revue Codex PR #49, passe 2. L'intention est posée AVANT l'exécution :
     // c'est la bonne garde (le projet reste sale, une preuve doit être

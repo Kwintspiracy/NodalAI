@@ -785,11 +785,26 @@ type MutationGate =
     };
 
 /**
- * Un résultat qui est un ÉCHEC sous une carte structurée (`failureText`,
- * P1) : l'outil a répondu, mais rien n'a été produit. C'est la seule lecture
- * du succès qui ne dépende pas de la forme de sortie de chaque outil. Un
- * présentateur qui lève est un bug de CET outil (déjà compté dans
- * `presentation_error`) — il ne doit pas cacher une production réelle.
+ * Un résultat qui est un ÉCHEC sous une carte structurée : l'outil a répondu,
+ * mais rien n'a été produit. C'est la lecture du succès qui ne dépend pas de
+ * la forme de sortie de chaque outil. Un présentateur qui lève est un bug de
+ * CET outil (déjà compté dans `presentation_error`) — il ne doit pas cacher
+ * une production réelle.
+ *
+ * DEUX cartes savent dire qu'elles ont échoué, et il en manquait une :
+ *
+ *   - `text` avec `failure: true` — un refus (chemin hors terrain, fichier
+ *     trop gros, `old_string` introuvable) ;
+ *   - `terminal` avec un `exitCode` non nul ou un `timedOut` — un shell qui
+ *     sort en erreur. Elle n'était pas lue, si bien qu'un `run_command`
+ *     terminé en `exit 1` passait pour une production réussie (revue Codex,
+ *     PR #49, passe 3). Le défaut était déjà là pour le REGISTRE des projets,
+ *     qui lit le même signal ; la garde `produced` le rendait exploitable —
+ *     un shell en échec autorisait à déclarer une preuve.
+ *
+ * `exitCode: null` n'est PAS un échec : c'est un code inconnu, et une commande
+ * dont on ignore l'issue peut parfaitement avoir écrit. Le conservatisme joue
+ * ici du côté de la trace, pas du refus.
  */
 function isPresentedFailure(
   tool: ToolDefinition<z.ZodTypeAny, unknown>,
@@ -798,7 +813,11 @@ function isPresentedFailure(
 ): boolean {
   try {
     const presented = presentToolResult(tool, input, output);
-    return presented.card === 'text' && presented.failure === true;
+    if (presented.card === 'text') return presented.failure === true;
+    if (presented.card === 'terminal') {
+      return presented.timedOut === true || (presented.exitCode ?? 0) !== 0;
+    }
+    return false;
   } catch {
     return false;
   }
