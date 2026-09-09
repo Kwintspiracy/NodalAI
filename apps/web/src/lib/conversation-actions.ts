@@ -24,6 +24,8 @@ import {
   or,
   desc,
   isNull,
+  isNotNull,
+  ne,
   inArray,
   sql,
   agents,
@@ -37,6 +39,8 @@ import {
   llmCalls,
   toolCalls,
   verificationRuns,
+  telegramAllowedChats,
+  channelAllowedConversations,
 } from '@nodal-agents/db';
 import { normalizePath, stripGroupPrefix } from '@nodal-agents/shared';
 import { plainText } from '@/components/Markdown.tsx';
@@ -46,6 +50,10 @@ import { getDb, applyActiveEntity, getAuthProvider } from './server.ts';
 import { assembleJobFeeds, collectDescendants } from './job-feed.ts';
 import { entityWorkspaceRoots } from './workspace-roots.ts';
 import { buildConversationThread } from './conversation-thread.ts';
+// UNE seule définition de la clé d'un chat, des deux côtés. Elle vit dans son
+// propre module : l'importer de `chat-list.ts` formait un cycle, puisque ce
+// dernier importe le type des lignes d'ici.
+import { chatKey, LIST_MAX } from './chat-key.ts';
 import type { ThreadJob, ThreadProject, ThreadProofRun } from './conversation-thread.ts';
 import { classifyProduction } from './chat-or-work.ts';
 import type { ConversationFeed } from './conversation-feed.ts';
@@ -89,6 +97,24 @@ export type ConversationListRow = {
   /** Les tours de l'utilisateur : messages `user` (dashboard) ou jobs de tête (canal). */
   turns: number;
   lastPreview: string | null;
+};
+
+/**
+ * Le fil COURANT de chaque chat, désigné par la BASE, avec exactement la clé et
+ * l'ordre de `resolveConversation` (apps/runner/src/job/conversation-id.ts).
+ *
+ * Clé `<agentId>:<channel>:<chatId>` — la même que `chatKey` côté écran.
+ */
+export type CurrentThreadByChat = {
+  /** Le fil courant de chaque chat — clé `chatKey`, valeur l'identifiant. */
+  readonly current: Readonly<Record<string, string>>;
+  /**
+   * Les chats qui ont au moins une conversation ÉLIGIBLE à la liste. Sert à
+   * compter ce qui manque à l'écran, et seulement à ça : un chat désigné mais
+   * non éligible n'a rien à faire dans la liste, son absence n'est pas un
+   * silence.
+   */
+  readonly listable: readonly string[];
 };
 
 export type ConversationThreadView = {
@@ -159,7 +185,6 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 /** Les jobs de tête chargés d'un fil — au-delà, l'écran n'est plus lisible. */
 const HEAD_JOBS_MAX = 100;
 const MESSAGES_MAX = 500;
-const LIST_MAX = 200;
 const TITLE_MAX = 60;
 const PREVIEW_MAX = 120;
 
@@ -239,7 +264,12 @@ export async function listAllConversationsAction(): Promise<ActionResult<Convers
           inArray(conversations.origin, ['user', 'project']),
         ),
       )
-      .orderBy(desc(conversations.updatedAt))
+      // `id` DÉPARTAGE à date égale. Sans lui, deux fils du même chat posés à
+      // la même seconde — un backfill, deux `/new` en rafale — sortaient dans
+      // un ordre laissé au plan d'exécution, et la ligne du chat ouvrait
+      // tantôt l'un tantôt l'autre (revue Codex, PR #48). Même remède que
+      // `resolveConversation` côté runner, pour la même raison.
+      .orderBy(desc(conversations.updatedAt), desc(conversations.id))
       .limit(LIST_MAX);
     if (rows.length === 0) return ok([]);
 
@@ -318,6 +348,187 @@ export async function listAllConversationsAction(): Promise<ActionResult<Convers
   } catch (err) {
     console.error('[listAllConversationsAction]', err);
     return fail('db_error', 'Failed to load conversations');
+  }
+}
+
+/**
+ * Le fil courant de chaque chat, désigné PAR LA BASE.
+ *
+ * POURQUOI ce n'est pas calculable côté écran, et pourquoi l'avoir essayé était
+ * l'erreur (revue Codex, PR #48, passes 5 et 6). Le fil courant d'un chat est
+ * celui où le RUNNER posera le prochain message : `resolveConversation` le
+ * choisit par `created_at DESC, id DESC` sur (entité, agent, canal, chat). Le
+ * recalculer en TypeScript sur les lignes chargées échouait de trois façons,
+ * toutes invisibles :
+ *
+ *   - la LISTE est coupée à 200 lignes, triées par `updated_at`. Un fil courant
+ *     resté inactif pendant que 199 autres conversations bougent tombe hors de
+ *     la fenêtre, et le calcul ne peut désigner que ce qu'il a reçu ;
+ *   - `created_at` est `timestamptz`, donc microsecondes en base ; une `Date`
+ *     JavaScript s'arrête à la milliseconde. Deux fils créés dans la même
+ *     milliseconde paraissaient à ÉGALITÉ côté écran, et le départage par `id`
+ *     se déclenchait sur une égalité qui n'existe pas en base ;
+ *   - `created_at` est NULLABLE (migration 0028), et `ORDER BY … DESC` place
+ *     les NULL DEVANT en PostgreSQL. Traiter `null` comme la plus ancienne date
+ *     — le choix naturel en TypeScript — inversait le verdict du runner.
+ *
+ * Une seule règle, exécutée à un seul endroit, sur les données entières. La
+ * requête rend une ligne par chat, sans plafond : c'est le nombre de chats, pas
+ * le nombre de conversations.
+ *
+ * Le filtre d'origine de la liste (`user`, `project`) n'est PAS repris : le
+ * runner ne l'applique pas, et c'est SON choix qu'on reproduit. Un chat dont le
+ * fil courant serait d'une autre origine doit mener là où ira le message.
+ */
+export async function listCurrentThreadByChatAction(): Promise<ActionResult<CurrentThreadByChat>> {
+  try {
+    const session = await getSession();
+    if (!session.entityId) return fail('no_entity', 'No active entity');
+    const db = getDb();
+
+    // `DISTINCT ON` rend la PREMIÈRE ligne de chaque groupe selon l'ORDER BY —
+    // donc le fil courant, et lui seul. L'ordre reproduit `resolveConversation`
+    // à la lettre, `NULLS FIRST` par défaut compris : diverger ici, même « en
+    // mieux », recréerait exactement le désaccord qu'on répare.
+    //
+    // Passé par le constructeur de requêtes, pas par du SQL brut : `db.execute`
+    // ne rend pas la même forme selon le pilote (un tableau avec postgres.js,
+    // un objet `{ rows }` avec PGlite), et le premier test contre une vraie base
+    // l'a montré tout de suite — « rows is not iterable ».
+    const rows = await db
+      .selectDistinctOn([conversations.agentId, conversations.channel, conversations.chatId], {
+        agentId: conversations.agentId,
+        channel: conversations.channel,
+        chatId: conversations.chatId,
+        id: conversations.id,
+      })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.entityId, session.entityId),
+          isNotNull(conversations.chatId),
+          ne(conversations.chatId, ''),
+          ne(conversations.channel, 'dashboard'),
+        ),
+      )
+      .orderBy(
+        conversations.agentId,
+        conversations.channel,
+        conversations.chatId,
+        desc(conversations.createdAt),
+        desc(conversations.id),
+      );
+
+    // Les chats ÉLIGIBLES à la liste — ceux qui ont au moins une conversation
+    // que `listAllConversationsAction` accepterait.
+    //
+    // C'est une question DIFFÉRENTE de la désignation, et les confondre faisait
+    // mentir l'écran (revue Codex, PR #48, passe 9) : la désignation ne filtre
+    // pas l'origine, parce qu'elle copie le runner. Un chat dont le seul fil est
+    // un entretien d'accueil y figure donc — et il était compté comme « écarté
+    // par le plafond » alors qu'aucune conversation listable ne le remplit.
+    // Le plafond n'y est pour rien, et le dire était faux.
+    const eligibles = await db
+      .selectDistinct({
+        agentId: conversations.agentId,
+        channel: conversations.channel,
+        chatId: conversations.chatId,
+      })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.entityId, session.entityId),
+          isNotNull(conversations.chatId),
+          ne(conversations.chatId, ''),
+          ne(conversations.channel, 'dashboard'),
+          inArray(conversations.origin, ['user', 'project']),
+        ),
+      );
+
+    const current: Record<string, string> = {};
+    for (const r of rows) {
+      if (r.chatId === null) continue;
+      current[chatKey(r.agentId, r.channel, r.chatId)] = r.id;
+    }
+    const listable: string[] = [];
+    for (const r of eligibles) {
+      if (r.chatId === null) continue;
+      listable.push(chatKey(r.agentId, r.channel, r.chatId));
+    }
+    return ok({ current, listable });
+  } catch (err) {
+    console.error('[listCurrentThreadByChatAction]', err);
+    return fail('db_error', 'Failed to resolve current threads');
+  }
+}
+
+/** Ce que l'allowlist sait d'un chat : son nom, et sa nature. */
+export type ChatIdentities = Readonly<Record<string, { name: string | null; kind: string | null }>>;
+
+/**
+ * Le NOM de chaque chat de canal — la personne ou le salon à l'autre bout.
+ *
+ * Clé `<canal>:<chatId>`, la même que `chatKey` (lib/chat-list.ts). La source
+ * est l'allowlist d'approbation : elle porte `requester_name`, déclaré par qui
+ * a demandé l'accès. Telegram vit encore dans sa table historique
+ * (`telegram_allowed_chats`), les autres canaux dans
+ * `channel_allowed_conversations` — deux requêtes, jamais une par ligne.
+ *
+ * Un chat sans nom rend `null` plutôt que d'être absent : c'est le cas du
+ * PROPRIÉTAIRE, qui a branché le bot lui-même et que personne n'a « demandé ».
+ * L'écran montre alors l'identifiant, qui est au moins vrai.
+ */
+export async function listChatNamesAction(): Promise<ActionResult<ChatIdentities>> {
+  try {
+    const session = await getSession();
+    if (!session.entityId) return fail('no_entity', 'No active entity');
+    const db = getDb();
+
+    const agentIds = await db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.entityId, session.entityId));
+    if (agentIds.length === 0) return ok({});
+    const ids = agentIds.map((a) => a.id);
+
+    const [telegram, others] = await Promise.all([
+      db
+        .select({
+          chatId: telegramAllowedChats.chatId,
+          name: telegramAllowedChats.requesterName,
+        })
+        .from(telegramAllowedChats)
+        .where(inArray(telegramAllowedChats.agentId, ids)),
+      db
+        .select({
+          channel: channelAllowedConversations.channel,
+          chatId: channelAllowedConversations.conversationId,
+          name: channelAllowedConversations.requesterName,
+          kind: channelAllowedConversations.kind,
+        })
+        .from(channelAllowedConversations)
+        .where(inArray(channelAllowedConversations.agentId, ids)),
+    ]);
+
+    const names: Record<string, { name: string | null; kind: string | null }> = {};
+    // Telegram n'a pas de colonne `kind` : la convention de l'API Bot veut
+    // qu'un identifiant négatif soit un groupe, un positif un privé.
+    for (const r of telegram) {
+      names[`telegram:${r.chatId}`] = {
+        name: r.name,
+        kind: r.chatId.startsWith('-') ? 'group' : 'private',
+      };
+    }
+    // Les lignes channel-neutres passent APRÈS : quand un chat Telegram existe
+    // des deux côtés (migration en cours), la table historique reste la source.
+    for (const r of others) {
+      const key = `${r.channel}:${r.chatId}`;
+      if (!(key in names)) names[key] = { name: r.name, kind: r.kind };
+    }
+    return ok(names);
+  } catch (err) {
+    console.error('[listChatNamesAction]', err);
+    return fail('db_error', 'Failed to load chat names');
   }
 }
 

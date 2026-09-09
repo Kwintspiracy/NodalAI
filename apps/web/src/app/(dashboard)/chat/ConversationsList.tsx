@@ -1,11 +1,18 @@
 'use client';
 
-// ConversationsList — la liste de TOUTES les conversations (P7).
+// ConversationsList — les conversations OUVERTES DEPUIS LE DASHBOARD.
 //
-// Une conversation par ligne, la plus récente en haut, avec son ORIGINE : le
-// dashboard et les canaux se lisent au même endroit, parce que du point de vue
-// de l'utilisateur c'est le même agent qui parle. Le filtre est côté client :
-// deux cents lignes tiennent en mémoire, et taper doit répondre à la frappe.
+// Elle listait aussi les fils de canal (P7). Ils ont leur tableau à part
+// depuis le 08/09 : un chat ne se ferme jamais et ne se supprime pas, alors
+// qu'une conversation d'ici est jetable — on l'ouvre d'un bouton, on la
+// supprime, l'IA la renomme. Les mélanger donnait 45 lignes Telegram pour un
+// seul chat, noyant les dix conversations du dashboard.
+//
+// La colonne « Origin » est partie avec eux : elle disait « from the
+// dashboard » sur chaque ligne, ce qui est désormais la définition du tableau.
+//
+// Le filtre reste côté client : deux cents lignes tiennent en mémoire, et
+// taper doit répondre à la frappe.
 //
 // Ce qui est repris du chat à deux volets qui disparaît ici : la recherche, la
 // suppression avec confirmation, le bouton « nouvelle conversation ».
@@ -30,7 +37,6 @@ import {
 } from '@/lib/actions.ts';
 import type { ConversationListRow } from '@/lib/conversation-actions.ts';
 import { relativeTime, truncate } from '@/lib/format-time';
-import { originLabel } from '@/app/(dashboard)/spaces/format.ts';
 
 export default function ConversationsList({ rows }: { rows: ConversationListRow[] }) {
   const router = useRouter();
@@ -221,7 +227,6 @@ export default function ConversationsList({ rows }: { rows: ConversationListRow[
             )}
             <Th>Agent</Th>
             <Th>Conversation</Th>
-            <Th className="hidden md:table-cell">Origin</Th>
             <Th className="hidden lg:table-cell">Project</Th>
             <Th align="right" className="hidden sm:table-cell">
               Turns
@@ -266,9 +271,6 @@ export default function ConversationsList({ rows }: { rows: ConversationListRow[
                       {r.lastPreview}
                     </span>
                   )}
-                </Td>
-                <Td className="hidden text-body-12 text-ink-3 md:table-cell">
-                  {originLabel({ channel: r.channel, scheduleName: null, chatId: r.chatId })}
                 </Td>
                 <Td className="hidden text-body-12 text-ink-3 lg:table-cell">
                   {r.currentProject ? (

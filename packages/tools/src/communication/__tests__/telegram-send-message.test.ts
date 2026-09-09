@@ -122,6 +122,29 @@ function installTelegramBindingCredentialsDefault(): void {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('createTelegramSendMessageTool', () => {
+  // ─── Ce que le MODÈLE reçoit après un envoi ───────────────────────────────
+  //
+  // Le 08/09/2026, cet outil rendait `{messageId: "2311"}`. Le tour suivant,
+  // Alfred a raisonné dessus comme sur une réponse de l'utilisateur : « User
+  // replied "2311"? That's odd — … likely they mean port 2311? ». Il a tenu
+  // trois tours contre les identifiants de ses propres messages et envoyé
+  // plusieurs réponses décousues pour une seule question.
+  //
+  // Cet identifiant ne lui sert à rien : il est consommé par la file d'envoi,
+  // et le rejoueur d'historique remplace de toute façon les valeurs passées.
+  // Un accusé de réception ne doit rien contenir qui ressemble à un message.
+  it('rend « envoyé » et RIEN qui ressemble à un message', async () => {
+    const tool = createTelegramSendMessageTool();
+    const ctx = makeCtx({ jobChatId: '99887766' });
+
+    const result = await tool.execute({ text: 'Voilà ma réponse.' }, ctx);
+
+    expect(result).toEqual({ sent: true });
+    // L'assertion qui compte : l'identifiant rendu par le canal ('42' ici) ne
+    // doit apparaître nulle part dans ce que le modèle relira.
+    expect(JSON.stringify(result)).not.toContain('42');
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     sendTextMock.mockResolvedValue({ messageId: '42' });
@@ -142,7 +165,9 @@ describe('createTelegramSendMessageTool', () => {
       '99887766',
       'Hello from cron!',
     );
-    expect(result.messageId).toBe('42');
+    // L'envoi a bien eu lieu — l'identifiant rendu par le canal ne remonte plus
+    // au modèle (voir le test « rend "envoyé" » plus haut).
+    expect(result).toEqual({ sent: true });
     // omitted chatId falls back to jobChatId without an allow-list lookup
     expect(isChatAllowedMock).not.toHaveBeenCalled();
   });

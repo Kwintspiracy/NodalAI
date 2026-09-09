@@ -782,7 +782,9 @@ describe('loadThreadHistory', () => {
             type: 'tool-result',
             toolCallId: 'history-tool-0',
             toolName: 'telegram_send_message',
-            output: { type: 'json', value: { messageId: 'history' } },
+            // Même forme qu'un envoi réel : un tour rejoué ne doit pas se
+            // distinguer d'un tour vécu (PR A, point 3).
+            output: { type: 'json', value: { sent: true } },
           },
         ],
       },

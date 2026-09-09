@@ -35,7 +35,21 @@ const TelegramSendMessageInput = z.object({
 });
 
 type TelegramSendMessageInput = z.infer<typeof TelegramSendMessageInput>;
-type TelegramSendMessageOutput = { messageId: string };
+/**
+ * Ce que le MODÈLE reçoit après un envoi : un accusé de réception, rien de plus.
+ *
+ * Cet outil rendait `{messageId}`. Le 08/09/2026, un agent a lu le sien comme
+ * un message de l'utilisateur — « User replied "2311"? … likely they mean port
+ * 2311? » — et a tenu trois tours contre les identifiants de ses propres
+ * envois, pour une seule question posée.
+ *
+ * L'identifiant ne servait à personne SUR CE CHEMIN : la file d'envoi
+ * (`outbox.ts`) fait ses propres envois par l'adaptateur et construit son
+ * receipt à partir de CEUX-LÀ — elle ne lit jamais la sortie de cet outil
+ * (revue Codex, PR #48, qui a corrigé la première version de ce commentaire).
+ * Ce que le modèle relit ne doit rien contenir qui ressemble à un message.
+ */
+type TelegramSendMessageOutput = { sent: true };
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
@@ -143,7 +157,10 @@ Fail conditions:
       const adapter = getAdapter(await resolveChannelForJob(ctx, input.channel));
       const res = await adapter.sendText({ botToken }, chatId, input.text);
 
-      return { messageId: res.messageId };
+      // `res.messageId` reste disponible ici pour qui en aurait besoin côté
+      // runner ; il ne remonte simplement pas au modèle.
+      void res;
+      return { sent: true };
     },
   };
 }
