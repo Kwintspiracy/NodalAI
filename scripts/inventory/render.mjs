@@ -101,6 +101,8 @@ const num = {
   builtinTested: inv.builtinTools.length - nSansTest(inv.builtinTools),
   builtinUntested: nSansTest(inv.builtinTools),
   serverActions: inv.serverActions.length,
+  serverActionsUntested: nSansTest(inv.serverActions),
+  connectorTools: inv.connectors.reduce((n, c) => n + (c.tools?.length ?? 0), 0),
   adapters: inv.connectors.length,
   models: modelCount,
   pages: inv.pages.length,
@@ -302,7 +304,7 @@ footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--rule);
 <div class="wrap">
   <h1>Nodal-Agents — inventaire des capacités</h1>
   <p class="lede">Toutes les fonctions exposées par le produit, extraites du code source, avec l'état de leur couverture de test. Généré mécaniquement : rien n'est saisi à la main.</p>
-  <p class="meta">${esc(new Date().toISOString().slice(0, 10))} · branche fix/audit-wave1-2026-08-07 · ${inv.meta.testFiles} fichiers de test · ${inv.meta.e2eFiles} e2e · ${inv.meta.archTests} tests d'architecture</p>
+  <p class="meta">${esc(new Date().toISOString().slice(0, 10))} · branche ${esc(inv.meta.branch ?? 'inconnue')} · ${inv.meta.testFiles} fichiers de test · ${inv.meta.e2eFiles} e2e · ${inv.meta.archTests} tests d'architecture</p>
 
   <div class="sum">
     <div><b>${totalUnits}</b><span>capacités</span></div>
@@ -342,7 +344,7 @@ footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--rule);
         <li><b>La rédaction des secrets.</b> 9 formes de credentials + contre-épreuve sur du texte ordinaire (UUID, hashes, URL).</li>
         <li><b>L'épinglage du pack.</b> ${num.packDeps} dépendances runtime, <code>next</code> exact, zéro caret — réécrites en versions exactes à la construction, et le build sort en erreur si l'une d'elles ne résout pas. Vérifié dans le <code>package.json</code> généré, pas dans l'intention.</li>
         <li><b>Origin et Host.</b> Les 6 requêtes de l'audit — Host falsifié, Origin attaquant, <code>text/plain</code>, Origin+Host cohérents en <code>evil.test</code> — rejetées sur les deux ports.</li>
-        <li><b>Les ${num.serverActions} actions serveur.</b> Plus une seule sans test depuis le 10 août. Ce qui les fait monter ici, ce n'est pas le compte : c'est que chaque garde a été éprouvée par MUTATION — on casse le filtre dans le code de production et on exige que le test vire au rouge. Un test qui survit à sa mutation est retiré ou durci.</li>
+        <li><b>Les ${num.serverActions} actions serveur.</b> ${num.serverActionsUntested === 0 ? 'Plus une seule sans test depuis le 10 août.' : `Toutes sauf ${num.serverActionsUntested} portent un test — les manquantes sont listées plus bas, et ce palier ne vaut que pour les autres.`} Ce qui les fait monter ici, ce n'est pas le compte : c'est que chaque garde a été éprouvée par MUTATION — on casse le filtre dans le code de production et on exige que le test vire au rouge. Un test qui survit à sa mutation est retiré ou durci.</li>
       </ul>
     </article>
 
@@ -373,7 +375,7 @@ footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--rule);
   </div>
 
   <div class="note">
-    <strong>Ce que tu peux modifier sereinement.</strong> Le gate d'approbation, les frontières de confiance, le catalogue de modèles, les invariants d'architecture : le banc te dit dans les secondes qui suivent si un chiffre a bougé, et lequel. Depuis le 10 août, l'interface aussi : les 135 actions serveur ont chacune un test, et ces tests ont été éprouvés en cassant le code exprès.<br><br>
+    <strong>Ce que tu peux modifier sereinement.</strong> Le gate d'approbation, les frontières de confiance, le catalogue de modèles, les invariants d'architecture : le banc te dit dans les secondes qui suivent si un chiffre a bougé, et lequel. Depuis le 10 août, l'interface aussi : ${num.serverActions - num.serverActionsUntested} des ${num.serverActions} actions serveur portent un test, et ces tests ont été éprouvés en cassant le code exprès.<br><br>
     <strong>Ce qui demande de la prudence.</strong> Les textes de skills, les handlers de canaux, la boucle de réflexion : <em>rien ne parlera</em>. Une régression y sera découverte par toi, en usage.
   </div>
 
@@ -423,7 +425,11 @@ ${section(
 ${section(
   'actions',
   'Actions serveur du dashboard',
-  'Chaque geste de l’interface passe par une de ces fonctions. Ce sont elles qui écrivent en base — les 39 sans test sont la plus grosse zone d’ombre de l’inventaire.',
+  `Chaque geste de l’interface passe par une de ces fonctions. Ce sont elles qui écrivent en base — ${
+    nSansTest(inv.serverActions) === 0
+      ? 'toutes portent désormais un test'
+      : `les ${nSansTest(inv.serverActions)} sans test sont la plus grosse zone d’ombre de l’inventaire`
+  }.`,
   ['Action'],
   inv.serverActions,
   [{ get: (a) => `<span class="mono">${esc(a.name)}</span>` }],
@@ -512,7 +518,7 @@ ${section(
 
 
   <div class="note">
-    <strong>Ce que l’inventaire ne couvre pas.</strong> Les 135 outils connecteurs sont comptés par adaptateur, pas un par un — leur statut reflète la suite du package. Le catalogue de modèles n’a pas de statut de test individuel : sa vérification est le drift contre l’API en direct, mesuré par la section <code>catalog-drift</code> du banc.
+    <strong>Ce que l’inventaire ne couvre pas.</strong> Les ${num.connectorTools} outils connecteurs sont comptés par adaptateur, pas un par un — leur statut reflète la suite du package. Le catalogue de modèles n’a pas de statut de test individuel : sa vérification est le drift contre l’API en direct, mesuré par la section <code>catalog-drift</code> du banc.
   </div>
 
   <footer>Généré depuis le code par scripts/inventory — toute fonction ajoutée apparaît au prochain run.</footer>

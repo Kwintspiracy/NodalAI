@@ -351,8 +351,39 @@ function countPackRuntimeDeps() {
     .filter((l) => /^\s*'?[\w@/.-]+'?\s*:\s*'/.test(l)).length;
 }
 
+/**
+ * La branche RÉELLE, lue par git.
+ *
+ * Elle était écrite EN DUR dans le rendu — `fix/audit-wave1-2026-08-07` — et
+ * l'inventaire a donc annoncé cette branche pendant trois semaines après qu'elle
+ * eut été mergée, y compris publié depuis `main` (constaté le 09/09/2026). Un
+ * document qui se présente comme « généré mécaniquement, rien n'est saisi à la
+ * main » ne peut pas mentir sur sa propre provenance : c'est la seule ligne qui
+ * dit au lecteur de QUOI il regarde l'état.
+ *
+ * Un dépôt en HEAD détaché ne rend pas de nom de branche : on dit le SHA court
+ * plutôt qu'un nom inventé.
+ */
+function currentBranch() {
+  try {
+    const name = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: ROOT,
+      encoding: 'utf-8',
+    }).trim();
+    if (name && name !== 'HEAD') return name;
+    const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: ROOT,
+      encoding: 'utf-8',
+    }).trim();
+    return sha ? `HEAD détaché ${sha}` : 'branche inconnue';
+  } catch {
+    return 'branche inconnue';
+  }
+}
+
 inv.meta = {
   generatedFor: 'nodal-agents',
+  branch: currentBranch(),
   testFiles: testFiles.length,
   e2eFiles: e2eFiles.length,
   archTests:
