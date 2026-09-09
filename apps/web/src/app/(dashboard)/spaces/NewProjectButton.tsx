@@ -21,7 +21,6 @@ import TextInput from '@/components/ui/TextInput';
 import Select from '@/components/ui/Select';
 import SegmentedControl from '@/components/ui/SegmentedControl';
 import FieldLabel from '@/components/ui/FieldLabel';
-import CopyablePath from '@/components/ui/CopyablePath';
 import {
   createProjectAction,
   listProjectTerrainsAction,
@@ -71,9 +70,14 @@ export default function NewProjectButton() {
   const preview = workspace ? previewProjectPath(workspace.path, subfolder.trim()) : null;
   // Un sous-dossier vide sur un terrain qui porte déjà des projets sera refusé
   // par l'action : le bouton reste éteint plutôt que d'appeler pour rien.
-  const viseLeTerrainOccupe = subfolder.trim() === '' && (workspace?.heldProjects.length ?? 0) > 0;
+  const terrainOccupe = (workspace?.heldProjects.length ?? 0) > 0;
+  // Un nom vide sur un dossier qui porte déjà des projets sera refusé par
+  // l'action : le bouton reste éteint plutôt que d'appeler pour rien.
   const ready =
-    name.trim() !== '' && workspace !== null && preview !== null && !viseLeTerrainOccupe;
+    name.trim() !== '' &&
+    workspace !== null &&
+    preview !== null &&
+    !(subfolder.trim() === '' && terrainOccupe);
 
   function reset(): void {
     setName('');
@@ -163,58 +167,77 @@ export default function NewProjectButton() {
                 ))}
               </Select>
 
-              <Select
-                label="Folder"
-                value={workspaceId}
-                disabled={isPending}
-                onChange={(e) => setWorkspaceId(e.target.value)}
-              >
-                {(agent?.workspaces ?? []).map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.label} — {w.path}
-                  </option>
-                ))}
-              </Select>
+              {/* UN SEUL dossier ⇒ ce n'est pas un choix, c'est un FAIT.
+                  Un menu déroulant à une entrée fait croire à une décision
+                  qu'on n'a pas (Quentin, 09/09/2026 : « il y a un dropdown mais
+                  il n'y a qu'un seul objet dedans donc ça sert à rien »). On le
+                  montre, on ne le propose pas. Le menu revient dès qu'il y a
+                  vraiment plusieurs dossiers. */}
+              {(agent?.workspaces.length ?? 0) > 1 ? (
+                <Select
+                  label="Folder"
+                  value={workspaceId}
+                  disabled={isPending}
+                  onChange={(e) => setWorkspaceId(e.target.value)}
+                >
+                  {(agent?.workspaces ?? []).map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.label} — {w.path}
+                    </option>
+                  ))}
+                </Select>
+              ) : workspace ? (
+                <div>
+                  <FieldLabel>Folder</FieldLabel>
+                  <p className="text-body-13 text-ink-2">
+                    <span className="text-mono-12 text-ink">{workspace.path}</span>
+                  </p>
+                  <p className="text-body-12 text-ink-4 mt-1">
+                    {agent?.agentName}
+                    {agent?.agentName ? ' works here — ' : ''}the project lands inside it.
+                  </p>
+                </div>
+              ) : null}
             </>
           )}
 
           <div>
+            {/* « Subfolder » était du jargon d'implémentation : c'est le NOM DU
+                DOSSIER que le projet portera. Taper ce nom convient très bien —
+                mieux qu'un nom auto-généré (décision Quentin, 09/09). */}
             <TextInput
-              label="Subfolder"
+              label="Folder name"
               value={subfolder}
               onChange={(e) => setSubfolder(e.target.value)}
-              placeholder="Leave empty to use the folder itself"
+              placeholder={terrainOccupe ? 'recipes-app' : 'recipes-app — or leave empty'}
               disabled={isPending}
             />
             <div className="mt-2">
-              {preview !== null ? (
-                <CopyablePath display={preview} value={preview} />
-              ) : (
+              {preview === null ? (
                 <p className="text-body-12 text-err">
-                  A subfolder is a relative path inside the folder. No “..”, no drive letter.
+                  A folder name, not a path. No “..”, no drive letter, no slash.
+                </p>
+              ) : subfolder.trim() !== '' ? (
+                // L'aperçu est une PHRASE, pas un chemin à copier : on ne copie
+                // pas un dossier qui n'existe pas encore, et le bouton
+                // « Copier » ne servait à rien ici (Quentin, 09/09).
+                <p className="text-body-12 text-ink-3">
+                  Creates <span className="text-mono-12 text-ink">{subfolder.trim()}</span> in that
+                  folder.
+                </p>
+              ) : terrainOccupe ? (
+                <p className="text-body-12 text-err">
+                  This folder already holds {workspace?.heldProjects.length ?? 0}{' '}
+                  {(workspace?.heldProjects.length ?? 0) === 1 ? 'project' : 'projects'} (
+                  {(workspace?.heldProjects ?? []).slice(0, 4).join(', ')}
+                  {(workspace?.heldProjects.length ?? 0) > 4 ? '…' : ''}). Give the new one a folder
+                  name.
+                </p>
+              ) : (
+                <p className="text-body-12 text-ink-3">
+                  Left empty, the folder itself becomes the project.
                 </p>
               )}
-              {/* Laisser le champ vide prend le dossier ENTIER, et le
-                  placeholder ne le disait pas assez fort : le 08/09/2026, un
-                  projet « Recipes » est devenu tout le dossier `Dev`, qui en
-                  portait dix-huit autres.
-                  Le 09/09, le refus est arrivé AU CLIC — un mur qui nommait un
-                  projet sur quatre sans dire qu'un nom de sous-dossier suffisait.
-                  L'écran le sait avant : il a la liste. */}
-              {preview !== null &&
-                subfolder.trim() === '' &&
-                ((workspace?.heldProjects.length ?? 0) > 0 ? (
-                  <p className="text-body-12 text-err mt-1">
-                    This folder already holds {workspace?.heldProjects.length ?? 0}{' '}
-                    {(workspace?.heldProjects.length ?? 0) === 1 ? 'project' : 'projects'} (
-                    {(workspace?.heldProjects ?? []).slice(0, 4).join(', ')}
-                    {(workspace?.heldProjects.length ?? 0) > 4 ? '…' : ''}). Name a subfolder above.
-                  </p>
-                ) : (
-                  <p className="text-body-12 text-ink-3 mt-1">
-                    The whole folder becomes the project. It cannot already contain one.
-                  </p>
-                ))}
             </div>
           </div>
 
