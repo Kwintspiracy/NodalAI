@@ -485,6 +485,41 @@ export async function createProjectAction(
       return fail('already_registered', 'This folder is already a registered project');
     }
 
+    // Un projet ne CONTIENT pas un autre projet, et n'est pas DEDANS.
+    //
+    // Vécu le 08/09/2026 : « Recipes » créé en laissant « Subfolder » vide est
+    // devenu le dossier `Dev` entier, qui portait déjà dix-huit projets. Le
+    // travail suivant s'est rattaché à cette racine ; `Dev/recipes-app` a été
+    // enregistré douze minutes plus tard, et il était trop tard — un job
+    // rattaché ne se rattache pas deux fois. Résultat à l'écran : deux projets
+    // pour un seul travail, dont l'un raconte ce qui s'est fait dans l'autre.
+    //
+    // La garde d'avant ne comparait que l'égalité EXACTE du chemin, elle ne
+    // pouvait pas voir ça. Celle-ci compare la CONTENANCE, dans les deux sens,
+    // sur la frontière de segment — `projet-x` n'avale pas `projet-x-bis`.
+    const registres = await db
+      .select({ path: codeProjects.projectPath })
+      .from(codeProjects)
+      .where(
+        and(eq(codeProjects.entityId, session.entityId), isNotNull(codeProjects.registeredAt)),
+      );
+    const contenu = registres.find((r) => isUnderPath(path, normalizePath(r.path)));
+    if (contenu) {
+      return fail(
+        'overlaps_registered',
+        `This folder is inside the project "${normalizePath(contenu.path)}". ` +
+          'Pick a folder that does not overlap one.',
+      );
+    }
+    const contenant = registres.find((r) => isUnderPath(normalizePath(r.path), path));
+    if (contenant) {
+      return fail(
+        'overlaps_registered',
+        `This folder contains the project "${normalizePath(contenant.path)}". ` +
+          'Pick a folder that does not overlap one.',
+      );
+    }
+
     const registeredAt = new Date();
     if (existing) {
       // Une ligne de COMPTABILITÉ existante DEVIENT le projet : sa
