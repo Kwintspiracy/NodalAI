@@ -22,7 +22,8 @@ export default async function ChatPage() {
   const [result, names, currents] = await Promise.all([
     listAllConversationsAction(),
     // Le nom des chats de canal. Une lecture qui échoue ne doit pas emporter la
-    // page : les chats s'affichent alors par leur identifiant.
+    // page : les chats s'affichent alors par leur identifiant — mais elle se
+    // DIT, voir `namesUnreadable`.
     listChatNamesAction(),
     // Le fil courant de chaque chat, désigné par la BASE avec la règle du
     // runner. Une lecture qui échoue n'emporte pas la page — mais elle se DIT :
@@ -42,6 +43,11 @@ export default async function ChatPage() {
   // section disparaissait : l'utilisateur ne pouvait pas distinguer « aucun chat
   // de canal » de « impossible de le vérifier » (revue Codex, PR #48, passe 11).
   const threadsUnreadable = !currents.ok;
+  // Même règle pour les NOMS : sans eux, un chat s'affiche par son identifiant
+  // et perd sa nature (privé, groupe). Rien ne distinguait cette panne d'un
+  // chat qu'on n'a jamais nommé — le propriétaire, notamment, n'en a pas
+  // (revue Codex, PR #48, passe 12).
+  const namesUnreadable = !names.ok;
 
   return (
     <PageShell title="Chat" subtitle="Your channels, and the conversations you started here.">
@@ -50,6 +56,7 @@ export default async function ChatPage() {
           <ChannelChatsTable
             rows={channels}
             threadsUnreadable={threadsUnreadable}
+            namesUnreadable={namesUnreadable}
             missingCurrent={missingCurrent}
             hiddenByWindow={hiddenByWindow}
           />
