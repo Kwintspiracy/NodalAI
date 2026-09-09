@@ -244,6 +244,60 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
           )
         : [];
 
+  // ── La règle du shell suit la commande déclarée ─────────────────────────────
+  //
+  // Le propriétaire exprime son consentement à faire tourner du shell sur
+  // `run_command` : c'est là que vit le toggle Yolo d'un agent, et là qu'il
+  // pose un `block`. Une preuve déclarée fait tourner du shell — à la
+  // finalisation, sans repasser par une approbation. Elle doit donc être jugée
+  // sous CETTE règle, pas sous une règle qui ne porte le nom d'aucun shell.
+  //
+  // Sans ce lien la garde se trompait dans les deux sens (run 20b73ed1,
+  // 09/09/2026, quatre jobs relus) :
+  //
+  //   Trop stricte. Dev C portait `run_command → auto_approve`. Il a fait
+  //   tourner `node -e "…"` deux fois sans que personne ne soit consulté, puis
+  //   a déclaré CETTE MÊME commande : le job s'est arrêté 24 min 28 s — 72 %
+  //   de sa durée totale — à attendre un humain, pour une ligne en base.
+  //
+  //   Trop laxiste, et c'est le vrai trou. Un agent portant
+  //   `run_command → block` (Reviewer C en porte un) voyait sa déclaration
+  //   tomber sur la relaxation d'autonomie ci-dessous, qui ne connaît que
+  //   `require_approval`. Un `block` explicite devenait une question — et une
+  //   question a une réponse « oui ».
+  //
+  // Précédence, du plus fort au plus faible : une règle nommant
+  // `declare_verification` (le propriétaire a parlé de CET outil) ; puis la
+  // règle `run_command` ; puis la relaxation d'autonomie, inchangée. Les
+  // planchers plus bas s'appliquent après, comme toujours.
+  //
+  // Une déclaration sans commande n'est pas concernée : rien ne tournera.
+  //
+  // `shellRuleApplied` garde la relaxation d'autonomie juste en dessous : sans
+  // lui, un `run_command → require_approval` reposé ici serait aussitôt relâché
+  // par `destructive_gate` sur une commande ordinaire, et la règle du
+  // propriétaire n'aurait servi à rien. Une règle explicite gagne sur un niveau
+  // d'autonomie — c'est vrai de `run_command`, ça doit l'être de sa déclaration.
+  let shellRuleApplied = false;
+  if (!matchedRule && tool.name === 'declare_verification' && commandesJugees.length > 0) {
+    const rawShellRule = matchApprovalRule(
+      opts.approvalRules,
+      'run_command',
+      ctx.agentId,
+      ctx.entityId,
+    );
+    // Même neutralisation que pour `run_command` lui-même : un joker `*`
+    // auto_approve n'est pas un « oui » à du code arbitraire (revue 25/08).
+    const shellRule =
+      rawShellRule?.toolName === '*' && rawShellRule.action === 'auto_approve'
+        ? undefined
+        : rawShellRule;
+    if (shellRule) {
+      effectiveAction = shellRule.action;
+      shellRuleApplied = true;
+    }
+  }
+
   // ── Autonomy-based relaxation ────────────────────────────────────────────────
   // The owner's ROOT autonomy level can relax the safe-by-default require_approval
   // posture. Guarded by `!matchedRule` so any EXPLICIT rule still wins (a user-set
@@ -271,7 +325,7 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
   // destructions », et la retirer casserait un comportement voulu et testé.
   //   - destructive_gate → auto-approve ordinary work, but KEEP the gate for a
   //     `destructive` tool or a destructive/heavy run_command (rm, install, kill…).
-  if (!matchedRule && effectiveAction === 'require_approval') {
+  if (!matchedRule && !shellRuleApplied && effectiveAction === 'require_approval') {
     if (opts.autonomy === 'fully_autonomous' && !isCodeExecutionTool(tool.name)) {
       effectiveAction = 'auto_approve';
     } else if (opts.autonomy === 'destructive_gate') {
@@ -355,10 +409,16 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
   // auto-approved — not even under Yolo. Force a human decision regardless of
   // any auto_approve rule, so an LLM slip or a malicious skill can't wipe the
   // disk silently. (Last-resort circuit breaker, narrow by design.)
-  // The catastrophic floor now INCLUDES inline interpreter-eval (`python -c`,
-  // `node -e`, …): an opaque payload can smuggle any destruction, so it is
-  // forced to a human here and refused even after approval on the resume path
-  // (owner's decision, A2). No separate softer tier.
+  // Ce plancher ne couvre QUE les destructeurs déterministes (fork bomb, mkfs,
+  // dd vers un périphérique, diskpart…). Il a un jour couvert aussi
+  // l'évaluation en ligne d'un interpréteur (`python -c`, `node -e`), et ce
+  // commentaire l'affirmait encore : c'est FAUX depuis la régression ComfyUI de
+  // juillet 2026. Refuser `node -e` même après approbation cassait
+  // systématiquement l'idiome `curl … | python -c "json.load(…)"`. L'évaluation
+  // en ligne est donc redescendue d'un cran — lourde, donc gatée sous
+  // `destructive_gate`, mais APPROUVABLE. La règle vit dans
+  // `isInlineInterpreterEvalCommand` / `isDestructiveOrHeavyCommand`, et sa
+  // justification complète est à packages/shared/src/catastrophic-command.ts:278.
   // Les mêmes commandes qu'a jugées la relaxation d'autonomie plus haut : une
   // preuve déclarée s'exécutera sans repasser ici, elle doit franchir ce
   // plancher MAINTENANT, ou jamais.
