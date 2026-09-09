@@ -73,12 +73,18 @@ export const conversations = pgTable(
      * LA requête du runner à chaque message entrant : la ligne la plus récente
      * du tuple (entité, agent, canal, chat).
      */
-    index('idx_conversations_thread').on(
+    // `id` en dernier : c'est le DÉPARTAGE de `resolveConversation` à date
+    // égale, et sans lui l'index ne couvre pas l'ordre entier — le moteur
+    // trie ce qui reste (revue Codex, PR #48, passe 7). Deux chemins chauds
+    // s'en servent : le runner sur chaque message entrant, et le `DISTINCT ON`
+    // qui désigne le fil courant de chaque chat pour `/chat`.
+    index('idx_conversations_thread_tiebreak').on(
       table.entityId,
       table.agentId,
       table.channel,
       table.chatId,
       table.createdAt,
+      table.id,
     ),
     check('conversations_origin_check', sql`${table.origin} IN ('user','onboarding','project')`),
     check(

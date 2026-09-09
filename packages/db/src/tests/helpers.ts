@@ -603,8 +603,8 @@ export async function spinUpTestDb(): Promise<{ db: TestDb; pg: PGlite }> {
       updated_at timestamptz DEFAULT now()
     );
 
-    CREATE INDEX IF NOT EXISTS idx_conversations_thread
-      ON conversations(entity_id, agent_id, channel, chat_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_conversations_thread_tiebreak
+      ON conversations(entity_id, agent_id, channel, chat_id, created_at DESC, id DESC);
 
     CREATE TABLE IF NOT EXISTS chat_messages (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
