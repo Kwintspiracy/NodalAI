@@ -86,18 +86,50 @@ describe('groupChatLists', () => {
   it('un chat que la FENÊTRE n’a pas rapporté est compté, pas escamoté', () => {
     // Revue Codex PR #48, passe 8. La liste est plafonnée : si 200 autres
     // conversations passent devant, un chat entier n'a plus aucune ligne — et
-    // il disparaissait sans que rien ne le dise. La désignation, elle, couvre
-    // TOUS les chats de l'entité : la différence est exactement ce qui manque.
+    // il disparaissait sans que rien ne le dise.
     const { channels, hiddenByWindow } = groupChatLists(
       [row({ id: 'A', channel: 'telegram', chatId: '111' })],
       {},
       { 'a1:telegram:111': 'A', 'a1:telegram:222': 'B', 'a1:telegram:333': 'C' },
+      ['a1:telegram:111', 'a1:telegram:222', 'a1:telegram:333'],
     );
     expect(channels).toHaveLength(1);
-    expect(hiddenByWindow, 'deux chats connus de la base, absents de la fenêtre').toBe(2);
+    expect(hiddenByWindow, 'deux chats listables, absents de la fenêtre').toBe(2);
   });
 
-  it('rien de caché quand la fenêtre rapporte tous les chats', () => {
+  it('un chat DÉSIGNÉ mais non listable n’est pas compté comme manquant', () => {
+    // Revue Codex PR #48, passe 9. La désignation ne filtre pas l'origine —
+    // elle copie le runner. Un chat dont le seul fil est un entretien d'accueil
+    // y figure donc, alors que la liste ne l'accepterait jamais : le compter
+    // faisait dire à l'écran qu'un plafond l'avait écarté. Le plafond n'y est
+    // pour rien.
+    const { hiddenByWindow } = groupChatLists(
+      [row({ id: 'A', channel: 'telegram', chatId: '111' })],
+      {},
+      { 'a1:telegram:111': 'A', 'a1:telegram:999': 'ONBOARDING' },
+      // Seul le premier est listable.
+      ['a1:telegram:111'],
+    );
+    expect(hiddenByWindow).toBe(0);
+  });
+
+  it('un chat qui APPARAÎT entre les deux lectures ne compense pas un chat manquant', () => {
+    // Revue Codex PR #48, passe 9. Les deux lectures ne sont pas atomiques :
+    // soustraire leurs tailles laissait un chat créé entre elles annuler
+    // exactement un chat absent — 1 − 1 = 0, et le silence redevenait
+    // invisible. On compte les absents un par un.
+    const { channels, hiddenByWindow } = groupChatLists(
+      // La liste voit B, que la désignation ne connaît pas encore.
+      [row({ id: 'B1', channel: 'telegram', chatId: '222' })],
+      {},
+      { 'a1:telegram:111': 'A1' },
+      ['a1:telegram:111'],
+    );
+    expect(channels).toHaveLength(1);
+    expect(hiddenByWindow, 'A manque toujours, quoi qu’il arrive à B').toBe(1);
+  });
+
+  it('rien de caché quand la fenêtre rapporte tous les chats listables', () => {
     const { hiddenByWindow } = groupChatLists(
       [
         row({ id: 'A', channel: 'telegram', chatId: '111' }),
@@ -105,8 +137,19 @@ describe('groupChatLists', () => {
       ],
       {},
       { 'a1:telegram:111': 'A', 'a1:telegram:222': 'B' },
+      ['a1:telegram:111', 'a1:telegram:222'],
     );
     expect(hiddenByWindow).toBe(0);
+  });
+
+  it('AUCUNE ligne mais des chats listables : le compte les dit quand même', () => {
+    // Le cas qui justifie que la section s'affiche vide : sans ce compte, la
+    // page ne montrerait rien du tout et n'aurait rien à expliquer.
+    const { channels, hiddenByWindow } = groupChatLists([], {}, { 'a1:telegram:111': 'A' }, [
+      'a1:telegram:111',
+    ]);
+    expect(channels).toHaveLength(0);
+    expect(hiddenByWindow).toBe(1);
   });
 
   it('avec désignation partout, l’écran n’a rien à signaler', () => {
