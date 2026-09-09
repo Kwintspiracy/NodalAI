@@ -24,6 +24,8 @@ import {
   llmCalls,
   toolCalls,
   users,
+  and,
+  desc,
   eq,
   sql,
 } from '@nodal-agents/db';
@@ -1037,70 +1039,129 @@ describe('getConversationThreadAction — l’état des documents (P12)', () => 
 // Ces tests exercent donc la REQUÊTE, pas une mise en scène : chaque cas insère
 // de vraies lignes et relit ce que la base désigne.
 describe('listCurrentThreadByChatAction — la base désigne, avec la règle du runner', () => {
-  /** Un chat neuf, à l'écart des fils du seed. */
+  /**
+   * Un chat neuf, à l'écart des fils du seed.
+   *
+   * Chaque fil pose SES trois valeurs — `id`, `createdAt`, `updatedAt` — et
+   * aucune n'est laissée au hasard. La passe 8 de la revue a montré pourquoi :
+   * avec des UUID aléatoires et un `updated_at` par défaut, l'ordre
+   * d'INSERTION coïncidait avec le résultat attendu, si bien qu'un tri fautif
+   * par `updated_at DESC` passait ces tests aussi. Ils vérifiaient leur propre
+   * mise en scène.
+   *
+   * Chaque cas est donc ADVERSE : la date de modification et l'identifiant sont
+   * choisis pour désigner l'AUTRE fil que celui attendu. Un tri par
+   * `updated_at`, ou un départage par identifiant croissant, rougit.
+   */
   async function chatAvec(
     chatId: string,
-    fils: ReadonlyArray<{ id?: string; createdAt: Date | null }>,
-  ): Promise<string[]> {
-    const ids: string[] = [];
+    fils: ReadonlyArray<{ id: string; createdAt: Date | null; updatedAt: Date }>,
+  ): Promise<void> {
     for (const f of fils) {
-      const [row] = await testDb
-        .insert(conversations)
-        .values({
-          ...(f.id ? { id: f.id } : {}),
-          entityId: seed.entityId,
-          agentId: seed.agentId,
-          channel: 'telegram',
-          chatId,
-          origin: 'user',
-          createdAt: f.createdAt,
-        })
-        .returning({ id: conversations.id });
-      ids.push(row!.id);
+      await testDb.insert(conversations).values({
+        id: f.id,
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        channel: 'telegram',
+        chatId,
+        origin: 'user',
+        createdAt: f.createdAt,
+        updatedAt: f.updatedAt,
+      });
     }
-    return ids;
   }
 
+  const cle = (chatId: string): string => `${seed.agentId}:telegram:${chatId}`;
+
   it('désigne le dernier fil OUVERT, pas le dernier remué', async () => {
-    const [ancien, recent] = await chatAvec('desig-1', [
-      { createdAt: new Date('2026-09-01T10:00:00Z') },
-      { createdAt: new Date('2026-09-08T10:00:00Z') },
+    // Le fil récemment OUVERT porte la date de modification la plus ANCIENNE :
+    // c'est la séquence réelle — un rattachement de projet remue le vieux fil
+    // pendant que le neuf attend son premier message. Un tri par `updated_at`
+    // désignerait l'ancien.
+    const attendu = '11111111-0000-4000-8000-000000000002';
+    await chatAvec('desig-1', [
+      {
+        id: '11111111-0000-4000-8000-000000000001',
+        createdAt: new Date('2026-09-01T10:00:00Z'),
+        updatedAt: new Date('2026-09-09T10:00:00Z'),
+      },
+      {
+        id: attendu,
+        createdAt: new Date('2026-09-08T10:00:00Z'),
+        updatedAt: new Date('2026-09-08T10:00:00Z'),
+      },
     ]);
-    // Le fil ANCIEN est remué après coup — ce que fait un rattachement de
-    // projet. C'est exactement la séquence qui trompait l'écran.
-    await testDb
-      .update(conversations)
-      .set({ updatedAt: new Date('2026-09-09T10:00:00Z') })
-      .where(eq(conversations.id, ancien!));
 
     const { listCurrentThreadByChatAction } = await actions();
     const r = await listCurrentThreadByChatAction();
     if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
-    expect(r.data[`${seed.agentId}:telegram:desig-1`]).toBe(recent);
+    expect(r.data[cle('desig-1')]).toBe(attendu);
   });
 
-  it('départage deux fils de la même MICROSECONDE par l’identifiant, comme le runner', async () => {
+  it('départage deux fils de la même MICROSECONDE, sous la résolution d’une Date', async () => {
     // Une `Date` JavaScript ne distingue pas ces deux instants : côté écran ils
-    // paraissaient égaux, et le départage par `id` se déclenchait sur une
+    // paraissaient égaux, et le départage par identifiant se déclenchait sur une
     // égalité qui n'existe pas en base.
-    const meme = '2026-09-08T09:00:00.123Z';
-    const [a, b] = await chatAvec('desig-2', [
-      { createdAt: new Date(meme) },
-      { createdAt: new Date(meme) },
+    //
+    // Le fil ATTENDU (le plus tardif de 800 µs) porte le plus PETIT identifiant
+    // et la date de modification la plus ancienne : ni un tri par `updated_at`,
+    // ni un départage par identifiant décroissant ne peuvent le désigner par
+    // accident.
+    const attendu = '22222222-0000-4000-8000-00000000000a';
+    const autre = '22222222-0000-4000-8000-00000000000f';
+    await chatAvec('desig-2', [
+      {
+        id: autre,
+        createdAt: new Date('2026-09-08T09:00:00Z'),
+        updatedAt: new Date('2026-09-09T12:00:00Z'),
+      },
+      {
+        id: attendu,
+        createdAt: new Date('2026-09-08T09:00:00Z'),
+        updatedAt: new Date('2026-09-08T09:00:00Z'),
+      },
     ]);
-    // On écarte les deux de 800 microsecondes, sous la résolution d'une `Date`.
     await testDb.execute(
-      sql`UPDATE conversations SET created_at = timestamptz '2026-09-08 09:00:00.123100+00' WHERE id = ${a!}`,
+      sql`UPDATE conversations SET created_at = timestamptz '2026-09-08 09:00:00.123100+00' WHERE id = ${autre}`,
     );
     await testDb.execute(
-      sql`UPDATE conversations SET created_at = timestamptz '2026-09-08 09:00:00.123900+00' WHERE id = ${b!}`,
+      sql`UPDATE conversations SET created_at = timestamptz '2026-09-08 09:00:00.123900+00' WHERE id = ${attendu}`,
     );
 
     const { listCurrentThreadByChatAction } = await actions();
     const r = await listCurrentThreadByChatAction();
     if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
-    // La base voit la différence : c'est `b`, quel que soit l'ordre des `id`.
-    expect(r.data[`${seed.agentId}:telegram:desig-2`]).toBe(b);
+    expect(r.data[cle('desig-2')]).toBe(attendu);
+  });
+
+  it('à `created_at` strictement ÉGAUX, le plus GRAND identifiant gagne', async () => {
+    // Le départage lui-même, isolé : deux fils à la microseconde près, et rien
+    // d'autre pour les séparer. Aucun autre test ne l'exerçait — l'écart de
+    // 800 µs du test précédent tranche AVANT d'arriver à l'identifiant.
+    const petit = '33333333-0000-4000-8000-00000000000a';
+    const grand = '33333333-0000-4000-8000-00000000000f';
+    await chatAvec('desig-3', [
+      // Le GRAND identifiant porte la date de modification la plus ancienne :
+      // un tri par `updated_at` désignerait l'autre.
+      {
+        id: grand,
+        createdAt: new Date('2026-09-08T09:00:00Z'),
+        updatedAt: new Date('2026-09-08T09:00:00Z'),
+      },
+      {
+        id: petit,
+        createdAt: new Date('2026-09-08T09:00:00Z'),
+        updatedAt: new Date('2026-09-09T12:00:00Z'),
+      },
+    ]);
+    await testDb.execute(
+      sql`UPDATE conversations SET created_at = timestamptz '2026-09-08 09:00:00.500000+00' WHERE chat_id = 'desig-3'`,
+    );
+
+    const { listCurrentThreadByChatAction } = await actions();
+    const r = await listCurrentThreadByChatAction();
+    if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
+    expect(r.data[cle('desig-3')]).toBe(grand);
   });
 
   it('un fil SANS date de création gagne — c’est ce que fait le runner, et on le copie', async () => {
@@ -1108,27 +1169,72 @@ describe('listCurrentThreadByChatAction — la base désigne, avec la règle du 
     // pas le choix qu'on ferait de zéro, mais c'est CELUI DU RUNNER : diverger
     // « en mieux » ferait ouvrir à l'écran un fil que le message n'alimentera
     // pas, et c'est le défaut qu'on répare.
-    const [avecDate, sansDate] = await chatAvec('desig-3', [
-      { createdAt: new Date('2026-09-08T10:00:00Z') },
-      { createdAt: null },
+    //
+    // Le fil sans date est inséré EN PREMIER, porte le plus petit identifiant
+    // et la date de modification la plus ancienne : rien d'autre que la règle
+    // des nuls ne peut le désigner.
+    const sansDate = '44444444-0000-4000-8000-00000000000a';
+    await chatAvec('desig-4', [
+      { id: sansDate, createdAt: null, updatedAt: new Date('2026-09-01T10:00:00Z') },
+      {
+        id: '44444444-0000-4000-8000-00000000000f',
+        createdAt: new Date('2026-09-08T10:00:00Z'),
+        updatedAt: new Date('2026-09-09T12:00:00Z'),
+      },
     ]);
-    expect(avecDate).toBeTruthy();
 
     const { listCurrentThreadByChatAction } = await actions();
     const r = await listCurrentThreadByChatAction();
     if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
-    expect(r.data[`${seed.agentId}:telegram:desig-3`]).toBe(sansDate);
+    expect(r.data[cle('desig-4')]).toBe(sansDate);
   });
 
-  it('une ligne par chat, et les chats du dashboard n’y sont pas', async () => {
+  it('UNE seule ligne par chat, et aucune pour le dashboard', async () => {
+    // Ce test pose SES propres données : il dépendait des trois précédents, et
+    // échouait donc exécuté seul (revue Codex, PR #48, passe 8).
+    const dernier = '55555555-0000-4000-8000-00000000000c';
+    await chatAvec('desig-5', [
+      {
+        id: '55555555-0000-4000-8000-00000000000a',
+        createdAt: new Date('2026-09-01T10:00:00Z'),
+        updatedAt: new Date('2026-09-09T12:00:00Z'),
+      },
+      {
+        id: '55555555-0000-4000-8000-00000000000b',
+        createdAt: new Date('2026-09-02T10:00:00Z'),
+        updatedAt: new Date('2026-09-09T11:00:00Z'),
+      },
+      {
+        id: dernier,
+        createdAt: new Date('2026-09-03T10:00:00Z'),
+        updatedAt: new Date('2026-09-01T10:00:00Z'),
+      },
+    ]);
+
     const { listCurrentThreadByChatAction } = await actions();
     const r = await listCurrentThreadByChatAction();
     if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
 
-    // Trois fils ouverts sur `desig-1` … `desig-3`, une seule entrée chacun.
-    for (const chat of ['desig-1', 'desig-2', 'desig-3']) {
-      expect(r.data[`${seed.agentId}:telegram:${chat}`]).toBeTruthy();
-    }
+    // Trois fils, UNE désignation — et c'est le dernier ouvert, alors qu'il
+    // porte la date de modification la plus ancienne des trois.
+    expect(r.data[cle('desig-5')]).toBe(dernier);
+    // Un dictionnaire écrase les doublons : le compte des lignes rendues par la
+    // requête se vérifie à la source, pas sur lui.
+    const lignes = await testDb
+      .selectDistinctOn([conversations.agentId, conversations.channel, conversations.chatId], {
+        id: conversations.id,
+      })
+      .from(conversations)
+      .where(and(eq(conversations.entityId, seed.entityId), eq(conversations.chatId, 'desig-5')))
+      .orderBy(
+        conversations.agentId,
+        conversations.channel,
+        conversations.chatId,
+        desc(conversations.createdAt),
+        desc(conversations.id),
+      );
+    expect(lignes).toHaveLength(1);
+    expect(lignes[0]?.id).toBe(dernier);
     // Aucune clé ne désigne un fil du dashboard : ils n'ont pas de chat.
     expect(Object.keys(r.data).some((k) => k.includes(':dashboard:'))).toBe(false);
   });

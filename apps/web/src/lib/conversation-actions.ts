@@ -53,7 +53,7 @@ import { buildConversationThread } from './conversation-thread.ts';
 // UNE seule définition de la clé d'un chat, des deux côtés. Elle vit dans son
 // propre module : l'importer de `chat-list.ts` formait un cycle, puisque ce
 // dernier importe le type des lignes d'ici.
-import { chatKey } from './chat-key.ts';
+import { chatKey, LIST_MAX } from './chat-key.ts';
 import type { ThreadJob, ThreadProject, ThreadProofRun } from './conversation-thread.ts';
 import { classifyProduction } from './chat-or-work.ts';
 import type { ConversationFeed } from './conversation-feed.ts';
@@ -175,7 +175,6 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 /** Les jobs de tête chargés d'un fil — au-delà, l'écran n'est plus lisible. */
 const HEAD_JOBS_MAX = 100;
 const MESSAGES_MAX = 500;
-const LIST_MAX = 200;
 const TITLE_MAX = 60;
 const PREVIEW_MAX = 120;
 

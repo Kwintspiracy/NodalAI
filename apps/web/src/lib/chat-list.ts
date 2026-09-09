@@ -61,6 +61,13 @@ export type ChatLists = {
   dashboard: ConversationListRow[];
   /** Au moins un chat n'a pas de fil courant désigné : l'écran doit le dire. */
   missingCurrent: boolean;
+  /**
+   * Des chats que la base connaît, mais dont AUCUNE conversation n'est entrée
+   * dans la fenêtre de la liste (plafonnée). Ils n'ont donc pas de ligne — et
+   * sans ce compte, ils disparaissaient sans que rien ne le signale (revue
+   * Codex, PR #48, passe 8).
+   */
+  hiddenByWindow: number;
 };
 
 /**
@@ -164,9 +171,15 @@ export function groupChatLists(
     });
   }
 
+  // Ce que la base connaît et que la fenêtre n'a pas rapporté. La désignation
+  // couvre TOUS les chats de l'entité, sans plafond : la différence avec ce
+  // qu'on a pu grouper est exactement ce qui manque à l'écran.
+  const hiddenByWindow = Math.max(0, Object.keys(currentByChat).length - channels.size);
+
   return {
     channels: [...channels.values()],
     dashboard,
+    hiddenByWindow,
     // L'écran doit pouvoir DIRE qu'il ne sait pas, plutôt que d'ouvrir un fil
     // au jugé. Une désignation manquante n'est pas une conversation absente :
     // c'est une lecture qui a échoué, et ça se montre.
