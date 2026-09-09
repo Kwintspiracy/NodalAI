@@ -820,9 +820,17 @@ type MutationGate =
  *
  *   - il est pris UNE fois par tour et réutilisé, donc une comparaison avec lui
  *     voit l'écriture du premier outil sans pouvoir l'attribuer au second ;
- *   - il EXCLUT `dist/`, `.next/`, `node_modules/` et tout ce que le projet
- *     ignore — c'est-à-dire précisément ce qu'un build produit, le cas qui
- *     motive tout ce raisonnement.
+ *   - il pose des exclusions PAR DÉFAUT (`dist/`, `.next/`, `node_modules/`)
+ *     et respecte le `.gitignore` du projet — c'est-à-dire qu'il rate
+ *     ordinairement ce qu'un build produit, le cas qui motive tout ce
+ *     raisonnement.
+ *
+ *     « Ordinairement », et pas « toujours » : ces exclusions vivent dans
+ *     l'`info/exclude` du magasin, que le `.gitignore` du projet peut
+ *     surclasser (un `!dist/` y suffit), et un fichier déjà entré dans l'index
+ *     du checkpoint y reste même si une règle l'exclut ensuite. La couverture
+ *     est donc variable — ce qui est encore pire pour en faire une preuve :
+ *     elle dépendrait du `.gitignore` de chaque projet.
  *
  * Il pourrait servir de comparaison PARTIELLE ; il ne fait pas un détecteur de
  * production.
