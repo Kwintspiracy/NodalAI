@@ -1088,3 +1088,164 @@ describe('executeTool — declare_verification judged by its COMMANDS (revue pas
     expect(res.outcome).toBe('success');
   });
 });
+
+// La règle que le propriétaire a posée sur `run_command` DIT ce qu'il consent à
+// voir tourner comme shell. Une preuve déclarée fait tourner du shell, à la
+// finalisation, sans repasser par une approbation : elle doit donc être jugée
+// sous cette même règle.
+//
+// Sans ce lien, la garde se trompait DANS LES DEUX SENS, constaté sur le run
+// 20b73ed1 du 09/09/2026 :
+//
+//   - Trop stricte. Dev C portait `run_command → auto_approve`. Il a fait
+//     tourner `node -e "…"` deux fois sans que personne ne soit consulté, puis
+//     a déclaré CETTE MÊME commande comme sa preuve — et le job s'est arrêté
+//     24 min 28 s en attendant une approbation humaine. La règle ne suivait pas
+//     la commande.
+//   - Trop laxiste, et c'est le vrai trou. Un agent portant
+//     `run_command → block` (Reviewer C en porte un) voyait sa déclaration
+//     tomber sur la relaxation d'autonomie et ne récoltait qu'un « demande à
+//     un humain ». Un `block` explicite devenait une question.
+//
+// Précédence : une règle nommant `declare_verification` gagne (le propriétaire
+// a parlé de CET outil) ; sinon la règle `run_command` s'applique ; sinon la
+// relaxation d'autonomie, comme avant.
+describe('executeTool — une preuve déclarée est jugée sous la règle de run_command', () => {
+  const declareSchema = z.object({
+    project_path: z.string(),
+    commands: z.array(z.object({ command: z.string() })),
+  });
+  const declareTool: ToolDefinition<typeof declareSchema, string> = {
+    name: 'declare_verification',
+    description: 'test declare_verification',
+    inputSchema: declareSchema,
+    riskLevel: 'write',
+    defaultApproval: 'require_approval',
+    execute: async () => 'ok',
+  };
+
+  const rule = (
+    toolName: string,
+    action: ApprovalRule['action'],
+    scope: 'agent' | 'entity' = 'agent',
+  ): ApprovalRule => ({
+    id: `r-${toolName}-${action}-${scope}`,
+    toolName,
+    action,
+    agentId: scope === 'agent' ? seed.agentId : null,
+    entityId: seed.entityId,
+  });
+
+  const gate = (rules: ApprovalRule[] = []): ExecuteOptions => ({
+    ...makeOpts(rules),
+    autonomy: 'destructive_gate',
+  });
+
+  // `node -e` : lourde (interpréteur en ligne), donc gatée par défaut sous
+  // destructive_gate — c'est exactement la commande du run 20b73ed1.
+  const NODE_EVAL = 'node -e "console.log(1)"';
+
+  it('SENS PERMISSIF — run_command auto_approve fait passer la même commande déclarée', async () => {
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: NODE_EVAL }] },
+      makeCtx(),
+      gate([rule('run_command', 'auto_approve')]),
+    );
+    expect(res.outcome).toBe('success');
+  });
+
+  it('SENS RESTRICTIF — run_command block BLOQUE la déclaration, il ne la met pas en attente', async () => {
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: 'node --check app.js' }] },
+      makeCtx(),
+      gate([rule('run_command', 'block')]),
+    );
+    // Un `block` se rend en `outcome: 'error'` avec un message prescriptif —
+    // c'est la forme du refus dans tout le harnais, pas un outcome à part.
+    expect(res.outcome).toBe('error');
+    if (res.outcome === 'error') {
+      expect(res.error).toContain('blocked: an approval rule forbids');
+    }
+  });
+
+  it('SENS RESTRICTIF — run_command require_approval gate même une commande ordinaire', async () => {
+    // `node --check` est ordinaire : sans la règle, destructive_gate la laisse
+    // passer (test du bloc précédent). La règle du propriétaire la rattrape.
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: 'node --check app.js' }] },
+      makeCtx(),
+      gate([rule('run_command', 'require_approval')]),
+    );
+    expect(res.outcome).toBe('awaiting_approval');
+  });
+
+  it('une règle NOMMANT declare_verification gagne sur celle de run_command', async () => {
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: NODE_EVAL }] },
+      makeCtx(),
+      gate([rule('run_command', 'block'), rule('declare_verification', 'auto_approve')]),
+    );
+    expect(res.outcome).toBe('success');
+  });
+
+  it('une règle run_command PORTÉE PAR L’ENTITÉ s’applique aussi', async () => {
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: NODE_EVAL }] },
+      makeCtx(),
+      gate([rule('run_command', 'auto_approve', 'entity')]),
+    );
+    expect(res.outcome).toBe('success');
+  });
+
+  it('le plancher catastrophique tient malgré run_command auto_approve', async () => {
+    // `rm -rf / --no-preserve-root` est refusé-même-après-approbation : aucun
+    // consentement posé sur run_command ne peut le faire passer tout seul.
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: 'rm -rf / --no-preserve-root' }] },
+      makeCtx(),
+      gate([rule('run_command', 'auto_approve')]),
+    );
+    expect(res.outcome).toBe('awaiting_approval');
+  });
+
+  it('un joker `*` auto_approve ne vaut PAS consentement à exécuter du shell', async () => {
+    // Même neutralisation que pour run_command lui-même (revue sécurité 25/08) :
+    // un blanc-seing n'est pas un « oui » à du code arbitraire.
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: NODE_EVAL }] },
+      makeCtx(),
+      gate([rule('*', 'auto_approve')]),
+    );
+    expect(res.outcome).toBe('awaiting_approval');
+  });
+
+  it('une déclaration SANS commande ignore la règle run_command', async () => {
+    // Rien ne tournera : la règle du shell n'a rien à dire ici, et un `block`
+    // sur run_command ne doit pas empêcher d'enregistrer une preuve vide.
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [] },
+      makeCtx(),
+      gate([rule('run_command', 'block')]),
+    );
+    expect(res.outcome).toBe('success');
+  });
+
+  it('un outil ORDINAIRE n’est pas touché par la règle run_command', async () => {
+    // La règle ne doit pas fuir vers les outils qui ne font tourner aucun shell.
+    const res = await executeTool(
+      makeSimpleTool(),
+      { value: 'x' },
+      makeCtx(),
+      gate([rule('run_command', 'block')]),
+    );
+    expect(res.outcome).toBe('success');
+  });
+});
