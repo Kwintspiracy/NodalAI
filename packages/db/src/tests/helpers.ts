@@ -606,6 +606,13 @@ export async function spinUpTestDb(): Promise<{ db: TestDb; pg: PGlite }> {
     CREATE INDEX IF NOT EXISTS idx_conversations_thread_tiebreak
       ON conversations(entity_id, agent_id, channel, chat_id, created_at DESC, id DESC);
 
+    CREATE INDEX IF NOT EXISTS idx_conversations_listable_chats
+      ON conversations(entity_id, agent_id, channel, chat_id)
+      WHERE origin IN ('user', 'project')
+        AND channel <> 'dashboard'
+        AND chat_id IS NOT NULL
+        AND chat_id <> '';
+
     CREATE TABLE IF NOT EXISTS chat_messages (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       entity_id uuid REFERENCES entities(id) ON DELETE CASCADE,

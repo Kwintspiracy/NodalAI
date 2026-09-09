@@ -90,6 +90,16 @@ export const conversations = pgTable(
       table.createdAt.desc(),
       table.id.desc(),
     ),
+    // L'autre question de `/chat` : quels chats DEVRAIENT être listés ? Elle
+    // filtre sur l'ORIGINE, qu'aucun index ne portait (revue Codex, PR #48,
+    // passe 10). PARTIEL, avec les prédicats exacts de la requête : il ne
+    // couvre que les lignes qui peuvent répondre, et reste petit là où la
+    // table grandit surtout par les fils qu'il exclut.
+    index('idx_conversations_listable_chats')
+      .on(table.entityId, table.agentId, table.channel, table.chatId)
+      .where(
+        sql`${table.origin} IN ('user', 'project') AND ${table.channel} <> 'dashboard' AND ${table.chatId} IS NOT NULL AND ${table.chatId} <> ''`,
+      ),
     check('conversations_origin_check', sql`${table.origin} IN ('user','onboarding','project')`),
     check(
       'conversations_channel_check',
