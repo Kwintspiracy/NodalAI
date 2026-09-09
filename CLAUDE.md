@@ -93,6 +93,26 @@ pnpm deps:check   # dependency-cruiser
 3. **Regression** — un test par comportement legacy préservé. Écrit AVANT le port.
 4. **Integration / smoke** — uniquement pour briques touchant un service externe (LLM, DB, API tierce).
 
+### Où vivent les tests
+
+**À CÔTÉ du code qu'ils prouvent**, jamais dans un dossier `tests/` central :
+
+| Quoi | Où | Combien |
+|---|---|---|
+| Unitaires, architecture, régression | `packages/<paquet>/src/tests/` et `apps/<app>/src/tests/` | 586 fichiers |
+| Bout en bout (Playwright) | `apps/web/tests/e2e/` — le `testDir` de `playwright.config.ts` est relatif à `apps/web` | 36 fichiers |
+| Banc d'essai (mesures, pas verdicts) | `packages/bench`, baselines dans `bench/baselines/` | 5 sections |
+
+`vitest.config.ts` à la racine ne déclare aucun chemin de découverte : il prend
+tout, sauf `node_modules`, `dist`, `.next`, `.turbo` et `.claude` (des copies
+périmées de l'arbre y traînent).
+
+Le dépôt a porté jusqu'au 09/09/2026 trois dossiers `tests/architecture`,
+`tests/e2e` et `tests/smoke` à la racine, **vides depuis sa fondation** — un
+`.gitkeep` chacun, aucune configuration ne les regardant. Un audit de juillet
+les avait signalés ; ils sont supprimés. Quiconque ouvrait le dépôt y voyait la
+promesse de tests qui vivaient ailleurs.
+
 ## Legacy reference
 
 The KwintAgents legacy code lives at `D:\APPS\KwintAgents/` — read-only reference during migration. Each brique in the plan file lists which legacy files to port from.
