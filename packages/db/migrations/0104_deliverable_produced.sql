@@ -1,0 +1,23 @@
+-- produced — un outil a-t-il RÉUSSI à écrire dans ce livrable, pendant ce job ?
+--
+-- `addressed` dit ce qu'un outil a NOMMÉ. Il ne peut pas dire ce qu'il a
+-- produit : l'intention de mutation est posée AVANT l'exécution, délibérément
+-- (« le projet est sale avant d'être écrit »), et une tentative qui échoue la
+-- laisse en place — c'est la bonne garde, une preuve doit être invalidée par
+-- ce qui a été tenté.
+--
+-- Mais `declare_verification` s'en servait comme d'une AUTORISATION : « ce job
+-- a produit ce projet, il peut donc déclarer comment on le vérifie ». Un
+-- `file_edit` dont l'`old_string` est absent ne modifie rien et laisse pourtant
+-- la trace : un agent délégué pouvait ainsi viser un projet qu'il n'a pas
+-- produit, puis remplacer la séquence de preuve que le propriétaire avait
+-- approuvée (revue Codex, PR #49, passe 2).
+--
+-- D'où deux colonnes pour deux questions. `addressed` reste ce que l'écran
+-- montre ; `produced` est ce qui autorise à déclarer une preuve.
+--
+-- Défaut `false`, à l'inverse de `addressed` : une autorisation ne se présume
+-- pas. Les lignes déjà écrites appartiennent à des jobs terminés, qui ne
+-- déclareront plus rien.
+ALTER TABLE job_deliverable_verification_state
+  ADD COLUMN IF NOT EXISTS produced boolean NOT NULL DEFAULT false;

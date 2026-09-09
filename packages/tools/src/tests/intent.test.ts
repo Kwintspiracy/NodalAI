@@ -418,6 +418,104 @@ describe('l’intention de mutation, posée par executeTool', () => {
     );
   });
 
+  it('un shell lancé À LA RACINE ne vise aucun projet — tout est précaution', async () => {
+    // Revue Codex PR #49, passe 2, constat 3. La passe 1 avait fait passer les
+    // cibles VISÉES par l'expansion des racines, pour qu'un cwd valant une
+    // racine attachée retrouve une correspondance de clés. L'effet était de
+    // fabriquer des livrables que rien n'avait nommés : la racine éclatée en
+    // ses enfants, chacun marqué VISÉ, alors que la commande n'en désignait
+    // aucun.
+    //
+    // Ce que le produit doit dire est plus simple : lancer un shell à la
+    // racine, c'est justement ne PAS choisir de projet. La garde reste large —
+    // les deux enfants sont sales, un shell écrit où il veut — mais l'écran
+    // n'annonce aucun livrable, ce qui est vrai.
+    await mkdir(join(ws, 'projet-a'), { recursive: true });
+    await mkdir(join(ws, 'projet-b'), { recursive: true });
+
+    const res = await executeTool(
+      runCommandTool as never,
+      { purpose: 'test', command: 'echo ok', cwd: '.' },
+      ctx(),
+      autoApprove('run_command'),
+    );
+    expect(res.outcome === 'error' ? res.error : res.outcome).toBe('success');
+
+    const rows = await statesOf(jobId);
+    expect(rows.map((r) => r.canonicalKey).sort()).toEqual(
+      [keyOf(join(ws, 'projet-a')), keyOf(join(ws, 'projet-b'))].sort(),
+    );
+    for (const row of rows) {
+      expect(row.addressed, `${row.canonicalKey} n’a été nommé par personne`).toBe(false);
+    }
+  });
+
+  it('un shell lancé dans une racine À MANIFESTE vise CE projet', async () => {
+    // Le pendant du test ci-dessus, et le cas que la passe 1 voulait servir :
+    // quand la racine porte un manifeste, c'est ELLE le projet, elle n'est pas
+    // éclatée, et le cwd la désigne bel et bien. Aucune expansion des cibles
+    // visées n'est nécessaire pour cela — la clé correspond d'elle-même.
+    await writeFile(join(ws, 'package.json'), '{}');
+
+    const res = await executeTool(
+      runCommandTool as never,
+      { purpose: 'test', command: 'echo ok', cwd: '.' },
+      ctx(),
+      autoApprove('run_command'),
+    );
+    expect(res.outcome === 'error' ? res.error : res.outcome).toBe('success');
+
+    const rows = await statesOf(jobId);
+    expect(rows.map((r) => r.canonicalKey)).toEqual([keyOf(ws)]);
+    expect(rows[0]!.addressed, 'la racine à manifeste EST le projet visé').toBe(true);
+  });
+
+  it('une écriture RÉUSSIE marque le livrable comme produit', async () => {
+    // `produced` est ce qui autorisera `declare_verification` à dire comment on
+    // vérifie ce projet. Il n'est posé qu'ici, après le succès — et sur les
+    // seuls livrables NOMMÉS : une racine voisine salie par précaution ne
+    // devient pas quelque chose que ce travail a produit.
+    await mkdir(join(ws, 'zeta'), { recursive: true });
+    await mkdir(join(ws, 'alpha'), { recursive: true });
+
+    const res = await executeTool(
+      runCommandTool as never,
+      { purpose: 'test', command: 'echo ok', cwd: 'zeta' },
+      ctx(),
+      autoApprove('run_command'),
+    );
+    expect(res.outcome === 'error' ? res.error : res.outcome).toBe('success');
+
+    const parCle = new Map((await statesOf(jobId)).map((r) => [r.canonicalKey, r.produced]));
+    expect(parCle.get(keyOf(join(ws, 'zeta'))), 'le cwd visé est produit').toBe(true);
+    expect(parCle.get(keyOf(join(ws, 'alpha'))), 'une précaution n’est pas produite').toBe(false);
+  });
+
+  it('une tentative qui n’écrit RIEN salit le projet sans le marquer produit', async () => {
+    // Revue Codex PR #49, passe 2. L'intention est posée AVANT l'exécution :
+    // c'est la bonne garde (le projet reste sale, une preuve doit être
+    // invalidée par ce qui a été tenté) et une mauvaise autorisation. Un
+    // `file_edit` dont l'`old_string` est absent ne modifie pas un octet.
+    await writeFile(join(ws, 'package.json'), '{}');
+    await mkdir(join(ws, 'src'), { recursive: true });
+    await writeFile(join(ws, 'src', 'a.ts'), 'const a = 1;\n');
+
+    const res = await executeTool(
+      fileEditTool as never,
+      { path: 'src/a.ts', old_string: 'CE TEXTE N’EXISTE PAS', new_string: 'peu importe' },
+      ctx(),
+      autoApprove('file_edit'),
+    );
+    // L'outil répond, sous une carte d'ÉCHEC : ce n'est pas une erreur du seam.
+    expect(res.outcome).toBe('success');
+
+    const rows = await statesOf(jobId);
+    expect(rows.map((r) => r.canonicalKey)).toEqual([keyOf(ws)]);
+    expect(rows[0]!.dirtyGeneration, 'la garde reste conservatrice : c’est sale').toBe(1);
+    expect(rows[0]!.addressed, 'le fichier a bien été VISÉ').toBe(true);
+    expect(rows[0]!.produced, 'mais rien n’a été produit').toBe(false);
+  });
+
   it('file_edit pose l’intention sur le projet du fichier édité', async () => {
     await writeFile(join(ws, 'package.json'), '{}');
     await mkdir(join(ws, 'src'), { recursive: true });

@@ -97,6 +97,12 @@ export interface DirtiedDeliverable {
    * en ont une, dans `code_projects`).
    */
   readonly verificationEpoch: number | null;
+  /**
+   * Ce livrable a-t-il été NOMMÉ par l'outil, ou entre-t-il dans le périmètre
+   * par précaution ? Remonte au seam, qui marquera `produced` sur les seuls
+   * livrables nommés une fois le succès de l'écriture connu.
+   */
+  readonly addressed: boolean;
 }
 
 /**
@@ -254,20 +260,26 @@ async function resolveDeliverables(
   for (const [deliverableType, group] of byType) {
     switch (deliverableType) {
       case 'code_project': {
-        // Les projets réellement VISÉS, résolus sans expansion : le périmètre
+        // Les projets réellement VISÉS, résolus SANS expansion : le périmètre
         // large d'un shell ne doit pas les diluer. Ce sont eux, et eux seuls,
         // que l'écran présentera comme des livrables.
-        // L'EXPANSION s'applique aussi aux cibles VISÉES : une racine attachée
-        // sans manifeste est remplacée par ses enfants, si bien qu'un shell
-        // lancé À la racine produisait la clé de la racine d'un côté et celles
-        // des enfants de l'autre — aucune correspondance, ciblage perdu (revue
-        // Codex, PR #49).
+        //
+        // L'expansion est réservée au périmètre SALE, et il faut résister à la
+        // tentation de l'appliquer ici « pour que les clés correspondent » —
+        // essayé en passe 1, retiré en passe 2. Une racine sans manifeste y est
+        // remplacée par ses enfants : la faire passer aux cibles visées marquait
+        // VISÉ chacun des enfants d'une racine où un shell avait simplement été
+        // lancé, alors que la commande n'en désignait aucun. C'est le défaut que
+        // cette PR corrige, réintroduit par son propre correctif.
+        //
+        // Le cas qui avait motivé l'essai se règle sans elle : quand la racine
+        // porte un manifeste, c'est ELLE le projet, `expandWorkspaceRoots` ne
+        // l'éclate pas, et la clé correspond d'elle-même. Quand elle n'en porte
+        // pas, aucune clé ne correspond — et c'est la bonne réponse : lancer un
+        // shell à la racine, c'est ne pas choisir de projet.
         const addressedKeys = new Set(
           resolveProjectRoots({
-            targets: await expandWorkspaceRoots(
-              group.filter((t) => t.scope !== 'precaution'),
-              workspaceRoots,
-            ),
+            targets: group.filter((t) => t.scope !== 'precaution'),
             workspaceRoots,
             hasMarker,
           }).map((p) => p.key),
@@ -635,6 +647,7 @@ export async function writeMutationIntent(
           path: deliverable.path,
           dirtyGeneration: state.dirtyGeneration,
           verificationEpoch,
+          addressed: deliverable.addressed,
         });
       }
 

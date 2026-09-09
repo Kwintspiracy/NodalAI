@@ -112,9 +112,15 @@ export const declareVerificationTool: ToolDefinition<
     // sur n'importe quel projet de l'espace, y compris en remplaçant celle que
     // le propriétaire avait approuvée (revue Codex, PR #49).
     //
-    // La trace existe déjà : l'intention de mutation écrit une ligne ADRESSÉE
-    // pour chaque livrable qu'un outil a nommé. On lit cette ligne, on n'en
-    // fabrique pas une nouvelle.
+    // La trace lue est `produced`, PAS `addressed` — et la distinction est
+    // toute la garde. `addressed` dit ce qu'un outil a nommé, et il est écrit
+    // AVANT l'exécution : un `file_edit` dont l'`old_string` est absent vise le
+    // fichier, n'écrit rien, et laissait pourtant la trace. Un délégué pouvait
+    // ainsi déclarer — donc faire exécuter — une séquence sur un projet qu'il
+    // n'avait pas touché (revue Codex, PR #49, passe 2).
+    //
+    // `produced` n'est posé qu'APRÈS une écriture réussie, sur les seuls
+    // livrables nommés. On lit cette ligne, on n'en fabrique pas une nouvelle.
     const [touche] = await ctx.db
       .select({ id: jobDeliverableVerificationState.id })
       .from(jobDeliverableVerificationState)
@@ -122,7 +128,7 @@ export const declareVerificationTool: ToolDefinition<
         and(
           eq(jobDeliverableVerificationState.jobId, ctx.jobId),
           eq(jobDeliverableVerificationState.canonicalKey, key),
-          eq(jobDeliverableVerificationState.addressed, true),
+          eq(jobDeliverableVerificationState.produced, true),
         ),
       )
       .limit(1);

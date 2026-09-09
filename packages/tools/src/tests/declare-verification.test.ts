@@ -56,11 +56,15 @@ beforeAll(async () => {
 });
 
 /**
- * La trace qu'un outil a NOMMÉ ce projet pendant ce job — écrite en vrai par
- * l'intention de mutation. Sans elle, la déclaration est refusée : on ne
- * déclare une preuve que pour ce qu'on a produit.
+ * La trace qu'un outil a écrit dans ce projet pendant ce job — posée en vrai
+ * par l'intention de mutation (`addressed`), puis par le seam une fois
+ * l'écriture RÉUSSIE (`produced`). Sans la seconde, la déclaration est
+ * refusée : on ne déclare une preuve que pour ce qu'on a réellement produit.
  */
-async function poserLaTrace(cle = projectKey(PROJET), addressed = true): Promise<void> {
+async function poserLaTrace(
+  cle = projectKey(PROJET),
+  { addressed = true, produced = true }: { addressed?: boolean; produced?: boolean } = {},
+): Promise<void> {
   await db.insert(jobDeliverableVerificationState).values({
     jobId: seed.jobId,
     deliverableType: 'code_project',
@@ -68,6 +72,7 @@ async function poserLaTrace(cle = projectKey(PROJET), addressed = true): Promise
     dirtyGeneration: 1,
     decisionStatus: 'dirty',
     addressed,
+    produced,
   });
 }
 
@@ -181,12 +186,27 @@ describe('declare_verification', () => {
   it('une trace de PRÉCAUTION ne suffit pas : il faut avoir VISÉ ce projet', async () => {
     // Un shell salit tout son périmètre par précaution. Cela ne fait pas de
     // chaque dossier voisin quelque chose qu'on a produit.
-    await poserLaTrace(projectKey(PROJET), false);
+    await poserLaTrace(projectKey(PROJET), { addressed: false, produced: false });
     const out = await declareVerificationTool.execute(
       { project_path: PROJET, commands: [{ command: 'node --check app.js' }] },
       ctx(),
     );
     expect(out.declared).toBe(false);
+    expect((await projet())?.verifyCommands).toBeNull();
+  });
+
+  it('avoir VISÉ ne suffit pas : il faut avoir RÉUSSI à écrire', async () => {
+    // Revue Codex PR #49, passe 2. L'intention de mutation est posée AVANT
+    // l'exécution : un `file_edit` dont l'`old_string` est absent VISE le
+    // fichier, n'écrit rien, et laissait pourtant déclarer — donc remplacer la
+    // séquence de preuve que le propriétaire avait approuvée.
+    await poserLaTrace(projectKey(PROJET), { addressed: true, produced: false });
+    const out = await declareVerificationTool.execute(
+      { project_path: PROJET, commands: [{ command: 'node --check app.js' }] },
+      ctx(),
+    );
+    expect(out.declared).toBe(false);
+    if (!out.declared) expect(out.reason).toContain('did not produce anything');
     expect((await projet())?.verifyCommands).toBeNull();
   });
 

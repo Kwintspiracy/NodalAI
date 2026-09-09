@@ -171,11 +171,19 @@ async function insertJob(status: string, result = ''): Promise<string> {
   return row.id;
 }
 
+/**
+ * `produced` reste FAUX par défaut, comme la colonne : la plupart des tests de
+ * ce fichier n'exercent que la finalisation, qui ne le lit pas. Seule la
+ * DÉCLARATION s'en sert — c'est ce qui prouve qu'un outil a réellement écrit
+ * dans ce projet pendant ce job, et les deux tests de la boucle complète le
+ * posent explicitement.
+ */
 async function insertState(
   jobId: string,
   deliverableType: string,
   canonicalKey: string,
   dirtyGeneration: number,
+  produced = false,
 ): Promise<string> {
   const [row] = await db
     .insert(jobDeliverableVerificationState)
@@ -185,6 +193,7 @@ async function insertState(
       canonicalKey,
       dirtyGeneration,
       decisionStatus: 'dirty',
+      produced,
     })
     .returning({ id: jobDeliverableVerificationState.id });
   if (!row) throw new Error('state insert failed');
@@ -431,10 +440,12 @@ describe('finalizeJobSuccess — non configuré et non approuvé', () => {
   // sa propre vérification en finissant, et la finalisation l'exécute.
   it('un projet SANS configuration devient prouvable quand l’agent déclare', async () => {
     // Le projet existe (déclaré au registre) mais n'a AUCUNE commande : l'état
-    // dans lequel se trouvent tous les projets réels.
+    // dans lequel se trouvent tous les projets réels. La ligne d'état est
+    // `produced` : ce job a écrit dans ce projet, ce qui est précisément ce qui
+    // lui donne le droit de dire comment on le vérifie.
     await setProject(null, null);
     const jobId = await insertJob('processing');
-    const stateId = await insertState(jobId, 'code_project', key, 1);
+    const stateId = await insertState(jobId, 'code_project', key, 1, true);
 
     // Sans déclaration, rien ne tourne — c'est le point de départ.
     const cmd = await script('preuve.js', 'process.exit(0)');
@@ -469,7 +480,7 @@ describe('finalizeJobSuccess — non configuré et non approuvé', () => {
   it('une preuve déclarée qui ÉCHOUE rend le livrable rouge', async () => {
     await setProject(null, null);
     const jobId = await insertJob('processing');
-    const stateId = await insertState(jobId, 'code_project', key, 1);
+    const stateId = await insertState(jobId, 'code_project', key, 1, true);
 
     const cmd = await script('preuve-rouge.js', 'process.exit(3)');
     const { declareVerificationTool } = await import('@nodal-agents/tools');

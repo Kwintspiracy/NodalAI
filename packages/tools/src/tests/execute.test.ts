@@ -1004,3 +1004,87 @@ describe('executeTool — create_mcp stdio treated as code-execution (É-2)', ()
     expect(res.outcome).toBe('success');
   });
 });
+
+// Une preuve DÉCLARÉE s'exécutera à la finalisation, sans repasser par une
+// approbation : ses commandes doivent donc être jugées MAINTENANT, exactement
+// comme celles de `run_command`. Sans cela, déclarer serait le moyen détourné
+// d'exécuter sans demander — et c'est `destructive_gate` qui l'ouvrait, la
+// passe 1 n'ayant fermé que `fully_autonomous` (revue Codex, PR #49, passe 2).
+describe('executeTool — declare_verification judged by its COMMANDS (revue passe 2)', () => {
+  const declareSchema = z.object({
+    project_path: z.string(),
+    commands: z.array(z.object({ command: z.string() })),
+  });
+  const declareTool: ToolDefinition<typeof declareSchema, string> = {
+    name: 'declare_verification',
+    description: 'test declare_verification',
+    inputSchema: declareSchema,
+    // `write`, comme l'outil réel : c'est précisément ce niveau qui le faisait
+    // passer pour du travail ordinaire sous `destructive_gate`.
+    riskLevel: 'write',
+    defaultApproval: 'require_approval',
+    execute: async () => 'ok',
+  };
+  const gateOpts: ExecuteOptions = { ...makeOpts(), autonomy: 'destructive_gate' };
+
+  it('auto-approves an ORDINARY declared proof (a syntax check)', async () => {
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: 'node --check app.js' }] },
+      makeCtx(),
+      gateOpts,
+    );
+    expect(res.outcome).toBe('success');
+  });
+
+  it('STILL gates a heavy declared command (npm install) under destructive_gate', async () => {
+    // Le même `npm install` passé à `run_command` reste gaté : déclarer ne
+    // doit pas être une porte moins gardée qu'exécuter.
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: 'npm install' }] },
+      makeCtx(),
+      gateOpts,
+    );
+    expect(res.outcome).toBe('awaiting_approval');
+  });
+
+  it('STILL gates a destructive declared command (rm -rf) under destructive_gate', async () => {
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: 'rm -rf ./build' }] },
+      makeCtx(),
+      gateOpts,
+    );
+    expect(res.outcome).toBe('awaiting_approval');
+  });
+
+  it('ONE heavy command among ordinary ones gates the whole declaration', async () => {
+    // La séquence s'exécute entière : la juger sur sa commande la plus lourde
+    // est la seule lecture qui ne laisse pas passer la lourde.
+    const res = await executeTool(
+      declareTool,
+      {
+        project_path: 'C:/p',
+        commands: [
+          { command: 'node --check app.js' },
+          { command: 'uvx --from comfy-cli comfy install --nvidia' },
+          { command: 'node app.test.js' },
+        ],
+      },
+      makeCtx(),
+      gateOpts,
+    );
+    expect(res.outcome).toBe('awaiting_approval');
+  });
+
+  it('an EMPTY declaration is ordinary — nothing will run', async () => {
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [] },
+      makeCtx(),
+      gateOpts,
+    );
+    expect(res.outcome).toBe('success');
+  });
+});

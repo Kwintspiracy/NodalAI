@@ -83,6 +83,21 @@ export const jobDeliverableVerificationState = pgTable(
      * livrables non vérifiés, dont `shared/_archive` (constaté le 08/09/2026).
      */
     addressed: boolean('addressed').notNull().default(true),
+    /**
+     * Un outil a-t-il RÉUSSI à écrire dans ce livrable pendant ce job ?
+     *
+     * `addressed` ne peut pas répondre : l'intention est posée AVANT
+     * l'exécution, et une tentative qui échoue la laisse en place — c'est la
+     * bonne garde, mais une mauvaise autorisation. `declare_verification` s'en
+     * servait pourtant comme telle, si bien qu'un `file_edit` au `old_string`
+     * absent suffisait à déclarer la preuve d'un projet qu'on n'avait pas
+     * produit (revue Codex, PR #49, passe 2).
+     *
+     * Deux colonnes, deux questions : `addressed` est ce que l'écran MONTRE,
+     * `produced` est ce qui AUTORISE à déclarer une preuve. Défaut `false` —
+     * une autorisation ne se présume pas.
+     */
+    produced: boolean('produced').notNull().default(false),
     /** DecisionStatus — l'état lisible affiché à l'owner. */
     decisionStatus: text('decision_status').notNull(),
     /** Empreinte de la dernière commande de preuve exécutée (diagnostic, pas le hash d'approbation). */
