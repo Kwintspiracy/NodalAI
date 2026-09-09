@@ -99,16 +99,25 @@ export default function ThreadScroller({
   /**
    * Descendre, sans que notre propre geste passe pour celui du lecteur.
    *
-   * Le drapeau n'est armé que si la position a VRAIMENT bougé. Armé
-   * inconditionnellement, il restait en attente d'un événement qui ne venait
-   * jamais quand le fil était déjà en bas — et c'est alors le geste SUIVANT du
-   * lecteur, un vrai celui-là, qui se faisait avaler : il remontait, son
-   * défilement était ignoré, et la première croissance du contenu le ramenait
-   * en bas (revue Codex, PR #48, constat 5).
+   * On mémorise la POSITION écrite, pas le fait d'avoir écrit. C'est ce qui
+   * distingue les deux mécanismes, et la distinction a été payée deux fois :
    *
-   * L'écriture est synchrone, l'événement asynchrone : lire `scrollTop` juste
-   * après l'affectation dit si le navigateur a bougé, et le drapeau est donc
-   * posé avant que l'événement n'arrive.
+   *   - un DRAPEAU « c'est nous » armé à chaque écriture restait en attente
+   *     d'un événement qui ne venait jamais quand le fil était déjà en bas, et
+   *     c'est le geste SUIVANT du lecteur qui se faisait avaler (passe 1) ;
+   *   - un COMPTEUR d'événements attendus ne peut pas marcher davantage : le
+   *     navigateur FUSIONNE les événements de défilement d'un même élément
+   *     (CSSOM View §13.2), donc on ne sait pas combien arriveront (passe 3).
+   *
+   * La position, elle, se relit à tout moment et ne se consomme pas. L'écriture
+   * est synchrone, l'événement asynchrone : lire `scrollTop` juste après
+   * l'affectation enregistre où le navigateur nous a réellement laissés — il
+   * borne la valeur à ce que le contenu permet — avant que l'événement
+   * n'arrive. Toute position différente de celle-là vient de quelqu'un d'autre.
+   *
+   * L'affectation est donc INCONDITIONNELLE, et ce n'est pas un oubli : une
+   * écriture qui ne déplace rien réenregistre la position courante, ce qui est
+   * exactement ce qu'on veut mémoriser.
    */
   const scrollToBottom = (el: HTMLDivElement) => {
     el.scrollTop = el.scrollHeight;

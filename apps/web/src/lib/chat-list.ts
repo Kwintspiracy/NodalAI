@@ -82,13 +82,45 @@ export function chatKey(agentId: string | null, channel: string, chatId: string)
 }
 
 /**
+ * Le fil COURANT d'un chat, au sens du runner : le dernier OUVERT.
+ *
+ * `resolveConversation` (apps/runner/src/job/conversation-id.ts) choisit par
+ * `created_at DESC, id DESC`. C'est lui qui décide où atterrira le prochain
+ * message ; l'écran n'a pas de second avis à donner, il lit la même règle.
+ *
+ * Pourquoi la date de MODIFICATION ne peut pas servir : elle bouge pour des
+ * raisons qui n'ouvrent aucun fil. Un rattachement de projet touche
+ * l'`updated_at` de la conversation où le travail a été lancé (`attach.ts`),
+ * même si l'utilisateur a tapé `/new` entre-temps — le vieux fil repasse alors
+ * devant, et la ligne ouvrait celui que le prochain message n'alimenterait pas
+ * (revue Codex, PR #48, passe 5).
+ *
+ * `null` compte comme la plus ancienne des dates : une ligne sans date de
+ * création ne prend la place de personne. L'`id` départage à égalité, dans le
+ * même sens que le runner, pour que deux fils posés à la même seconde ne
+ * dépendent pas de l'ordre de réception.
+ */
+function estPlusCourant(a: ConversationListRow, courant: ConversationListRow): boolean {
+  const ta = a.createdAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+  const tc = courant.createdAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+  if (ta !== tc) return ta > tc;
+  return a.id > courant.id;
+}
+
+/**
  * Sépare les fils de canal des conversations du dashboard, et replie les
  * premiers par chat.
  *
- * Les lignes arrivent les plus récentes d'abord (l'action trie par
- * `updated_at`) : le PREMIER fil rencontré pour un chat est donc son fil
- * courant, et c'est celui qu'on ouvre. Les suivants ne servent qu'à compter —
- * ils restent lisibles par leur URL, ils ne méritent pas une ligne de liste.
+ * Une ligne de chat porte DEUX temps, et les confondre était le défaut :
+ *   - sa RÉCENCE est celle du chat — le maximum des `updated_at`, donc la
+ *     première ligne reçue, puisque l'action trie par `updated_at DESC`. Un
+ *     fil ancien qu'on remue a bel et bien fait bouger ce chat ;
+ *   - son FIL COURANT est le dernier ouvert (`estPlusCourant`), et c'est lui
+ *     qu'on ouvre au clic. Son aperçu et ses tours le suivent : la ligne dirait
+ *     sinon le dernier mot d'un autre fil que celui vers lequel elle mène.
+ *
+ * Les fils non courants ne servent qu'à compter — ils restent lisibles par
+ * leur URL, ils ne méritent pas une ligne de liste.
  *
  * Une conversation de canal sans `chatId` ne peut être ratachée à aucun chat :
  * elle reste dans la liste du bas plutôt que de disparaître.
@@ -98,6 +130,8 @@ export function groupChatLists(
   names: ChatNames = {},
 ): ChatLists {
   const channels = new Map<string, ChannelChatRow>();
+  /** La ligne d'où vient le fil courant de chaque chat, pour la comparer. */
+  const courants = new Map<string, ConversationListRow>();
   const dashboard: ConversationListRow[] = [];
 
   for (const r of rows) {
@@ -110,8 +144,16 @@ export function groupChatLists(
     const seen = channels.get(key);
     if (seen) {
       seen.conversationCount += 1;
+      const courant = courants.get(key);
+      if (courant && estPlusCourant(r, courant)) {
+        courants.set(key, r);
+        seen.currentConversationId = r.id;
+        seen.lastPreview = r.lastPreview;
+        seen.turns = r.turns;
+      }
       continue;
     }
+    courants.set(key, r);
     channels.set(key, {
       key,
       channel: r.channel,
