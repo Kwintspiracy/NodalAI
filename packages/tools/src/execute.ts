@@ -278,21 +278,30 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
   // par `destructive_gate` sur une commande ordinaire, et la règle du
   // propriétaire n'aurait servi à rien. Une règle explicite gagne sur un niveau
   // d'autonomie — c'est vrai de `run_command`, ça doit l'être de sa déclaration.
+  // Un joker n'a NOMMÉ aucun outil, et ne doit donc pas court-circuiter la
+  // règle qui, elle, nomme `run_command`. `matchApprovalRule` range déjà
+  // l'exact au-dessus du joker (priorités 1-2 contre 5-6) ; la déclaration suit
+  // le même ordre. Sans cette exception, une entité posée en
+  // `* → require_approval` — une posture prudente parfaitement banale —
+  // annulait le toggle Yolo d'un agent, et rendait un `run_command → block`
+  // simplement approuvable (revue Codex, PR #50).
   let shellRuleApplied = false;
-  if (!matchedRule && tool.name === 'declare_verification' && commandesJugees.length > 0) {
-    const rawShellRule = matchApprovalRule(
+  if (
+    (!matchedRule || matchedRule.toolName === '*') &&
+    tool.name === 'declare_verification' &&
+    commandesJugees.length > 0
+  ) {
+    const shellRule = matchApprovalRule(
       opts.approvalRules,
       'run_command',
       ctx.agentId,
       ctx.entityId,
     );
-    // Même neutralisation que pour `run_command` lui-même : un joker `*`
-    // auto_approve n'est pas un « oui » à du code arbitraire (revue 25/08).
-    const shellRule =
-      rawShellRule?.toolName === '*' && rawShellRule.action === 'auto_approve'
-        ? undefined
-        : rawShellRule;
-    if (shellRule) {
+    // Seule une règle qui NOMME `run_command` s'hérite. Un joker retombé ici
+    // est exactement celui déjà en place — il n'y a rien à hériter, et son sens
+    // reste celui qu'il avait. Cette condition remplace la neutralisation du
+    // `* auto_approve` : un joker ne franchit plus cette porte du tout.
+    if (shellRule?.toolName === 'run_command') {
       effectiveAction = shellRule.action;
       shellRuleApplied = true;
     }

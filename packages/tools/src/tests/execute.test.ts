@@ -1238,6 +1238,64 @@ describe('executeTool — une preuve déclarée est jugée sous la règle de run
     expect(res.outcome).toBe('success');
   });
 
+  // Un joker n'a NOMMÉ aucun outil. `matchApprovalRule` le range déjà sous les
+  // règles exactes (priorités 5-6 contre 1-2) : la déclaration doit suivre le
+  // même ordre. Sans ça, une entité posée en `* → require_approval` — une
+  // posture prudente parfaitement banale — annulait le toggle Yolo d'un agent,
+  // et rendait un `run_command → block` simplement approuvable. Constat de la
+  // revue Codex sur cette PR.
+  it('un joker sur la déclaration n’empêche PAS la règle qui nomme run_command', async () => {
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: NODE_EVAL }] },
+      makeCtx(),
+      gate([rule('*', 'require_approval', 'entity'), rule('run_command', 'auto_approve')]),
+    );
+    expect(res.outcome).toBe('success');
+  });
+
+  it('sous un joker, un run_command block BLOQUE au lieu de demander', async () => {
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: 'node --check app.js' }] },
+      makeCtx(),
+      gate([rule('*', 'require_approval', 'entity'), rule('run_command', 'block')]),
+    );
+    expect(res.outcome).toBe('error');
+    if (res.outcome === 'error') {
+      expect(res.error).toContain('blocked: an approval rule forbids');
+    }
+  });
+
+  it('sous un joker, une règle nommant declare_verification gagne toujours', async () => {
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: NODE_EVAL }] },
+      makeCtx(),
+      gate([
+        rule('*', 'require_approval', 'entity'),
+        rule('run_command', 'block'),
+        rule('declare_verification', 'auto_approve'),
+      ]),
+    );
+    expect(res.outcome).toBe('success');
+  });
+
+  it('un joker SEUL continue de s’appliquer — rien à hériter', async () => {
+    // Aucune règle ne nomme `run_command` : le joker retombé serait le même que
+    // celui déjà en place. Il garde son sens, et durcir vaut toujours.
+    const res = await executeTool(
+      declareTool,
+      { project_path: 'C:/p', commands: [{ command: 'node --check app.js' }] },
+      makeCtx(),
+      gate([rule('*', 'block', 'entity')]),
+    );
+    expect(res.outcome).toBe('error');
+    if (res.outcome === 'error') {
+      expect(res.error).toContain('blocked: an approval rule forbids');
+    }
+  });
+
   it('un outil ORDINAIRE n’est pas touché par la règle run_command', async () => {
     // La règle ne doit pas fuir vers les outils qui ne font tourner aucun shell.
     const res = await executeTool(

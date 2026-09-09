@@ -840,6 +840,14 @@ async function runJob(
   // de bout en bout, lui, se lit `completed_at − created_at` et n'a pas besoin
   // d'une colonne.
   const dejaCompteMs = job.totalDurationMs ?? 0;
+  // Écrit à CHAQUE point de sauvegarde, pas seulement à la fin. Amorcer depuis
+  // la ligne ne sert à rien si la suspension n'y écrit pas le segment courant :
+  // la colonne resterait à zéro pendant toute l'attente, et la reprise
+  // repartirait de zéro — l'accumulateur n'accumulerait rien. Les deux chemins
+  // qui ont produit le bug d'origine (suspension pour approbation, sauvegarde
+  // avant délégation) sont précisément ceux qui l'omettaient. Constat de la
+  // revue Codex sur cette PR, fermé par un test qui suspend pour de vrai au
+  // lieu de précharger la colonne.
   const dureeCumuleeMs = (): number => dejaCompteMs + (Date.now() - startedAt);
 
   const runStats = (): {
@@ -2169,6 +2177,7 @@ async function runJob(
         effectiveInputTokens,
         totalCostUsd,
         servedProvider,
+        totalDurationMs: dureeCumuleeMs(),
       });
     }
 
@@ -2384,6 +2393,7 @@ async function runJob(
       effectiveInputTokens,
       totalCostUsd,
       servedProvider,
+      totalDurationMs: dureeCumuleeMs(),
     });
     await setJobStatus(db, jobId as string, 'awaiting_approval');
 
@@ -3492,6 +3502,7 @@ async function runJob(
                 effectiveInputTokens,
                 totalCostUsd,
                 servedProvider,
+                totalDurationMs: dureeCumuleeMs(),
               });
 
               const jobShape = {
@@ -4381,6 +4392,7 @@ async function runJob(
         effectiveInputTokens,
         totalCostUsd,
         servedProvider,
+        totalDurationMs: dureeCumuleeMs(),
       });
     }
   } catch (err) {
