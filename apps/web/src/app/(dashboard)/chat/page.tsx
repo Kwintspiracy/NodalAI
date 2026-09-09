@@ -7,7 +7,11 @@
 // n'est qu'un moyen d'y accéder.
 
 import PageShell from '@/components/ui/PageShell';
-import { listAllConversationsAction, listChatNamesAction } from '@/lib/conversation-actions.ts';
+import {
+  listAllConversationsAction,
+  listChatNamesAction,
+  listCurrentThreadByChatAction,
+} from '@/lib/conversation-actions.ts';
 import { groupChatLists } from '@/lib/chat-list.ts';
 import ChannelChatsTable from './ChannelChatsTable.tsx';
 import ConversationsList from './ConversationsList.tsx';
@@ -15,15 +19,20 @@ import ConversationsList from './ConversationsList.tsx';
 export const dynamic = 'force-dynamic';
 
 export default async function ChatPage() {
-  const [result, names] = await Promise.all([
+  const [result, names, currents] = await Promise.all([
     listAllConversationsAction(),
     // Le nom des chats de canal. Une lecture qui échoue ne doit pas emporter la
     // page : les chats s'affichent alors par leur identifiant.
     listChatNamesAction(),
+    // Le fil courant de chaque chat, désigné par la BASE avec la règle du
+    // runner. Une lecture qui échoue rend une carte vide, et le regroupement
+    // retombe sur son approximation — dégradée, jamais absente.
+    listCurrentThreadByChatAction(),
   ]);
   const { channels, dashboard } = groupChatLists(
     result.ok ? result.data : [],
     names.ok ? names.data : {},
+    currents.ok ? currents.data : {},
   );
 
   return (

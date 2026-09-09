@@ -48,6 +48,10 @@ import { getDb, applyActiveEntity, getAuthProvider } from './server.ts';
 import { assembleJobFeeds, collectDescendants } from './job-feed.ts';
 import { entityWorkspaceRoots } from './workspace-roots.ts';
 import { buildConversationThread } from './conversation-thread.ts';
+// UNE seule définition de la clé d'un chat, des deux côtés. Elle vit dans son
+// propre module : l'importer de `chat-list.ts` formait un cycle, puisque ce
+// dernier importe le type des lignes d'ici.
+import { chatKey } from './chat-key.ts';
 import type { ThreadJob, ThreadProject, ThreadProofRun } from './conversation-thread.ts';
 import { classifyProduction } from './chat-or-work.ts';
 import type { ConversationFeed } from './conversation-feed.ts';
@@ -92,6 +96,14 @@ export type ConversationListRow = {
   turns: number;
   lastPreview: string | null;
 };
+
+/**
+ * Le fil COURANT de chaque chat, désigné par la BASE, avec exactement la clé et
+ * l'ordre de `resolveConversation` (apps/runner/src/job/conversation-id.ts).
+ *
+ * Clé `<agentId>:<channel>:<chatId>` — la même que `chatKey` côté écran.
+ */
+export type CurrentThreadByChat = Readonly<Record<string, string>>;
 
 export type ConversationThreadView = {
   conversation: {
@@ -325,6 +337,76 @@ export async function listAllConversationsAction(): Promise<ActionResult<Convers
   } catch (err) {
     console.error('[listAllConversationsAction]', err);
     return fail('db_error', 'Failed to load conversations');
+  }
+}
+
+/**
+ * Le fil courant de chaque chat, désigné PAR LA BASE.
+ *
+ * POURQUOI ce n'est pas calculable côté écran, et pourquoi l'avoir essayé était
+ * l'erreur (revue Codex, PR #48, passes 5 et 6). Le fil courant d'un chat est
+ * celui où le RUNNER posera le prochain message : `resolveConversation` le
+ * choisit par `created_at DESC, id DESC` sur (entité, agent, canal, chat). Le
+ * recalculer en TypeScript sur les lignes chargées échouait de trois façons,
+ * toutes invisibles :
+ *
+ *   - la LISTE est coupée à 200 lignes, triées par `updated_at`. Un fil courant
+ *     resté inactif pendant que 199 autres conversations bougent tombe hors de
+ *     la fenêtre, et le calcul ne peut désigner que ce qu'il a reçu ;
+ *   - `created_at` est `timestamptz`, donc microsecondes en base ; une `Date`
+ *     JavaScript s'arrête à la milliseconde. Deux fils créés dans la même
+ *     milliseconde paraissaient à ÉGALITÉ côté écran, et le départage par `id`
+ *     se déclenchait sur une égalité qui n'existe pas en base ;
+ *   - `created_at` est NULLABLE (migration 0028), et `ORDER BY … DESC` place
+ *     les NULL DEVANT en PostgreSQL. Traiter `null` comme la plus ancienne date
+ *     — le choix naturel en TypeScript — inversait le verdict du runner.
+ *
+ * Une seule règle, exécutée à un seul endroit, sur les données entières. La
+ * requête rend une ligne par chat, sans plafond : c'est le nombre de chats, pas
+ * le nombre de conversations.
+ *
+ * Le filtre d'origine de la liste (`user`, `project`) n'est PAS repris : le
+ * runner ne l'applique pas, et c'est SON choix qu'on reproduit. Un chat dont le
+ * fil courant serait d'une autre origine doit mener là où ira le message.
+ */
+export async function listCurrentThreadByChatAction(): Promise<ActionResult<CurrentThreadByChat>> {
+  try {
+    const session = await getSession();
+    if (!session.entityId) return fail('no_entity', 'No active entity');
+    const db = getDb();
+
+    // `DISTINCT ON` rend la PREMIÈRE ligne de chaque groupe selon l'ORDER BY —
+    // donc le fil courant, et lui seul. L'ordre reproduit `resolveConversation`
+    // à la lettre, `NULLS FIRST` par défaut compris : diverger ici, même « en
+    // mieux », recréerait exactement le désaccord qu'on répare.
+    const rows = await db.execute<{
+      agent_id: string | null;
+      channel: string;
+      chat_id: string;
+      id: string;
+    }>(sql`
+      SELECT DISTINCT ON (${conversations.agentId}, ${conversations.channel}, ${conversations.chatId})
+             ${conversations.agentId} AS agent_id,
+             ${conversations.channel} AS channel,
+             ${conversations.chatId} AS chat_id,
+             ${conversations.id} AS id
+        FROM ${conversations}
+       WHERE ${conversations.entityId} = ${session.entityId}
+         AND ${conversations.chatId} IS NOT NULL
+         AND ${conversations.chatId} <> ''
+         AND ${conversations.channel} <> 'dashboard'
+       ORDER BY ${conversations.agentId}, ${conversations.channel}, ${conversations.chatId},
+                ${conversations.createdAt} DESC, ${conversations.id} DESC
+    `);
+
+    const out: Record<string, string> = {};
+    for (const r of rows) {
+      out[chatKey(r.agent_id, r.channel, r.chat_id)] = r.id;
+    }
+    return ok(out);
+  } catch (err) {
+    console.error('[listCurrentThreadByChatAction]', err);
+    return fail('db_error', 'Failed to resolve current threads');
   }
 }
 
