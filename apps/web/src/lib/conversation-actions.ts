@@ -24,6 +24,8 @@ import {
   or,
   desc,
   isNull,
+  isNotNull,
+  ne,
   inArray,
   sql,
   agents,
@@ -379,29 +381,39 @@ export async function listCurrentThreadByChatAction(): Promise<ActionResult<Curr
     // donc le fil courant, et lui seul. L'ordre reproduit `resolveConversation`
     // à la lettre, `NULLS FIRST` par défaut compris : diverger ici, même « en
     // mieux », recréerait exactement le désaccord qu'on répare.
-    const rows = await db.execute<{
-      agent_id: string | null;
-      channel: string;
-      chat_id: string;
-      id: string;
-    }>(sql`
-      SELECT DISTINCT ON (${conversations.agentId}, ${conversations.channel}, ${conversations.chatId})
-             ${conversations.agentId} AS agent_id,
-             ${conversations.channel} AS channel,
-             ${conversations.chatId} AS chat_id,
-             ${conversations.id} AS id
-        FROM ${conversations}
-       WHERE ${conversations.entityId} = ${session.entityId}
-         AND ${conversations.chatId} IS NOT NULL
-         AND ${conversations.chatId} <> ''
-         AND ${conversations.channel} <> 'dashboard'
-       ORDER BY ${conversations.agentId}, ${conversations.channel}, ${conversations.chatId},
-                ${conversations.createdAt} DESC, ${conversations.id} DESC
-    `);
+    //
+    // Passé par le constructeur de requêtes, pas par du SQL brut : `db.execute`
+    // ne rend pas la même forme selon le pilote (un tableau avec postgres.js,
+    // un objet `{ rows }` avec PGlite), et le premier test contre une vraie base
+    // l'a montré tout de suite — « rows is not iterable ».
+    const rows = await db
+      .selectDistinctOn([conversations.agentId, conversations.channel, conversations.chatId], {
+        agentId: conversations.agentId,
+        channel: conversations.channel,
+        chatId: conversations.chatId,
+        id: conversations.id,
+      })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.entityId, session.entityId),
+          isNotNull(conversations.chatId),
+          ne(conversations.chatId, ''),
+          ne(conversations.channel, 'dashboard'),
+        ),
+      )
+      .orderBy(
+        conversations.agentId,
+        conversations.channel,
+        conversations.chatId,
+        desc(conversations.createdAt),
+        desc(conversations.id),
+      );
 
     const out: Record<string, string> = {};
     for (const r of rows) {
-      out[chatKey(r.agent_id, r.channel, r.chat_id)] = r.id;
+      if (r.chatId === null) continue;
+      out[chatKey(r.agentId, r.channel, r.chatId)] = r.id;
     }
     return ok(out);
   } catch (err) {

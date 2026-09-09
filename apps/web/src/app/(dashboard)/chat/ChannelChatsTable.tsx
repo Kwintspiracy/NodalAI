@@ -50,7 +50,14 @@ function channelLabel(channel: string): string {
   return channel.charAt(0).toUpperCase() + channel.slice(1);
 }
 
-export default function ChannelChatsTable({ rows }: { rows: ChannelChatRow[] }) {
+export default function ChannelChatsTable({
+  rows,
+  missingCurrent = false,
+}: {
+  rows: ChannelChatRow[];
+  /** La base n'a pas pu désigner le fil courant d'au moins un chat. */
+  missingCurrent?: boolean;
+}) {
   if (rows.length === 0) return null;
   return (
     <section className="mb-8">
@@ -60,6 +67,12 @@ export default function ChannelChatsTable({ rows }: { rows: ChannelChatRow[] }) 
           {rows.length} {rows.length === 1 ? 'chat' : 'chats'}
         </span>
       </div>
+      {missingCurrent && (
+        <p className="text-body-12 text-ink-3 mb-2">
+          Some chats can’t be opened right now — their current thread couldn’t be read. Reload in a
+          moment.
+        </p>
+      )}
       <Table>
         <THead>
           <Th>Agent</Th>
@@ -86,12 +99,20 @@ export default function ChannelChatsTable({ rows }: { rows: ChannelChatRow[] }) 
                 </div>
               </Td>
               <Td>
-                <Link
-                  href={`/chat/${r.currentConversationId}`}
-                  className="text-body-13 text-ink hover:underline"
-                >
-                  {chatLabel(r)}
-                </Link>
+                {/* Sans fil courant désigné, PAS de lien : on ne devine pas où
+                    mène ce chat. Le nom reste lisible, et la bannière au-dessus
+                    dit pourquoi il n'ouvre rien (invariant #4 — jamais un repli
+                    silencieux qui présente une estimation comme un fait). */}
+                {r.currentConversationId !== null ? (
+                  <Link
+                    href={`/chat/${r.currentConversationId}`}
+                    className="text-body-13 text-ink hover:underline"
+                  >
+                    {chatLabel(r)}
+                  </Link>
+                ) : (
+                  <span className="text-body-13 text-ink-3">{chatLabel(r)}</span>
+                )}
               </Td>
               <Td className="hidden md:table-cell">
                 <MonoMicroTag tone="ink">{channelLabel(r.channel)}</MonoMicroTag>

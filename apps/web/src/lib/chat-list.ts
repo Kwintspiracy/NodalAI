@@ -38,8 +38,12 @@ export type ChannelChatRow = {
    * libellé (constaté à l'écran le 08/09).
    */
   kind: string | null;
-  /** Le fil COURANT de ce chat : celui qu'on ouvre en cliquant. */
-  currentConversationId: string;
+  /**
+   * Le fil COURANT de ce chat : celui qu'on ouvre en cliquant, désigné par la
+   * base avec la règle du runner. `null` quand cette désignation manque — la
+   * ligne s'affiche alors sans lien plutôt que d'en proposer un faux.
+   */
+  currentConversationId: string | null;
   /** Combien de fils ce chat a portés — 1 tant que personne n'a tapé `/new`. */
   conversationCount: number;
   agentName: string | null;
@@ -55,6 +59,8 @@ export type ChannelChatRow = {
 export type ChatLists = {
   channels: ChannelChatRow[];
   dashboard: ConversationListRow[];
+  /** Au moins un chat n'a pas de fil courant désigné : l'écran doit le dire. */
+  missingCurrent: boolean;
 };
 
 /**
@@ -74,32 +80,6 @@ import { chatKey } from './chat-key.ts';
 export { chatKey };
 
 /**
- * Le fil COURANT d'un chat, au sens du runner : le dernier OUVERT.
- *
- * `resolveConversation` (apps/runner/src/job/conversation-id.ts) choisit par
- * `created_at DESC, id DESC`. C'est lui qui décide où atterrira le prochain
- * message ; l'écran n'a pas de second avis à donner, il lit la même règle.
- *
- * Pourquoi la date de MODIFICATION ne peut pas servir : elle bouge pour des
- * raisons qui n'ouvrent aucun fil. Un rattachement de projet touche
- * l'`updated_at` de la conversation où le travail a été lancé (`attach.ts`),
- * même si l'utilisateur a tapé `/new` entre-temps — le vieux fil repasse alors
- * devant, et la ligne ouvrait celui que le prochain message n'alimenterait pas
- * (revue Codex, PR #48, passe 5).
- *
- * `null` compte comme la plus ancienne des dates : une ligne sans date de
- * création ne prend la place de personne. L'`id` départage à égalité, dans le
- * même sens que le runner, pour que deux fils posés à la même seconde ne
- * dépendent pas de l'ordre de réception.
- */
-function estPlusCourant(a: ConversationListRow, courant: ConversationListRow): boolean {
-  const ta = a.createdAt?.getTime() ?? Number.NEGATIVE_INFINITY;
-  const tc = courant.createdAt?.getTime() ?? Number.NEGATIVE_INFINITY;
-  if (ta !== tc) return ta > tc;
-  return a.id > courant.id;
-}
-
-/**
  * Sépare les fils de canal des conversations du dashboard, et replie les
  * premiers par chat.
  *
@@ -107,9 +87,16 @@ function estPlusCourant(a: ConversationListRow, courant: ConversationListRow): b
  *   - sa RÉCENCE est celle du chat — le maximum des `updated_at`, donc la
  *     première ligne reçue, puisque l'action trie par `updated_at DESC`. Un
  *     fil ancien qu'on remue a bel et bien fait bouger ce chat ;
- *   - son FIL COURANT est le dernier ouvert (`estPlusCourant`), et c'est lui
- *     qu'on ouvre au clic. Son aperçu et ses tours le suivent : la ligne dirait
- *     sinon le dernier mot d'un autre fil que celui vers lequel elle mène.
+ *   - son FIL COURANT est celui que la BASE désigne (`currentByChat`), et c'est
+ *     lui qu'on ouvre au clic. Son aperçu et ses tours le suivent : la ligne
+ *     dirait sinon le dernier mot d'un autre fil que celui vers lequel elle
+ *     mène.
+ *
+ * Cette fonction ne DEVINE jamais le fil courant. Elle l'a fait deux passes
+ * durant, et s'est trompée les deux fois — la règle vit en SQL, sur des données
+ * entières et des timestamps que JavaScript tronque. Sans désignation, la ligne
+ * n'a pas de lien et `missingCurrent` le dit : une estimation présentée comme
+ * un fait est précisément le repli silencieux qu'interdit l'invariant #4.
  *
  * Les fils non courants ne servent qu'à compter — ils restent lisibles par
  * leur URL, ils ne méritent pas une ligne de liste.
@@ -123,9 +110,9 @@ export function groupChatLists(
   currentByChat: Readonly<Record<string, string>> = {},
 ): ChatLists {
   const channels = new Map<string, ChannelChatRow>();
-  /** La ligne d'où vient le fil courant de chaque chat, pour la comparer. */
-  const courants = new Map<string, ConversationListRow>();
   const dashboard: ConversationListRow[] = [];
+  /** Les chats dont la base n'a désigné aucun fil courant. */
+  const sansDesignation = new Set<string>();
 
   for (const r of rows) {
     if (r.channel === 'dashboard' || r.chatId === null || r.chatId === '') {
@@ -134,27 +121,23 @@ export function groupChatLists(
     }
     const key = chatKey(r.agentId, r.channel, r.chatId);
     const nameKey = `${r.channel}:${r.chatId}`;
-    // La BASE a désigné le fil courant de ce chat : on ne le recalcule pas.
-    // Une ligne qui n'est pas ce fil ne peut donc pas prendre sa place, même si
-    // elle arrive en premier ou paraît plus récente.
+    // La BASE a désigné le fil courant de ce chat, ou personne ne l'a fait.
+    // Il n'y a PAS de troisième voie : reconstituer une estimation ici, c'était
+    // le repli silencieux que la passe 7 a refusé (invariant #4). Une ligne qui
+    // n'est pas le fil désigné ne prend jamais sa place, même si elle arrive en
+    // premier ou paraît plus récente.
     const designe = currentByChat[key];
+    if (designe === undefined) sansDesignation.add(key);
     const seen = channels.get(key);
     if (seen) {
       seen.conversationCount += 1;
-      const courant = courants.get(key);
-      const prend =
-        designe !== undefined
-          ? r.id === designe
-          : courant !== undefined && estPlusCourant(r, courant);
-      if (prend) {
-        courants.set(key, r);
+      if (designe !== undefined && r.id === designe) {
         seen.currentConversationId = r.id;
         seen.lastPreview = r.lastPreview;
         seen.turns = r.turns;
       }
       continue;
     }
-    courants.set(key, r);
     channels.set(key, {
       key,
       channel: r.channel,
@@ -165,8 +148,9 @@ export function groupChatLists(
       kind: names[nameKey]?.kind ?? null,
       // Le fil désigné, même s'il n'est PAS dans les lignes chargées : la
       // fenêtre de la liste peut l'avoir laissé dehors, et le lien doit mener
-      // là où ira le prochain message, pas au fil le plus visible.
-      currentConversationId: designe ?? r.id,
+      // là où ira le prochain message, pas au fil le plus visible. `null` quand
+      // la base n'a rien désigné — l'écran le DIT au lieu de deviner.
+      currentConversationId: designe ?? null,
       conversationCount: 1,
       agentName: r.agentName,
       agentSlug: r.agentSlug,
@@ -175,10 +159,17 @@ export function groupChatLists(
       // L'aperçu et les tours décrivent le fil COURANT. Tant qu'on n'a pas
       // rencontré sa ligne, on ne les invente pas : une ligne muette est plus
       // vraie que le dernier mot d'un autre fil.
-      lastPreview: designe === undefined || designe === r.id ? r.lastPreview : null,
-      turns: designe === undefined || designe === r.id ? r.turns : 0,
+      lastPreview: designe === r.id ? r.lastPreview : null,
+      turns: designe === r.id ? r.turns : 0,
     });
   }
 
-  return { channels: [...channels.values()], dashboard };
+  return {
+    channels: [...channels.values()],
+    dashboard,
+    // L'écran doit pouvoir DIRE qu'il ne sait pas, plutôt que d'ouvrir un fil
+    // au jugé. Une désignation manquante n'est pas une conversation absente :
+    // c'est une lecture qui a échoué, et ça se montre.
+    missingCurrent: sansDesignation.size > 0,
+  };
 }

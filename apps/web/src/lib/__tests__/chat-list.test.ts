@@ -37,81 +37,59 @@ describe('groupChatLists', () => {
     expect(dashboard).toHaveLength(0);
   });
 
-  it('la ligne ouvre le fil COURANT — le dernier OUVERT, pas le dernier remué', () => {
-    const { channels } = groupChatLists([
-      row({
-        id: 'recent',
-        channel: 'telegram',
-        chatId: '199791464',
-        createdAt: new Date('2026-09-08T10:00:00Z'),
-      }),
-      row({
-        id: 'ancien',
-        channel: 'telegram',
-        chatId: '199791464',
-        createdAt: new Date('2026-09-01T10:00:00Z'),
-      }),
-    ]);
-    expect(channels[0]?.currentConversationId).toBe('recent');
-  });
-
-  it('un fil ANCIEN remué par un rattachement n’usurpe pas le fil courant', () => {
-    // Revue Codex PR #48, passe 5. La séquence, vécue en une minute :
-    //
-    //   1. un travail tourne dans le fil A ;
-    //   2. l'utilisateur tape `/new` — le runner ouvre B, qui devient le fil
-    //      de ce chat : `resolveConversation` choisit par `created_at DESC` ;
-    //   3. le travail de A se termine et rattache sa production à un projet —
-    //      `attach.ts` touche l'`updated_at` de A ;
-    //   4. l'action trie par `updated_at DESC` : A repasse devant B.
-    //
-    // Prendre le premier reçu désignait alors A. La ligne ouvrait donc le fil
-    // que le prochain message N'ALIMENTERAIT PAS — et le regroupement, en
-    // repliant B dans le compteur, lui retirait la ligne par laquelle on
-    // pouvait encore le rejoindre.
-    const { channels } = groupChatLists([
-      row({
-        id: 'A-remue',
-        channel: 'telegram',
-        chatId: '199791464',
-        createdAt: new Date('2026-09-08T09:00:00Z'),
-        updatedAt: new Date('2026-09-08T09:30:00Z'),
-      }),
-      row({
-        id: 'B-courant',
-        channel: 'telegram',
-        chatId: '199791464',
-        createdAt: new Date('2026-09-08T09:15:00Z'),
-        updatedAt: new Date('2026-09-08T09:16:00Z'),
-      }),
-    ]);
-    expect(channels[0]?.currentConversationId).toBe('B-courant');
-  });
-
   it('le fil courant emporte SON aperçu et SES tours, pas ceux du fil remué', () => {
     // `lastPreview` et `turns` décrivent le fil courant : les laisser sur la
     // première ligne reçue ferait dire à la ligne du chat le dernier mot d'un
     // AUTRE fil que celui qu'elle ouvre.
-    const { channels } = groupChatLists([
-      row({
-        id: 'A-remue',
-        channel: 'telegram',
-        chatId: '199791464',
-        createdAt: new Date('2026-09-08T09:00:00Z'),
-        lastPreview: 'le dernier mot du vieux fil',
-        turns: 12,
-      }),
-      row({
-        id: 'B-courant',
-        channel: 'telegram',
-        chatId: '199791464',
-        createdAt: new Date('2026-09-08T09:15:00Z'),
-        lastPreview: 'le dernier mot du fil courant',
-        turns: 1,
-      }),
-    ]);
+    const { channels } = groupChatLists(
+      [
+        row({
+          id: 'A-remue',
+          channel: 'telegram',
+          chatId: '199791464',
+          lastPreview: 'le dernier mot du vieux fil',
+          turns: 12,
+        }),
+        row({
+          id: 'B-courant',
+          channel: 'telegram',
+          chatId: '199791464',
+          lastPreview: 'le dernier mot du fil courant',
+          turns: 1,
+        }),
+      ],
+      {},
+      { 'a1:telegram:199791464': 'B-courant' },
+    );
     expect(channels[0]?.lastPreview).toBe('le dernier mot du fil courant');
     expect(channels[0]?.turns).toBe(1);
+  });
+
+  it('SANS désignation : aucun lien, et l’écran a de quoi le DIRE', () => {
+    // Revue Codex PR #48, passe 7. Le repli d'avant reconstituait une
+    // estimation locale et la présentait comme le fil courant — sans erreur,
+    // sans indicateur, avec le lien et l'aperçu du mauvais fil. C'est le repli
+    // silencieux qu'interdit l'invariant #4 : on ne devine plus, on le dit.
+    const { channels, missingCurrent } = groupChatLists([
+      row({ id: 'A', channel: 'telegram', chatId: '199791464' }),
+      row({ id: 'B', channel: 'telegram', chatId: '199791464' }),
+    ]);
+    expect(channels).toHaveLength(1);
+    expect(channels[0]?.currentConversationId).toBeNull();
+    expect(channels[0]?.lastPreview, 'aucun aperçu emprunté à un autre fil').toBeNull();
+    expect(channels[0]?.turns).toBe(0);
+    // Le chat reste COMPTÉ : il existe, on ne sait pas où il mène.
+    expect(channels[0]?.conversationCount).toBe(2);
+    expect(missingCurrent).toBe(true);
+  });
+
+  it('avec désignation partout, l’écran n’a rien à signaler', () => {
+    const { missingCurrent } = groupChatLists(
+      [row({ id: 'A', channel: 'telegram', chatId: '199791464' })],
+      {},
+      { 'a1:telegram:199791464': 'A' },
+    );
+    expect(missingCurrent).toBe(false);
   });
 
   it('la RÉCENCE de la ligne reste celle du chat, pas celle du fil courant', () => {
@@ -135,21 +113,6 @@ describe('groupChatLists', () => {
       }),
     ]);
     expect(channels[0]?.updatedAt).toEqual(new Date('2026-09-08T09:30:00Z'));
-  });
-
-  it('à dates de création ÉGALES, le fil courant reste le même d’un chargement à l’autre', () => {
-    // Revue Codex PR #48, constat 3 : une date seule ne départage pas deux fils
-    // posés à la même seconde — un backfill, ou deux `/new` en rafale. Le lien
-    // de la ligne pouvait alors désigner l'un ou l'autre selon l'humeur du plan
-    // d'exécution. Le départage est l'`id` décroissant, celui de
-    // `resolveConversation` : il ne dépend plus de l'ordre de réception.
-    const meme = new Date('2026-09-08T01:00:00Z');
-    const rows = [
-      row({ id: 'bbb', channel: 'telegram', chatId: '199791464', createdAt: meme }),
-      row({ id: 'aaa', channel: 'telegram', chatId: '199791464', createdAt: meme }),
-    ];
-    expect(groupChatLists(rows).channels[0]?.currentConversationId).toBe('bbb');
-    expect(groupChatLists([...rows].reverse()).channels[0]?.currentConversationId).toBe('bbb');
   });
 
   it('la DÉSIGNATION de la base gagne sur tout calcul local', () => {
@@ -223,48 +186,6 @@ describe('groupChatLists', () => {
     expect(channels[0]?.turns).toBe(2);
   });
 
-  it('sans désignation, le regroupement dégrade au lieu de disparaître', () => {
-    // Une lecture qui échoue rend une carte vide. L'approximation locale reste
-    // alors le meilleur choix disponible — dégradée, jamais absente, et jamais
-    // une page vide.
-    const { channels } = groupChatLists([
-      row({
-        id: 'recent',
-        channel: 'telegram',
-        chatId: '199791464',
-        createdAt: new Date('2026-09-08T10:00:00Z'),
-      }),
-      row({
-        id: 'ancien',
-        channel: 'telegram',
-        chatId: '199791464',
-        createdAt: new Date('2026-09-01T10:00:00Z'),
-      }),
-    ]);
-    expect(channels[0]?.currentConversationId).toBe('recent');
-  });
-
-  it('un fil sans date de création ne prend jamais la place du fil courant', () => {
-    // `created_at` est nullable côté lecture. Un `null` est traité comme le
-    // plus ancien : il ne peut pas usurper la ligne, et il ne la fait pas non
-    // plus disparaître quand il est seul.
-    const { channels } = groupChatLists([
-      row({ id: 'sans-date', channel: 'telegram', chatId: '199791464', createdAt: null }),
-      row({
-        id: 'date',
-        channel: 'telegram',
-        chatId: '199791464',
-        createdAt: new Date('2026-09-01T10:00:00Z'),
-      }),
-    ]);
-    expect(channels[0]?.currentConversationId).toBe('date');
-
-    const seul = groupChatLists([
-      row({ id: 'sans-date', channel: 'telegram', chatId: '199791464', createdAt: null }),
-    ]);
-    expect(seul.channels[0]?.currentConversationId).toBe('sans-date');
-  });
-
   it('un chat par CHAT, pas par canal : le privé et le groupe restent deux lignes', () => {
     const { channels } = groupChatLists([
       row({ id: 'p', channel: 'telegram', chatId: '199791464' }),
@@ -288,10 +209,14 @@ describe('groupChatLists', () => {
     // `resolveConversation`. Grouper sur le seul couple canal/chat fusionnait
     // deux bots parlant au même utilisateur, et le second fil disparaissait de
     // l'écran (revue Codex, PR #48, passe 2).
-    const { channels } = groupChatLists([
-      row({ id: 'f1', channel: 'telegram', chatId: '199791464', agentId: 'alfred' }),
-      row({ id: 'f2', channel: 'telegram', chatId: '199791464', agentId: 'hermes' }),
-    ]);
+    const { channels } = groupChatLists(
+      [
+        row({ id: 'f1', channel: 'telegram', chatId: '199791464', agentId: 'alfred' }),
+        row({ id: 'f2', channel: 'telegram', chatId: '199791464', agentId: 'hermes' }),
+      ],
+      {},
+      { 'alfred:telegram:199791464': 'f1', 'hermes:telegram:199791464': 'f2' },
+    );
     expect(channels).toHaveLength(2);
     expect(channels.map((c) => c.currentConversationId).sort()).toEqual(['f1', 'f2']);
   });
