@@ -3568,6 +3568,56 @@ describe('executeJob — approval gate (Bugs A, B, C)', () => {
     return job;
   }
 
+  // Le cumul de `total_duration_ms` ne vaut que si le segment est PERSISTÉ au
+  // moment où le job se suspend. Sinon la colonne reste à zéro pendant toute
+  // l'attente, la reprise repart de zéro, et l'accumulateur n'accumule rien.
+  //
+  // C'est le constat de la revue Codex sur cette PR : le premier test amorçait
+  // la colonne lui-même, donc il prouvait que la reprise SAIT lire une valeur —
+  // jamais qu'un vrai chemin de suspension l'écrit. Or les deux chemins qui ont
+  // produit le bug d'origine (suspension pour approbation, sauvegarde avant
+  // délégation) sont précisément ceux qui l'omettaient.
+  it('la durée du segment est PERSISTÉE quand le job se suspend pour approbation', async () => {
+    await approvalDb.insert(approvalRules).values({
+      entityId: approvalSeed.entityId,
+      agentId: null,
+      toolName: 'save_memory',
+      action: 'require_approval',
+    });
+
+    // Aucune valeur préchargée : la colonne part du défaut. Ce que le test
+    // demande, c'est que la suspension l'écrive elle-même.
+    const job = await createApprovalJob();
+
+    const llmClient = makeMockLlmClient([
+      {
+        toolCalls: [
+          {
+            toolCallId: 'tc-duree-suspension',
+            toolName: 'save_memory',
+            args: { fact: 'un fait à faire approuver', category: 'context' },
+          },
+        ],
+      },
+    ]);
+
+    const result = await executeJob(job.id as JobId, makeApprovalDeps(llmClient), testEnv);
+    expect(result.status).toBe('awaiting_approval');
+
+    const rows = await approvalDb
+      .select({ totalDurationMs: agentJobs.totalDurationMs })
+      .from(agentJobs)
+      .where(eq(agentJobs.id, job.id));
+
+    // Le job a chargé son agent, appelé le LLM et gaté un outil : le segment
+    // n'est pas nul. Zéro ici veut dire que l'attente efface le travail déjà
+    // fait, et qu'elle l'effacera aussi longtemps qu'elle dure.
+    expect(rows[0]?.totalDurationMs).toBeGreaterThan(0);
+
+    // Cleanup rule.
+    await approvalDb.delete(approvalRules).where(eq(approvalRules.entityId, approvalSeed.entityId));
+  });
+
   it('Bug A: two tools in same turn — gated save_memory + sibling save_memory → messages structurally valid', async () => {
     // Seed a require_approval rule for save_memory on this entity.
     await approvalDb.insert(approvalRules).values({
