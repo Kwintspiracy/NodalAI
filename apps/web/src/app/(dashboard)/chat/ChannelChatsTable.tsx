@@ -56,6 +56,7 @@ export default function ChannelChatsTable({
   missingCurrent = false,
   hiddenByWindow = 0,
   threadsUnreadable = false,
+  namesUnreadable = false,
 }: {
   rows: ChannelChatRow[];
   /** La base n'a pas pu désigner le fil courant d'au moins un chat. */
@@ -68,12 +69,19 @@ export default function ChannelChatsTable({
    * chats à montrer.
    */
   threadsUnreadable?: boolean;
+  /**
+   * La lecture des NOMS a échoué : les chats s'affichent par leur identifiant.
+   * Distinct d'un chat sans nom connu — le propriétaire n'en a pas, et c'est
+   * normal.
+   */
+  namesUnreadable?: boolean;
 }) {
   // La section doit apparaître dès qu'elle a quelque chose à DIRE — des lignes,
   // des chats hors fenêtre, ou une lecture en échec. Sans le dernier cas, une
   // panne de la désignation faisait disparaître la section entière en silence
   // (revue Codex, PR #48, passe 11).
-  if (rows.length === 0 && hiddenByWindow === 0 && !threadsUnreadable) return null;
+  if (rows.length === 0 && hiddenByWindow === 0 && !threadsUnreadable && !namesUnreadable)
+    return null;
   return (
     <section className="mb-8">
       <div className="mb-2 flex items-baseline gap-2">
@@ -86,6 +94,11 @@ export default function ChannelChatsTable({
         <p className="text-body-12 text-err mb-2">
           Channel chats couldn’t be read just now. This list may be incomplete — reload to try
           again.
+        </p>
+      )}
+      {namesUnreadable && (
+        <p className="text-body-12 text-err mb-2">
+          Chat names couldn’t be read just now — chats show their id instead. Reload to try again.
         </p>
       )}
       {missingCurrent && (
