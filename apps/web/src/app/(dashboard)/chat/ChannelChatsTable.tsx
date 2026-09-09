@@ -80,10 +80,16 @@ export default function ChannelChatsTable({
         </p>
       )}
       {hiddenByWindow > 0 && (
+        // La CAUSE n'est pas affirmée, parce qu'on ne la connaît pas : le
+        // plafond en est une, un chat créé entre les deux lectures en est une
+        // autre, et l'écran ne peut pas les distinguer (revue Codex, PR #48,
+        // passe 10). Il dit ce qu'il SAIT — ces chats existent et n'ont pas de
+        // ligne — et nomme le plafond comme la raison HABITUELLE, pas comme le
+        // verdict.
         <p className="text-body-12 text-ink-3 mb-2">
-          {hiddenByWindow} more {hiddenByWindow === 1 ? 'chat is' : 'chats are'} not listed: the
-          list shows the {LIST_MAX} most recently active conversations, and none of theirs made it
-          in.
+          {hiddenByWindow} more {hiddenByWindow === 1 ? 'chat is' : 'chats are'} not shown here.
+          Usually that means the list is full — it holds the {LIST_MAX} most recently active
+          conversations. Reload to see the latest.
         </p>
       )}
       <Table>

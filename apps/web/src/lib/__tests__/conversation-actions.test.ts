@@ -1189,6 +1189,46 @@ describe('listCurrentThreadByChatAction — la base désigne, avec la règle du 
     expect(r.data.current[cle('desig-4')]).toBe(sansDate);
   });
 
+  it('les chats ÉLIGIBLES excluent l’accueil, le dashboard et les chats vides', async () => {
+    // Revue Codex PR #48, passe 10 : aucun test n'assertait `listable`, donc
+    // rien ne protégeait les filtres de cette seconde requête. C'est elle qui
+    // décide de ce que l'écran annonce comme MANQUANT — un filtre de trop, et
+    // la page dit qu'un chat a disparu ; un filtre de moins, et elle réclame un
+    // chat que la liste n'accepterait jamais.
+    await chatAvec('elig-user', [
+      {
+        id: '66666666-0000-4000-8000-00000000000a',
+        createdAt: new Date('2026-09-01T10:00:00Z'),
+        updatedAt: new Date('2026-09-01T10:00:00Z'),
+      },
+    ]);
+    // Même forme, mais une origine que la liste n'accepte pas.
+    await testDb.insert(conversations).values({
+      id: '66666666-0000-4000-8000-00000000000b',
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      channel: 'telegram',
+      chatId: 'elig-accueil',
+      origin: 'onboarding',
+      createdAt: new Date('2026-09-01T10:00:00Z'),
+      updatedAt: new Date('2026-09-01T10:00:00Z'),
+    });
+
+    const { listCurrentThreadByChatAction } = await actions();
+    const r = await listCurrentThreadByChatAction();
+    if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
+
+    expect(r.data.listable).toContain(cle('elig-user'));
+    // L'accueil est DÉSIGNÉ — la désignation copie le runner, qui ne filtre pas
+    // l'origine — mais il n'est pas listable, et c'est cette distinction qui
+    // empêche l'écran de réclamer un chat qu'il ne montrera jamais.
+    expect(r.data.current[cle('elig-accueil')]).toBe('66666666-0000-4000-8000-00000000000b');
+    expect(r.data.listable).not.toContain(cle('elig-accueil'));
+    // Ni dashboard, ni chat vide.
+    expect(r.data.listable.some((k) => k.includes(':dashboard:'))).toBe(false);
+    expect(r.data.listable.some((k) => k.endsWith(':'))).toBe(false);
+  });
+
   it('UNE seule ligne par chat, et aucune pour le dashboard', async () => {
     // Ce test pose SES propres données : il dépendait des trois précédents, et
     // échouait donc exécuté seul (revue Codex, PR #48, passe 8).
