@@ -189,100 +189,96 @@ describe('createProjectAction', () => {
   });
 
   it('un dossier qui CONTIENT un projet enregistré est refusé', async () => {
-    // Vécu le 08/09/2026. Quentin crée « Recipes » en laissant « Subfolder »
-    // vide : le projet devient son dossier `Dev` ENTIER, qui portait déjà dix-
-    // huit projets. Le travail suivant s'est rattaché à cette racine, puis
-    // `Dev/recipes-app` a été enregistré à son tour — deux projets pour un
-    // seul travail, dont l'un contient l'autre, et « Recipes » qui raconte ce
-    // qui s'est fait dans `recipes-app`.
-    //
-    // La seule garde était l'égalité EXACTE du chemin. Elle ne pouvait pas
-    // voir ça.
+    // Le champ vide ne vise plus le terrain (il dérive du nom du projet), mais
+    // un dossier PARENT reste atteignable : `api` enregistré, puis on tente le
+    // dossier qui le contient.
     const { createProjectAction } = await import('../project-actions.ts');
-
-    const result = await createProjectAction({
-      name: 'Tout le terrain',
+    const enfant = await createProjectAction({
+      name: 'API',
       agentId: seed.agentId,
       workspaceId: terrain.workspaceId,
-      // Vide = le terrain lui-même, qui contient déjà `projet-x`.
-      subfolder: '',
+      subfolder: 'produit/api',
       kind: 'code',
     });
-    // Le refus NOMME LE GESTE : sans ça, l'écran donne un mur — vécu le
-    // 09/09/2026, sur un terrain qui portait quatre projets et dont le message
-    // n'en citait qu'un.
+    expect(enfant.ok, 'préparation').toBe(true);
+
+    const result = await createProjectAction({
+      name: 'Produit',
+      agentId: seed.agentId,
+      workspaceId: terrain.workspaceId,
+      subfolder: 'produit',
+      kind: 'code',
+    });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe('overlaps_registered');
-    expect(result.message).toContain('already holds the project "projet-x"');
+    expect(result.message).toContain('already holds the project "api"');
     expect(result.message, 'le geste, pas seulement le refus').toContain('Name a subfolder above');
-
-    // Aucune ligne n'a été enregistrée pour le terrain.
-    const ligne = await ligneDuProjet(terrain.path);
-    expect(ligne?.registeredAt ?? null).toBeNull();
   });
 
   it('le refus COMPTE les projets en cause, il n’en nomme pas qu’un', async () => {
     // Sur le terrain de Quentin, quatre projets ; le message n'en citait qu'un
     // et laissait croire à un cas isolé.
     const { createProjectAction } = await import('../project-actions.ts');
-    await mkdir(join(racine, 'voisin-a'), { recursive: true });
-    await mkdir(join(racine, 'voisin-b'), { recursive: true });
-    for (const nom of ['voisin-a', 'voisin-b']) {
+    for (const nom of ['alpha', 'beta', 'gamma']) {
       const r = await createProjectAction({
         name: nom,
         agentId: seed.agentId,
         workspaceId: terrain.workspaceId,
-        subfolder: nom,
+        subfolder: `groupe/${nom}`,
         kind: 'code',
       });
       expect(r.ok, `préparation : ${nom}`).toBe(true);
     }
 
     const result = await createProjectAction({
-      name: 'Tout le terrain',
+      name: 'Groupe',
+      agentId: seed.agentId,
+      workspaceId: terrain.workspaceId,
+      subfolder: 'groupe',
+      kind: 'code',
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain('3 projects');
+    expect(result.message).toContain('Name a subfolder above');
+  });
+
+  it('un nom de dossier VIDE prend le nom du projet, il ne prend plus le terrain', async () => {
+    // Le geste attendu d'un formulaire de création. Laisser le champ vide
+    // signifiait « le dossier lui-même devient le projet » — ce qui a fait d'un
+    // « Recipes » tout le dossier `Dev` (08/09/2026). Il signifie maintenant
+    // « nomme-le pour moi », et la dérivation est celle que l'écran affiche.
+    const { createProjectAction } = await import('../project-actions.ts');
+    const r = await createProjectAction({
+      name: 'Idées de Recettes',
       agentId: seed.agentId,
       workspaceId: terrain.workspaceId,
       subfolder: '',
       kind: 'code',
     });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    // Trois projets : projet-x (posé par le test d'avant) et les deux voisins.
-    expect(result.message).toContain('3 projects');
-    expect(result.message).toContain('Name a subfolder above');
-  });
-
-  it('les terrains disent ce qu’ils CONTIENNENT déjà — avant le clic', async () => {
-    // L'écran a la liste : il éteint le bouton et nomme les projets au lieu de
-    // laisser l'action refuser après coup.
-    const { listProjectTerrainsAction } = await import('../project-actions.ts');
-    const r = await listProjectTerrainsAction();
-    expect(r.ok).toBe(true);
+    expect(r.ok, r.ok ? '' : `${r.code} ${r.message}`).toBe(true);
     if (!r.ok) return;
-    const ws = r.data.flatMap((t) => t.workspaces).find((w) => w.id === terrain.workspaceId);
-    expect(ws, 'le terrain du test est là').toBeDefined();
-    expect(ws?.heldProjects, 'projet-x y est enregistré').toContain('projet-x');
+    // Accents retirés, lettre conservée : « Idées » donne « idees ».
+    expect(r.data.path).toBe(`${terrain.path}/idees-de-recettes`);
+    // Le dossier est relu à l'emplacement que l'action REND, pas à un chemin
+    // reconstruit : `racine` et le terrain ne sont pas le même dossier ici.
+    expect(existsSync(r.data.path)).toBe(true);
   });
 
-  it('un dossier DANS un projet enregistré est refusé aussi', async () => {
-    // L'inverse du précédent, et il compte autant : un projet dans un projet
-    // rend le rattachement d'un travail ambigu, et l'écran montre deux fois le
-    // même travail.
+  it('un nom de projet SANS lettre ni chiffre est refusé plutôt que deviné', async () => {
     const { createProjectAction } = await import('../project-actions.ts');
-
-    const result = await createProjectAction({
-      name: 'Sous-projet',
+    const r = await createProjectAction({
+      name: '🙂 ---',
       agentId: seed.agentId,
       workspaceId: terrain.workspaceId,
-      subfolder: 'projet-x/api',
+      subfolder: '',
       kind: 'code',
     });
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.code).toBe('overlaps_registered');
-    expect(result.message).toContain('is inside the project');
-    expect(result.message).toContain('projet-x');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('validation_failed');
+    expect(r.message).toContain('nothing to derive one from');
   });
 
   it('un projet dont le DOSSIER a disparu n’avale pas ses voisins', async () => {

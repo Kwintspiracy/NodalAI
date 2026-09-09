@@ -35,6 +35,39 @@ export function isSafeSubfolder(raw: string): boolean {
 }
 
 /**
+ * Le nom de dossier DÉRIVÉ du nom du projet, quand l'utilisateur n'en donne pas.
+ *
+ * Le champ vide voulait dire « le dossier lui-même devient le projet » — c'est
+ * ce qui a fait d'un projet « Recipes » tout le dossier `Dev` de Quentin, qui en
+ * portait dix-huit autres (08/09/2026). Il veut dire maintenant « nomme-le pour
+ * moi », ce qui est le geste attendu d'un formulaire de création : le dossier
+ * racine d'un développeur EST un dossier de projets, personne n'y crée un projet
+ * qui l'engloberait.
+ *
+ * Vit ici parce que DEUX surfaces en dépendent et doivent s'accorder : l'aperçu
+ * de la modale, qui promet un chemin, et l'action, qui le crée. Deux copies
+ * auraient fini par promettre un dossier et en créer un autre.
+ *
+ * Rend `''` quand rien d'exploitable ne subsiste (un nom entièrement fait
+ * d'emoji ou de ponctuation) — l'appelant décide alors, il ne reçoit pas un nom
+ * inventé.
+ */
+export function projectFolderNameFrom(projectName: string): string {
+  const slug = projectName
+    .normalize('NFD')
+    // Les diacritiques partent, la lettre reste : « Idées » donne « idees », et
+    // pas « ides ».
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+    // Le découpage peut laisser un tiret en queue.
+    .replace(/-+$/, '');
+  return slug;
+}
+
+/**
  * Le chemin que `createProjectAction` construirait, ou `null` si la saisie est
  * refusée.
  *

@@ -26,7 +26,7 @@ import {
   listProjectTerrainsAction,
   type ProjectTerrain,
 } from '@/lib/project-actions.ts';
-import { previewProjectPath } from '@nodal-agents/shared';
+import { previewProjectPath, projectFolderNameFrom } from '@nodal-agents/shared';
 
 export default function NewProjectButton() {
   const router = useRouter();
@@ -70,14 +70,11 @@ export default function NewProjectButton() {
   const preview = workspace ? previewProjectPath(workspace.path, subfolder.trim()) : null;
   // Un sous-dossier vide sur un terrain qui porte déjà des projets sera refusé
   // par l'action : le bouton reste éteint plutôt que d'appeler pour rien.
-  const terrainOccupe = (workspace?.heldProjects.length ?? 0) > 0;
-  // Un nom vide sur un dossier qui porte déjà des projets sera refusé par
-  // l'action : le bouton reste éteint plutôt que d'appeler pour rien.
-  const ready =
-    name.trim() !== '' &&
-    workspace !== null &&
-    preview !== null &&
-    !(subfolder.trim() === '' && terrainOccupe);
+  // Le dossier qui sera RÉELLEMENT créé : la saisie, ou le nom du projet dérivé
+  // par la MÊME fonction que l'action serveur — sans quoi l'écran promettrait un
+  // dossier et le serveur en créerait un autre.
+  const dossierFinal = subfolder.trim() !== '' ? subfolder.trim() : projectFolderNameFrom(name);
+  const ready = name.trim() !== '' && workspace !== null && preview !== null && dossierFinal !== '';
 
   function reset(): void {
     setName('');
@@ -203,13 +200,18 @@ export default function NewProjectButton() {
 
           <div>
             {/* « Subfolder » était du jargon d'implémentation : c'est le NOM DU
-                DOSSIER que le projet portera. Taper ce nom convient très bien —
-                mieux qu'un nom auto-généré (décision Quentin, 09/09). */}
+                DOSSIER que le projet portera.
+                Et le champ VIDE ne prend plus le dossier entier — il laisse le
+                nom se dériver du nom du projet. Le dossier racine d'un
+                développeur EST un dossier de projets : « on s'en fout qu'il
+                contienne déjà des sous-dossiers » (Quentin, 09/09/2026). D'où
+                l'avertissement rouge par défaut, retiré : il alarmait sur une
+                situation parfaitement normale. */}
             <TextInput
               label="Folder name"
               value={subfolder}
               onChange={(e) => setSubfolder(e.target.value)}
-              placeholder={terrainOccupe ? 'recipes-app' : 'recipes-app — or leave empty'}
+              placeholder="Give a name, or let it be named for you"
               disabled={isPending}
             />
             <div className="mt-2">
@@ -217,25 +219,16 @@ export default function NewProjectButton() {
                 <p className="text-body-12 text-err">
                   A folder name, not a path. No “..”, no drive letter, no slash.
                 </p>
-              ) : subfolder.trim() !== '' ? (
-                // L'aperçu est une PHRASE, pas un chemin à copier : on ne copie
-                // pas un dossier qui n'existe pas encore, et le bouton
-                // « Copier » ne servait à rien ici (Quentin, 09/09).
+              ) : dossierFinal !== '' ? (
+                // Une PHRASE, pas un chemin à copier : on ne copie pas un
+                // dossier qui n'existe pas encore.
                 <p className="text-body-12 text-ink-3">
-                  Creates <span className="text-mono-12 text-ink">{subfolder.trim()}</span> in that
+                  Creates <span className="text-mono-12 text-ink">{dossierFinal}</span> in that
                   folder.
                 </p>
-              ) : terrainOccupe ? (
-                <p className="text-body-12 text-err">
-                  This folder already holds {workspace?.heldProjects.length ?? 0}{' '}
-                  {(workspace?.heldProjects.length ?? 0) === 1 ? 'project' : 'projects'} (
-                  {(workspace?.heldProjects ?? []).slice(0, 4).join(', ')}
-                  {(workspace?.heldProjects.length ?? 0) > 4 ? '…' : ''}). Give the new one a folder
-                  name.
-                </p>
               ) : (
-                <p className="text-body-12 text-ink-3">
-                  Left empty, the folder itself becomes the project.
+                <p className="text-body-12 text-ink-4">
+                  Name the project above, and its folder takes that name.
                 </p>
               )}
             </div>

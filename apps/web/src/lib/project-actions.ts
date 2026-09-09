@@ -42,6 +42,7 @@ import {
   normalizePath,
   projectKey,
   isSafeSubfolder,
+  projectFolderNameFrom,
   type VerifyCommand,
 } from '@nodal-agents/shared';
 import { getDb, applyActiveEntity, getAuthProvider } from './server.ts';
@@ -170,20 +171,7 @@ export type ProjectTerrain = {
   agentId: string;
   agentName: string;
   agentSlug: string;
-  workspaces: Array<{
-    id: string;
-    label: string;
-    path: string;
-    /**
-     * Les projets DÉJÀ enregistrés dans ce dossier.
-     *
-     * L'écran en a besoin AVANT le clic : un terrain qui en contient refuse un
-     * sous-dossier vide, et le découvrir au clic est un mur. Quentin l'a heurté
-     * le 09/09/2026 — « This folder contains the project podium-app » — sur un
-     * terrain qui en portait quatre.
-     */
-    heldProjects: string[];
-  }>;
+  workspaces: Array<{ id: string; label: string; path: string }>;
 };
 
 // ─── Auth helper ─────────────────────────────────────────────────────────────
@@ -343,16 +331,6 @@ export async function listProjectTerrainsAction(): Promise<ActionResult<ProjectT
       .where(eq(agents.entityId, session.entityId))
       .orderBy(agents.name, agentWorkspaces.position, agentWorkspaces.label);
 
-    // Les projets enregistrés de l'entité, une fois — pas une requête par
-    // terrain : la modale s'ouvre sur un bouton qu'on ne cliquera peut-être pas.
-    const registres = await db
-      .select({ path: codeProjects.projectPath })
-      .from(codeProjects)
-      .where(
-        and(eq(codeProjects.entityId, session.entityId), isNotNull(codeProjects.registeredAt)),
-      );
-    const cheminsProjets = registres.map((r) => normalizePath(r.path));
-
     const byAgent = new Map<string, ProjectTerrain>();
     for (const r of rows) {
       let terrain = byAgent.get(r.agentId);
@@ -365,17 +343,7 @@ export async function listProjectTerrainsAction(): Promise<ActionResult<ProjectT
         };
         byAgent.set(r.agentId, terrain);
       }
-      const wsPath = normalizePath(r.path);
-      terrain.workspaces.push({
-        id: r.workspaceId,
-        label: r.label,
-        path: r.path,
-        // Contenance stricte : le terrain lui-même n'est pas « un projet qu'il
-        // contient », c'est le cas `already_registered`, dit autrement.
-        heldProjects: cheminsProjets
-          .filter((p) => isUnderPath(p, wsPath) && p !== wsPath)
-          .map((p) => p.slice(p.lastIndexOf('/') + 1)),
-      });
+      terrain.workspaces.push({ id: r.workspaceId, label: r.label, path: r.path });
     }
     return ok([...byAgent.values()]);
   } catch (err) {
@@ -492,9 +460,25 @@ export async function createProjectAction(
     if (!ws) return fail('workspace_not_found', 'Workspace not found for this agent');
 
     const wsPath = normalizePath(ws.path);
-    const path = normalizePath(
-      input.subfolder === '' ? wsPath : `${wsPath}/${input.subfolder.replace(/\\/g, '/')}`,
-    );
+    // Un nom de dossier VIDE ne prend plus le terrain lui-même : il se dérive du
+    // nom du projet. Le dossier racine d'un développeur est un dossier DE
+    // projets — personne n'y crée un projet qui l'engloberait, et l'avoir permis
+    // a produit un « Recipes » qui était tout le dossier `Dev` (08/09/2026).
+    //
+    // La dérivation vit dans `@nodal-agents/shared` : la modale s'en sert pour
+    // son aperçu, et si les deux divergeaient, l'écran promettrait un dossier
+    // pendant qu'on en créerait un autre.
+    const nomDossier =
+      input.subfolder !== ''
+        ? input.subfolder.replace(/\\/g, '/')
+        : projectFolderNameFrom(input.name);
+    if (nomDossier === '') {
+      return fail(
+        'validation_failed',
+        'Give the project folder a name — the project name has nothing to derive one from.',
+      );
+    }
+    const path = normalizePath(`${wsPath}/${nomDossier}`);
     // Défense en profondeur : la validation ci-dessus a déjà refusé `..`, mais
     // c'est le chemin FINAL qui doit être dans le terrain, et c'est lui qu'on
     // vérifie — une règle de saisie ne prouve pas un résultat.
