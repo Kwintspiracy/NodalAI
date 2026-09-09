@@ -491,11 +491,20 @@ describe('l’intention de mutation, posée par executeTool', () => {
     expect(parCle.get(keyOf(join(ws, 'alpha'))), 'une précaution n’est pas produite').toBe(false);
   });
 
-  it('un shell qui sort en ERREUR ne marque pas le projet produit', async () => {
-    // Revue Codex PR #49, passe 3. `isPresentedFailure` ne lisait que la carte
-    // `text` ; `run_command` rend une carte `terminal`, donc un `exit 1`
-    // passait pour une production réussie — et autorisait à déclarer une
-    // preuve sur un projet où rien n'avait abouti.
+  it('un shell qui sort NON-ZÉRO marque quand même le projet produit', async () => {
+    // Revue Codex PR #49, passes 3 puis 4 — et la 4 renverse la 3.
+    //
+    // La passe 3 avait raison : un `exit 1` ne PROUVE pas qu'on a produit. La
+    // passe 4 a montré que l'inverse est faux aussi, avec deux contre-exemples
+    // qui suffisent : `robocopy` rend 1 quand il A copié, et un
+    // `build && test` sort non-zéro sur un test rouge alors que le build a
+    // écrit son dossier de sortie.
+    //
+    // Juger sur le code de sortie refusait donc des productions réelles, et
+    // cassait au passage le rattachement du REGISTRE des projets, qui lit le
+    // même signal depuis la PR #46. Le statut d'un processus ne dit rien de ce
+    // qui a été écrit sur le disque ; le savoir demande de le CONSTATER, et
+    // c'est un mécanisme à part (backlog).
     await mkdir(join(ws, 'zeta'), { recursive: true });
 
     const res = await executeTool(
@@ -504,14 +513,12 @@ describe('l’intention de mutation, posée par executeTool', () => {
       ctx(),
       autoApprove('run_command'),
     );
-    // L'outil RÉPOND (le shell a tourné) : ce n'est pas une erreur du seam.
     expect(res.outcome).toBe('success');
 
     const parCle = new Map((await statesOf(jobId)).map((r) => [r.canonicalKey, r]));
     const zeta = parCle.get(keyOf(join(ws, 'zeta')));
-    expect(zeta?.dirtyGeneration, 'la garde reste conservatrice : c’est sale').toBe(1);
     expect(zeta?.addressed, 'le cwd a bien été VISÉ').toBe(true);
-    expect(zeta?.produced, 'mais la commande a échoué').toBe(false);
+    expect(zeta?.produced, 'et un code de sortie ne dit pas qu’il n’a rien écrit').toBe(true);
   });
 
   it('une tentative qui n’écrit RIEN salit le projet sans le marquer produit', async () => {

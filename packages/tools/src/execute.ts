@@ -785,26 +785,40 @@ type MutationGate =
     };
 
 /**
- * Un résultat qui est un ÉCHEC sous une carte structurée : l'outil a répondu,
- * mais rien n'a été produit. C'est la lecture du succès qui ne dépend pas de
- * la forme de sortie de chaque outil. Un présentateur qui lève est un bug de
+ * Un résultat qui est un ÉCHEC DÉCLARÉ par l'outil : il a répondu, et il dit
+ * lui-même n'avoir rien produit. C'est la lecture du succès qui ne dépend pas
+ * de la forme de sortie de chaque outil. Un présentateur qui lève est un bug de
  * CET outil (déjà compté dans `presentation_error`) — il ne doit pas cacher
  * une production réelle.
  *
- * DEUX cartes savent dire qu'elles ont échoué, et il en manquait une :
+ * UNE seule carte sait le dire : `text` avec `failure: true` — un refus (chemin
+ * hors terrain, fichier trop gros, `old_string` introuvable). L'outil a
+ * constaté qu'il n'écrivait pas, et il l'annonce.
  *
- *   - `text` avec `failure: true` — un refus (chemin hors terrain, fichier
- *     trop gros, `old_string` introuvable) ;
- *   - `terminal` avec un `exitCode` non nul ou un `timedOut` — un shell qui
- *     sort en erreur. Elle n'était pas lue, si bien qu'un `run_command`
- *     terminé en `exit 1` passait pour une production réussie (revue Codex,
- *     PR #49, passe 3). Le défaut était déjà là pour le REGISTRE des projets,
- *     qui lit le même signal ; la garde `produced` le rendait exploitable —
- *     un shell en échec autorisait à déclarer une preuve.
+ * POURQUOI PAS LE CODE DE SORTIE D'UN SHELL, essayé puis retiré. La passe 3 de
+ * la revue avait raison de dire qu'un `exit 1` ne prouve pas une production ;
+ * la passe 4 a montré que l'inverse n'est pas vrai non plus, et c'est
+ * rédhibitoire :
  *
- * `exitCode: null` n'est PAS un échec : c'est un code inconnu, et une commande
- * dont on ignore l'issue peut parfaitement avoir écrit. Le conservatisme joue
- * ici du côté de la trace, pas du refus.
+ *   - `robocopy` rend 1 quand il A copié des fichiers ;
+ *   - `npm run build && npm test` sort non-zéro sur un test rouge, alors que le
+ *     build a bel et bien écrit son dossier de sortie.
+ *
+ * Juger là-dessus refusait donc des productions RÉELLES — et pas seulement pour
+ * la déclaration de preuve : le REGISTRE des projets (P5) lit le même signal,
+ * et un travail cessait de se rattacher au projet qu'il venait d'écrire. Un
+ * comportement établi cassé pour fermer un trou plus étroit que la brèche
+ * ouverte.
+ *
+ * Le statut d'un processus ne dit rien de ce qui a été écrit sur le disque. Le
+ * savoir demanderait de CONSTATER les écritures (l'instantané de checkpoint est
+ * pris juste avant, il pourrait servir de point de comparaison) — un mécanisme
+ * à part, pas une lecture de code de sortie. Porté au backlog plutôt que
+ * bricolé ici.
+ *
+ * Ce qui reste couvert, et c'était le constat d'origine (passe 2) : un
+ * `file_edit` dont l'`old_string` est absent rend une carte `text` en échec, ne
+ * marque rien produit, et n'autorise donc aucune déclaration.
  */
 function isPresentedFailure(
   tool: ToolDefinition<z.ZodTypeAny, unknown>,
@@ -813,11 +827,7 @@ function isPresentedFailure(
 ): boolean {
   try {
     const presented = presentToolResult(tool, input, output);
-    if (presented.card === 'text') return presented.failure === true;
-    if (presented.card === 'terminal') {
-      return presented.timedOut === true || (presented.exitCode ?? 0) !== 0;
-    }
-    return false;
+    return presented.card === 'text' && presented.failure === true;
   } catch {
     return false;
   }

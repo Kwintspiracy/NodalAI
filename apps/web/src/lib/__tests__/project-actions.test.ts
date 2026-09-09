@@ -239,6 +239,38 @@ describe('createProjectAction', () => {
     expect(result.message).toContain('projet-x');
   });
 
+  it('un projet dont le DOSSIER a disparu n’avale pas ses voisins', async () => {
+    // Revue Codex PR #49, passe 4. La comparaison physique passait par
+    // `realNearestAncestor`, qui remonte au premier ancêtre EXISTANT : un
+    // projet enregistré dont le dossier avait été supprimé y remontait à son
+    // parent, et tout voisin créé sous ce parent paraissait « dedans ». Le
+    // registre refusait alors un projet légitime — et laissait son dossier
+    // créé derrière lui.
+    const { createProjectAction } = await import('../project-actions.ts');
+
+    // Un projet enregistré, puis son dossier effacé du disque.
+    const cree = await createProjectAction({
+      name: 'Disparu',
+      agentId: seed.agentId,
+      workspaceId: terrain.workspaceId,
+      subfolder: 'disparu',
+      kind: 'code',
+    });
+    expect(cree.ok).toBe(true);
+    await rm(join(racine, 'disparu'), { recursive: true, force: true });
+    expect(existsSync(join(racine, 'disparu'))).toBe(false);
+
+    // Un VOISIN, sans aucun chevauchement avec lui.
+    const voisin = await createProjectAction({
+      name: 'Voisin',
+      agentId: seed.agentId,
+      workspaceId: terrain.workspaceId,
+      subfolder: 'voisin-du-disparu',
+      kind: 'code',
+    });
+    expect(voisin.ok, voisin.ok ? '' : `refusé : ${voisin.code} ${voisin.message}`).toBe(true);
+  });
+
   it('un dossier VOISIN, lui, passe : « projet-x » n’avale pas « projet-x-bis »', async () => {
     // La frontière est celle du SEGMENT. Sans elle, la garde de chevauchement
     // refuserait un projet parfaitement légitime — le remède serait alors pire

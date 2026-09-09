@@ -142,6 +142,12 @@ export const declareVerificationTool: ToolDefinition<
       .where(
         and(
           eq(jobDeliverableVerificationState.jobId, ctx.jobId),
+          // L'identité d'une ligne d'état est (job, TYPE, clé) — le type fait
+          // partie de la clé d'unicité, et l'omettre laissait `limit(1)`
+          // choisir entre deux lignes que rien ne départage (revue Codex,
+          // PR #49, passe 4). Cet outil ne déclare que pour des projets de
+          // code : il lit la ligne de ce type, pas celle qui vient en premier.
+          eq(jobDeliverableVerificationState.deliverableType, 'code_project'),
           eq(jobDeliverableVerificationState.canonicalKey, key),
         ),
       )

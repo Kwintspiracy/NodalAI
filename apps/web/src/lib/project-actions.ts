@@ -375,6 +375,24 @@ async function realNearestAncestor(path: string): Promise<string | null> {
 }
 
 /**
+ * Le chemin réel de `path`, ou `null` s'il N'EXISTE PAS.
+ *
+ * À ne pas confondre avec `realNearestAncestor`, qui remonte jusqu'au premier
+ * ancêtre existant : ce repli-là sert à savoir où `mkdir -p` atterrirait, et il
+ * est FAUX pour comparer deux projets. Un projet enregistré dont le dossier a
+ * été supprimé y remontait à son parent, si bien que tout voisin créé sous ce
+ * parent paraissait « dans » un projet qui n'existe plus (revue Codex, PR #49,
+ * passe 4).
+ */
+async function realPathIfExists(path: string): Promise<string | null> {
+  try {
+    return normalizePath(await realpath(normalizePath(path)));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * La cible, une fois les liens suivis, reste-t-elle DANS le terrain réel ?
  *
  * Les deux côtés sont ramenés à leur ancêtre EXISTANT le plus proche : un lien
@@ -528,10 +546,14 @@ export async function createProjectAction(
         .where(
           and(eq(codeProjects.entityId, session.entityId), isNotNull(codeProjects.registeredAt)),
         );
-      const cheminReel = await realNearestAncestor(path);
+      // Les chemins RÉELS, et seulement ceux qui EXISTENT : un projet dont le
+      // dossier a disparu n'a plus de chemin réel, et lui en inventer un —
+      // celui de son parent, ce que fait `realNearestAncestor` — le ferait
+      // avaler tous ses voisins (revue Codex, PR #49, passe 4).
+      const cheminReel = await realPathIfExists(path);
       for (const r of registres) {
         const autre = normalizePath(r.path);
-        const autreReel = await realNearestAncestor(autre);
+        const autreReel = await realPathIfExists(autre);
         const dedans =
           isUnderPath(path, autre) ||
           (cheminReel !== null && autreReel !== null && isUnderPath(cheminReel, autreReel));

@@ -78,13 +78,17 @@ export const conversations = pgTable(
     // trie ce qui reste (revue Codex, PR #48, passe 7). Deux chemins chauds
     // s'en servent : le runner sur chaque message entrant, et le `DISTINCT ON`
     // qui désigne le fil courant de chaque chat pour `/chat`.
+    // `.desc()` sur les deux dernières, comme le SQL de la migration : sans
+    // elles, Drizzle déclare un index ASC là où la migration en crée un mixte,
+    // et le schéma décrit un index que la base n'a pas (revue Codex, PR #49,
+    // passe 4).
     index('idx_conversations_thread_tiebreak').on(
       table.entityId,
       table.agentId,
       table.channel,
       table.chatId,
-      table.createdAt,
-      table.id,
+      table.createdAt.desc(),
+      table.id.desc(),
     ),
     check('conversations_origin_check', sql`${table.origin} IN ('user','onboarding','project')`),
     check(
