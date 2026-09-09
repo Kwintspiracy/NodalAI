@@ -811,10 +811,21 @@ type MutationGate =
  * ouverte.
  *
  * Le statut d'un processus ne dit rien de ce qui a été écrit sur le disque. Le
- * savoir demanderait de CONSTATER les écritures (l'instantané de checkpoint est
- * pris juste avant, il pourrait servir de point de comparaison) — un mécanisme
- * à part, pas une lecture de code de sortie. Porté au backlog plutôt que
- * bricolé ici.
+ * savoir demanderait de CONSTATER les écritures — un mécanisme à part, pas une
+ * lecture de code de sortie. Porté au backlog plutôt que bricolé ici.
+ *
+ * Et l'instantané de checkpoint N'EST PAS ce mécanisme, contrairement à ce que
+ * ce commentaire a d'abord affirmé (revue Codex, PR #49, passe 5). Deux raisons
+ * l'en empêchent, et les écrire ici évite qu'on s'y reprenne :
+ *
+ *   - il est pris UNE fois par tour et réutilisé, donc une comparaison avec lui
+ *     voit l'écriture du premier outil sans pouvoir l'attribuer au second ;
+ *   - il EXCLUT `dist/`, `.next/`, `node_modules/` et tout ce que le projet
+ *     ignore — c'est-à-dire précisément ce qu'un build produit, le cas qui
+ *     motive tout ce raisonnement.
+ *
+ * Il pourrait servir de comparaison PARTIELLE ; il ne fait pas un détecteur de
+ * production.
  *
  * Ce qui reste couvert, et c'était le constat d'origine (passe 2) : un
  * `file_edit` dont l'`old_string` est absent rend une carte `text` en échec, ne
