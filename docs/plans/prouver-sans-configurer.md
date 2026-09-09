@@ -166,6 +166,36 @@ toujours 19 lignes pour en montrer une, et c'est assumé.
    plein tarif deux fois — environ 21 % de la facture, par construction et non
    par accident.
 
+### Ce que la revue croisée Codex a ajouté
+
+Codex a relu les mêmes données sans voir mon analyse. Il m'a corrigé sur un
+chiffre et a trouvé trois choses de plus. Les huit constats initiaux tiennent.
+
+4. **Le coût affiché sous-estime le coût réel de 12,3 %.** J'annonçais $0,291 —
+   la somme des compteurs des quatre jobs. Les trois appels de réflexion sont
+   facturés comme les autres et n'entrent dans le compteur d'aucun job : la
+   facture réelle est **$0,332**, l'entrée réelle **672 205 jetons** contre
+   635 901 comptés. Ce n'est pas qu'une erreur de lecture, c'est un constat sur
+   le produit : dès qu'un agent a la réflexion activée, le coût montré est faux.
+5. **La table `tool_calls` n'est pas le journal des actions d'un agent.** Une
+   délégation lève `DelegationPendingError`, relancée sans passer par l'écriture
+   d'audit ordinaire (`packages/tools/src/execute.ts:695-701`) : `assign_lead`
+   n'y laisse aucune ligne. Alfred a fait deux appels d'outils, la table en
+   montre un. Quiconque diagnostique un run par cette table lira une délégation
+   comme un trou.
+6. **Dev C reçoit l'ordre d'utiliser un outil qu'il n'a pas.** Sa personnalité
+   dit « Tu fais le travail de code demandé **via code_task** ». `code_task`
+   n'est pas dans sa liste d'outils — vérifié sur `tool_names` de ses appels. Il
+   a improvisé avec `file_write`, et bien improvisé. Écart de CONFIGURATION,
+   donc réparable en base uniquement (invariant #3), jamais dans le runtime.
+7. **Le prompt donne la consigne exacte, et l'agent fait l'inverse.** Ligne 422 :
+   « If you have no workspace containing it, DELEGATE […] rather than searching
+   or guessing » — Alfred a lu lui-même et a échoué. Ligne 147 : « Do not claim
+   the task is complete » — Alfred commence par « C'est fait ✅ ». Le bloc
+   « vérifier avant de conclure » pèse 7 247 caractères à lui seul : le problème
+   n'est pas l'absence de consigne, c'est l'arbitrage entre consignes qui se
+   contredisent.
+
 ## Suivi
 
 | # | Ce qui change | Taille |
