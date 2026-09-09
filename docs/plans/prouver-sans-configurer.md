@@ -12,6 +12,7 @@
 | 3 | L'écran MONTRE au lieu de DEMANDER | #49 | ✅ mergée |
 | 4 | Un projet ne contient pas un autre projet | #49 | ✅ mergée (hors plan initial) |
 | 5 | Constater les écritures réelles sur le disque | — | ⬜ backlog, lot à part |
+| 6 | Deux gardes qui mesuraient faux (run `20b73ed1`) | #50 | 🔄 ouverte |
 
 ## Ce que la vérification a corrigé DANS CE PLAN
 
@@ -108,6 +109,63 @@ elles sont passées par `run_command`, qui n'écrit jamais dans
 `verification_runs`. Seule une commande CONFIGURÉE y écrit, et
 `finalize.ts:409` saute tout ce qui n'est pas `ready`.
 
+## Ce que le PREMIER run réel a montré, le 09/09/2026 — PR #50
+
+Le run `20b73ed1` est le premier à passer par le moteur en production. Quatre
+jobs relus ligne à ligne (Alfred → Lead-Dev → { Dev C, Reviewer C }). Rapport
+complet : https://claude.ai/code/artifact/e53baa34-79a7-43c1-808d-f27806de0329
+
+**L'application livrée est bonne.** 756 lignes, 23 600 octets, présente sur le
+disque, testée dans un vrai navigateur avec injection XSS. Ce sont les
+mécaniques autour qui ont coûté.
+
+**La question ouverte nº 3 de ce plan est tranchée, et elle l'était dans les
+deux sens.** Elle demandait : « si l'agent est en approbation requise pour
+`run_command`, laisser passer sa vérification sans approbation contournerait la
+règle que le propriétaire a posée ». C'était vrai — et la réciproque aussi,
+qu'on n'avait pas vue. Dev C portait `run_command → auto_approve`, a fait
+tourner `node -e "…"` deux fois sans que personne ne soit consulté, puis a
+déclaré CETTE MÊME commande : **24 min 28 s d'attente, 72 % de la durée du
+run**, pour écrire une ligne en base. La garde ne consultait que les règles
+nommant `declare_verification` ; le consentement du propriétaire vit sur
+`run_command`. Fermé PR #50 : la déclaration est jugée sous la règle du shell,
+dans les deux sens.
+
+**Un `block` explicite devenait une question.** Un agent portant
+`run_command → block` (Reviewer C en porte un) voyait sa déclaration tomber sur
+la relaxation d'autonomie, qui ne connaît que `require_approval`. C'était le
+vrai trou, et personne ne l'avait vu en six passes de revue — il fallait un run.
+
+**La durée d'un job ne mesurait que son dernier segment.** Alfred : 19 s
+enregistrées pour 34 min 03. Exact pour les jobs qui ne délèguent pas, faux d'un
+ordre de grandeur pour tous les autres. Fermé PR #50.
+
+**Les 18 livrables fantômes sont bien filtrés.** Le lot 2 tient sa promesse à
+l'écran, vérifié dans le code (`conversation-actions.ts:920`). La garde écrit
+toujours 19 lignes pour en montrer une, et c'est assumé.
+
+### Ce que ce run met au backlog, sans le traiter
+
+1. **Les vérifications du relecteur ne sont enregistrées nulle part.** Reviewer C
+   a lancé six scénarios Playwright réels sur l'app livrée — de très loin la
+   preuve la plus solide du run. `verification_runs` = 0 pour lui. La seule
+   preuve retenue est le `new Function()` de Dev C, la plus faible des deux.
+   Ce n'est pas un bug : `review_verdict` n'écrit rien **par conception**, et le
+   protocole de relecture est PR④ / P13. C'est le symptôme observable de cette
+   brique manquante — et le pendant de la question ouverte nº 2 ci-dessous.
+2. **Le blocage du protocole `file:` se contourne par un outil voisin.**
+   `browser_navigate` refuse `file://` ; `browser_run_code_unsafe` fait
+   `page.goto('file://…')` sans broncher. Les deux sont couverts par le joker
+   `mcp_playwright__* → auto_approve`, posé sans agent précis. Le relecteur a
+   écrit l'intention en toutes lettres : « Contourner le blocage du protocole
+   file: ». **Décision de Quentin, pas correctif** : une garde heuristique sur
+   les noms d'outils MCP a déjà été tentée (MCP-001) puis retirée à sa demande.
+3. **Le coût est inversé.** Relire coûte 11,5× écrire (Reviewer C $0,137, soit
+   47 % du run ; Dev C, qui écrit l'app, $0,012). Et déléguer fait expirer le
+   cache du parent : 33 minutes entre deux tours d'Alfred, donc 35 000 jetons au
+   plein tarif deux fois — environ 21 % de la facture, par construction et non
+   par accident.
+
 ## Suivi
 
 | # | Ce qui change | Taille |
@@ -187,11 +245,12 @@ vingt.
    `request_changes` — tri Z→A qui n'inverse pas, injection résiduelle dans
    l'attribut `src`, crash possible à l'édition, quota `localStorage` ignoré —
    et le job s'est terminé en annonçant « application livrée ».
-3. **Faut-il une approbation la première fois ?** L'argument du point 1 dit non
-   (aucun pouvoir nouveau). Mais la vérification tourne à la FIN, hors du flux
-   d'approbation : si l'agent est en « approbation requise » pour
-   `run_command`, laisser passer sa vérification sans approbation contournerait
-   la règle que le propriétaire a posée.
+3. ~~**Faut-il une approbation la première fois ?**~~ **TRANCHÉE par le run
+   `20b73ed1`, fermée PR #50.** La réponse n'est ni oui ni non : c'est la règle
+   posée sur `run_command` qui décide, dans les deux sens. Un `auto_approve` la
+   fait passer, un `block` la bloque, un `require_approval` la gate — et une
+   règle nommant `declare_verification` gagne sur les trois. La question ne
+   voyait qu'un des deux sens ; il a fallu un run réel pour voir l'autre.
 
 ## Ce que ça ne contient pas
 
