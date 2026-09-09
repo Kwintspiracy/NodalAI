@@ -1189,44 +1189,100 @@ describe('listCurrentThreadByChatAction — la base désigne, avec la règle du 
     expect(r.data.current[cle('desig-4')]).toBe(sansDate);
   });
 
-  it('les chats ÉLIGIBLES excluent l’accueil, le dashboard et les chats vides', async () => {
-    // Revue Codex PR #48, passe 10 : aucun test n'assertait `listable`, donc
-    // rien ne protégeait les filtres de cette seconde requête. C'est elle qui
-    // décide de ce que l'écran annonce comme MANQUANT — un filtre de trop, et
-    // la page dit qu'un chat a disparu ; un filtre de moins, et elle réclame un
-    // chat que la liste n'accepterait jamais.
-    await chatAvec('elig-user', [
-      {
-        id: '66666666-0000-4000-8000-00000000000a',
-        createdAt: new Date('2026-09-01T10:00:00Z'),
-        updatedAt: new Date('2026-09-01T10:00:00Z'),
-      },
-    ]);
-    // Même forme, mais une origine que la liste n'accepte pas.
-    await testDb.insert(conversations).values({
-      id: '66666666-0000-4000-8000-00000000000b',
+  it('les chats ÉLIGIBLES : un témoin par filtre, et pas un de plus', async () => {
+    // Revue Codex PR #48, passes 10 puis 11. La première version de ce test
+    // n'exerçait QUE le filtre d'origine : retirer `channel != dashboard`,
+    // `chat_id != ''` ou le filtre d'entité le laissait vert, faute de témoin.
+    // Un test qui annonce quatre règles et n'en verrouille qu'une est pire
+    // qu'un test absent — il dit que c'est couvert.
+    //
+    // Chaque filtre a donc SA ligne, et une seule assertion la vise.
+    const base = {
       entityId: seed.entityId,
       agentId: seed.agentId,
-      channel: 'telegram',
-      chatId: 'elig-accueil',
-      origin: 'onboarding',
       createdAt: new Date('2026-09-01T10:00:00Z'),
       updatedAt: new Date('2026-09-01T10:00:00Z'),
+    };
+    await testDb.insert(conversations).values([
+      // Éligible : origine `user`.
+      {
+        ...base,
+        id: '66666666-0000-4000-8000-000000000001',
+        channel: 'telegram',
+        chatId: 'elig-user',
+        origin: 'user',
+      },
+      // Éligible AUSSI : origine `project` — la liste l'accepte, et restreindre
+      // les origines à `user` seul doit faire rougir ce test.
+      {
+        ...base,
+        id: '66666666-0000-4000-8000-000000000002',
+        channel: 'telegram',
+        chatId: 'elig-projet',
+        origin: 'project',
+      },
+      // Écarté : origine que la liste refuse.
+      {
+        ...base,
+        id: '66666666-0000-4000-8000-000000000003',
+        channel: 'telegram',
+        chatId: 'elig-accueil',
+        origin: 'onboarding',
+      },
+      // Écarté : le dashboard n'est pas un chat de canal — et il porte ici un
+      // `chatId`, sans quoi un AUTRE filtre l'exclurait et ce témoin ne
+      // prouverait rien.
+      {
+        ...base,
+        id: '66666666-0000-4000-8000-000000000004',
+        channel: 'dashboard',
+        chatId: 'elig-dash',
+        origin: 'user',
+      },
+      // Écarté : `chat_id` vide.
+      {
+        ...base,
+        id: '66666666-0000-4000-8000-000000000005',
+        channel: 'telegram',
+        chatId: '',
+        origin: 'user',
+      },
+    ]);
+    // Écarté : une autre ENTITÉ. Le voisin a son propre agent (seedé par ce
+    // fichier) — sans lui, retirer le filtre d'entité passerait inaperçu.
+    await testDb.insert(conversations).values({
+      ...base,
+      id: '66666666-0000-4000-8000-000000000006',
+      entityId: voisin.entityId,
+      agentId: voisin.agentId,
+      channel: 'telegram',
+      chatId: 'elig-voisin',
+      origin: 'user',
     });
 
     const { listCurrentThreadByChatAction } = await actions();
     const r = await listCurrentThreadByChatAction();
     if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
 
-    expect(r.data.listable).toContain(cle('elig-user'));
+    expect(r.data.listable, 'origine user').toContain(cle('elig-user'));
+    expect(r.data.listable, 'origine project').toContain(cle('elig-projet'));
     // L'accueil est DÉSIGNÉ — la désignation copie le runner, qui ne filtre pas
-    // l'origine — mais il n'est pas listable, et c'est cette distinction qui
+    // l'origine — mais il n'est PAS listable. C'est cette distinction qui
     // empêche l'écran de réclamer un chat qu'il ne montrera jamais.
-    expect(r.data.current[cle('elig-accueil')]).toBe('66666666-0000-4000-8000-00000000000b');
-    expect(r.data.listable).not.toContain(cle('elig-accueil'));
-    // Ni dashboard, ni chat vide.
-    expect(r.data.listable.some((k) => k.includes(':dashboard:'))).toBe(false);
-    expect(r.data.listable.some((k) => k.endsWith(':'))).toBe(false);
+    expect(r.data.current[cle('elig-accueil')]).toBe('66666666-0000-4000-8000-000000000003');
+    expect(r.data.listable, 'origine onboarding').not.toContain(cle('elig-accueil'));
+    // La clé porte le CANAL : viser `telegram:elig-dash` ne prouvait rien,
+    // puisque cette conversation est sur `dashboard` — la mutation qui retire
+    // ce filtre restait verte (constaté en la faisant tourner).
+    expect(r.data.listable, 'canal dashboard').not.toContain(`${seed.agentId}:dashboard:elig-dash`);
+    expect(
+      r.data.listable.some((k) => k.endsWith(':')),
+      'chat vide',
+    ).toBe(false);
+    expect(
+      r.data.listable.some((k) => k.includes('elig-voisin')),
+      'une autre entité',
+    ).toBe(false);
   });
 
   it('UNE seule ligne par chat, et aucune pour le dashboard', async () => {

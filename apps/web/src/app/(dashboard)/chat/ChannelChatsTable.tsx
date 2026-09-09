@@ -55,16 +55,25 @@ export default function ChannelChatsTable({
   rows,
   missingCurrent = false,
   hiddenByWindow = 0,
+  threadsUnreadable = false,
 }: {
   rows: ChannelChatRow[];
   /** La base n'a pas pu désigner le fil courant d'au moins un chat. */
   missingCurrent?: boolean;
   /** Des chats existent mais aucune de leurs conversations n'est dans la fenêtre. */
   hiddenByWindow?: number;
+  /**
+   * La lecture des fils courants a ÉCHOUÉ. Distinct de `missingCurrent`, qui
+   * décrit des chats affichés : ici on ne sait rien, pas même s'il y a des
+   * chats à montrer.
+   */
+  threadsUnreadable?: boolean;
 }) {
-  // Zéro ligne mais des chats cachés par la fenêtre : la section doit
-  // apparaître QUAND MÊME, pour dire qu'elle est vide à tort.
-  if (rows.length === 0 && hiddenByWindow === 0) return null;
+  // La section doit apparaître dès qu'elle a quelque chose à DIRE — des lignes,
+  // des chats hors fenêtre, ou une lecture en échec. Sans le dernier cas, une
+  // panne de la désignation faisait disparaître la section entière en silence
+  // (revue Codex, PR #48, passe 11).
+  if (rows.length === 0 && hiddenByWindow === 0 && !threadsUnreadable) return null;
   return (
     <section className="mb-8">
       <div className="mb-2 flex items-baseline gap-2">
@@ -73,6 +82,12 @@ export default function ChannelChatsTable({
           {rows.length} {rows.length === 1 ? 'chat' : 'chats'}
         </span>
       </div>
+      {threadsUnreadable && (
+        <p className="text-body-12 text-err mb-2">
+          Channel chats couldn’t be read just now. This list may be incomplete — reload to try
+          again.
+        </p>
+      )}
       {missingCurrent && (
         <p className="text-body-12 text-ink-3 mb-2">
           Chats marked “unavailable” below can’t be opened right now — their current thread couldn’t
