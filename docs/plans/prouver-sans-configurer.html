@@ -336,7 +336,16 @@
 
 <div class="wrap">
   <h1>Prouver sans configurer</h1>
-  <p class="stamp">08/09/2026 · une PR, un lot, mergée dans la semaine</p>
+  <p class="stamp">
+    08/09/2026, mergée le 09/09 · PR #49 · six passes de revue, plus douze sur la PR dont elle
+    dépendait
+  </p>
+
+  <p class="thesis" style="background: var(--ok-bg); border-left-color: var(--ok); font-size: 15px">
+    <b>C'est fait.</b> La vérification de Nodal a tourné pour la première fois. L'agent déclare
+    comment on vérifie son travail, et la finalisation exécute — sans qu'aucune ligne du moteur ne
+    change.
+  </p>
 
   <p class="thesis">
     Celui qui <b>construit</b> sait comment on vérifie. C'est donc <b>lui</b> qui le dit — pas
@@ -391,27 +400,37 @@
       <tr>
         <th>#</th>
         <th>Ce qui change</th>
-        <th>Taille</th>
+        <th>État</th>
       </tr>
       <tr>
         <td>1</td>
         <td>L'agent déclare comment vérifier ce qu'il vient de produire</td>
-        <td><span class="pill m">M</span></td>
+        <td><span class="pill s">mergé</span></td>
       </tr>
       <tr>
         <td>2</td>
         <td>Le système l'exécute à la fin et l'enregistre comme preuve</td>
-        <td><span class="pill m">M</span></td>
+        <td><span class="pill s">mergé</span></td>
       </tr>
       <tr>
         <td>3</td>
         <td>L'écran des commandes MONTRE au lieu de DEMANDER</td>
-        <td><span class="pill s">S</span></td>
+        <td><span class="pill s">mergé</span></td>
       </tr>
       <tr>
         <td>4</td>
-        <td>Un livrable est ce qui a été écrit, pas ce qui aurait pu l'être</td>
-        <td><span class="pill m">M</span></td>
+        <td>Un livrable est ce qui a été VISÉ, pas tout ce qui pourrait bouger</td>
+        <td><span class="pill s">mergé</span></td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>Un projet ne contient pas un autre projet <i>(trouvé en route)</i></td>
+        <td><span class="pill s">mergé</span></td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>Constater les écritures réelles sur le disque</td>
+        <td><span class="pill m">backlog</span></td>
       </tr>
     </table>
   </div>
@@ -498,7 +517,74 @@
     </p>
   </div>
 
-  <h2>Les questions que je ne sais pas trancher</h2>
+  <h2>Ce que la vérification a corrigé dans ce plan</h2>
+  <p>
+    C'est la partie la plus utile à relire : trois affirmations se sont révélées fausses à l'usage,
+    et <b>deux de mes propres correctifs sont devenus le constat de la passe suivante</b>.
+  </p>
+  <div class="card">
+    <h3>« Le même régime d'approbation que les commandes suffit »</h3>
+    <p>
+      <b>Faux.</b> L'outil de déclaration était absent de la liste des outils d'exécution de code —
+      quatre gardes le manquaient donc : le mode autonome levait son approbation, une règle passe-
+      partout la balayait, le frein global l'ignorait, et le refus des commandes catastrophiques ne
+      s'y appliquait pas. Un agent pouvait enregistrer une commande que l'outil de shell aurait
+      REFUSÉE. Fermé — puis rouvert dans l'autre mode d'autonomie, et refermé pour de bon.
+    </p>
+  </div>
+  <div class="card">
+    <h3>« Un livrable est ce qui a été écrit »</h3>
+    <p>
+      La formulation était le piège. Ce qu'on sait, c'est ce qu'un outil a <b>nommé</b> — pas ce qui
+      a été écrit : la trace est posée AVANT l'exécution, délibérément, pour qu'une tentative qui
+      échoue laisse quand même le projet à vérifier. D'où deux notions au lieu d'une : ce que
+      l'écran montre, et ce qui autorise à déclarer une preuve. Séparées après qu'une édition ratée
+      — un texte à remplacer introuvable — eut suffi à déclarer.
+    </p>
+  </div>
+  <div class="card">
+    <h3>« Le code de sortie dit si la commande a produit »</h3>
+    <p>
+      Jamais écrit ici, mais implicite dans un de mes correctifs, et <b>faux</b> :
+      <code>robocopy</code>
+      rend 1 quand il A copié, et un build suivi d'un test rouge sort non-zéro alors que les
+      fichiers sont écrits. Retiré. Le statut d'un processus ne dit rien de ce qui a touché le
+      disque — c'est ce qui fait du point 6 un chantier à part.
+    </p>
+  </div>
+
+  <h2>Les questions, tranchées</h2>
+  <ul class="plain">
+    <li>
+      <b>Faut-il une approbation la première fois ?</b> <b>OUI.</b> L'outil demande une approbation
+      et rejoint les outils d'exécution de code ; une commande lourde dans une séquence déclarée
+      gate la déclaration entière — elle s'exécutera entière.
+    </li>
+    <li>
+      <b>Un shell lancé à la racine d'un dossier qui contient plusieurs projets ?</b> Il ne désigne
+      AUCUN projet, et c'est voulu (ta décision du 09/09). Pour déclarer une preuve, l'agent lance
+      sa commande dans le projet lui-même. Le refus le lui apprend, en nommant le geste.
+    </li>
+    <li>
+      <b>« Changements demandés » qui n'empêche pas d'annoncer « livré »</b> — toujours ouverte,
+      explicitement hors périmètre : bloquer la fin d'un job change le contrat de fin de travail.
+    </li>
+  </ul>
+
+  <h2>Ce qui reste, et pourquoi c'est un lot à part</h2>
+  <p>
+    « Ce travail a produit ici » se <b>déduit</b> aujourd'hui : un outil a nommé la cible, et il n'a
+    pas déclaré d'échec. Ce n'est pas la même chose que le constater. Ni le code de sortie ni
+    l'instantané de sauvegarde ne peuvent le dire — le second est pris une fois par tour et exclut
+    <code>dist/</code> et les fichiers ignorés, sous réserve du <code>.gitignore</code> de chaque
+    projet. Le faire vraiment demande de comparer l'état du disque avant et après.
+  </p>
+  <p>
+    <b>Conséquence assumée</b> : <code>echo ok</code> reste déclarable comme preuve. La description
+    de l'outil l'interdit en toutes lettres, ce qui est une garde faible — et nommée comme telle.
+  </p>
+
+  <h2>Les questions telles qu'elles étaient posées</h2>
   <ul class="plain">
     <li>
       <b>Une vérification qui échoue à s'exécuter</b> — commande introuvable, dépassement de temps —
@@ -528,7 +614,7 @@
   </ul>
 
   <p class="foot">
-    Source versionnée : <code>docs/plans/prouver-sans-configurer.md</code>. Rien n'est codé avant
-    ton go.
+    Source versionnée : <code>docs/plans/prouver-sans-configurer.md</code>. Mergée le 09/09/2026,
+    squash <code>6e92e558</code>.
   </p>
 </div>

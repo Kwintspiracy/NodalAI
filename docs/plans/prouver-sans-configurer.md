@@ -2,7 +2,75 @@
 
 # Prouver sans configurer
 
-> Une PR, un lot, mergée dans la semaine.
+> **MERGÉE le 09/09/2026** — PR #49, squash `6e92e558`. Six passes de revue
+> Codex, plus douze sur la PR #48 dont elle dépendait.
+
+| # | Lot | PR | État |
+|---|-----|----|------|
+| 1 | L'agent déclare comment on vérifie | #49 | ✅ mergée |
+| 2 | Un livrable est ce qui a été VISÉ | #49 | ✅ mergée |
+| 3 | L'écran MONTRE au lieu de DEMANDER | #49 | ✅ mergée |
+| 4 | Un projet ne contient pas un autre projet | #49 | ✅ mergée (hors plan initial) |
+| 5 | Constater les écritures réelles sur le disque | — | ⬜ backlog, lot à part |
+
+## Ce que la vérification a corrigé DANS CE PLAN
+
+C'est la partie la plus utile à relire : trois affirmations du plan initial se
+sont révélées fausses à l'usage, et deux de mes propres correctifs sont devenus
+le constat de la passe suivante.
+
+**« Même `defaultApproval` que `run_command` suffit »** (§ Les questions, point
+3) — FAUX, démontré passe 1. L'outil était absent de `CODE_EXECUTION_TOOL_NAMES`,
+donc quatre gardes le manquaient : le mode autonome levait son approbation, une
+règle wildcard la balayait, le frein global l'ignorait, et le refus des commandes
+catastrophiques ne s'y appliquait pas. Fermé — puis rouvert dans l'AUTRE branche
+d'autonomie (`destructive_gate`), fermé pour de bon passe 2.
+
+**« Un livrable est ce qui a été écrit »** (lot 4) — la formulation était le
+piège. Ce qu'on sait, c'est ce qu'un outil a NOMMÉ, pas ce qui a été écrit :
+l'intention de mutation est posée AVANT l'exécution, délibérément. D'où deux
+colonnes au lieu d'une : `addressed` (ce que l'écran montre) et `produced` (ce
+qui autorise à déclarer une preuve), séparées passe 2 après qu'un `file_edit` au
+`old_string` absent eut suffi à déclarer.
+
+**« Le code de sortie dit si la commande a produit »** — jamais écrit dans le
+plan, mais implicite dans mon correctif de la passe 3, et FAUX : `robocopy` rend
+1 quand il A copié, un `build && test` sort non-zéro alors que le build a écrit.
+Retiré passe 4. Le statut d'un processus ne dit rien de ce qui a touché le
+disque — c'est ce qui fait du lot 5 un chantier à part.
+
+**Question 3 (« faut-il une approbation la première fois ? ») : tranchée OUI.**
+`declare_verification` porte `require_approval` et rejoint les outils
+d'exécution de code, et une commande lourde dans une séquence déclarée gate la
+déclaration entière — elle s'exécutera entière.
+
+**Question 2 (`request_changes` qui n'empêche pas d'annoncer « livré ») :
+toujours ouverte**, explicitement hors périmètre. Bloquer la fin d'un job change
+le contrat de fin de travail.
+
+**Décision de Quentin, 09/09** : un shell lancé à la racine d'un terrain ne
+désigne aucun projet, et c'est voulu. Pour déclarer une preuve, l'agent lance sa
+commande avec `cwd` sur le projet. Le refus l'enseigne — trois refus distincts,
+un par cause.
+
+## Ce qui reste, et pourquoi c'est un lot à part
+
+`produced` répond « un outil a-t-il réussi à écrire ici ? » avec le meilleur
+signal disponible : l'outil a nommé la cible, et il n'a pas déclaré d'échec. Ce
+n'est pas la même chose que constater une écriture. Ni le code de sortie ni
+l'instantané de checkpoint ne peuvent le dire — le second est pris une fois par
+tour et exclut `dist/` et les fichiers ignorés, sous réserve du `.gitignore` de
+chaque projet. Le faire vraiment demande de comparer l'état du disque avant et
+après, et c'est un mécanisme entier.
+
+Conséquence assumée : `echo ok` reste déclarable comme preuve. La description de
+l'outil l'interdit en toutes lettres, ce qui est une garde faible et nommée
+comme telle.
+
+---
+
+> Le plan tel qu'il était écrit AVANT la mise en œuvre suit. Il est conservé
+> intact : c'est ce qui rend lisible ce que la vérification a corrigé.
 
 ## Le sujet, en une phrase
 

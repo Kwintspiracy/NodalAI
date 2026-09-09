@@ -18,14 +18,53 @@ déduits. **Aucun n'est un défaut du modèle.**
 
 ## Suivi
 
+> **LES DEUX PR SONT MERGÉES** — #47 (`2a28dabe`) et #48 (`28fcb25e`, le
+> 09/09/2026, après **douze passes** de revue Codex).
+
 | # | PR | Ce qui change | Taille | État |
 |---|----|---------------|--------|------|
-| 1 | B — la routine | Une routine a un état à elle, pas un souvenir | M | ✅ PR #47, en revue |
+| 1 | B — la routine | Une routine a un état à elle, pas un souvenir | M | ✅ PR #47 mergée |
 | 1b | B — la routine | La mémoire n'est pas un journal de bord | S | 🔄 source coupée ; passé à ranger |
-| 2 | A — le fil | Ce qu'un agent dit dans un chat appartient au fil de ce chat | M | ⬜ |
-| 3 | A — le fil | Un envoi rend « envoyé », pas un identifiant à interpréter | S | ⬜ |
-| 4 | A — le fil | La page Chat sépare les canaux des conversations | M | ⬜ |
-| 5 | A — le fil | Le fil descend tout seul quand un message arrive | S | ⬜ |
+| 2 | A — le fil | Ce qu'un agent dit dans un chat appartient au fil de ce chat | M | ✅ PR #48 mergée |
+| 3 | A — le fil | Un envoi rend « envoyé », pas un identifiant à interpréter | S | ✅ PR #48 mergée |
+| 4 | A — le fil | La page Chat sépare les canaux des conversations | M | ✅ PR #48 mergée |
+| 5 | A — le fil | Le fil descend tout seul quand un message arrive | S | ✅ PR #48 mergée, avec deux réserves |
+
+## Ce que la vérification a corrigé DANS CE PLAN
+
+Douze passes sur la PR #48, et le plan ne prévoyait aucun des trois défauts les
+plus sérieux. Ils portent tous sur la même erreur de méthode : **recalculer côté
+écran une règle qui vit ailleurs.**
+
+**Le lot 4 supposait qu'une liste de conversations suffit à désigner le fil
+courant d'un chat.** Faux, de trois façons, et il a fallu deux correctifs pour
+le voir : la liste est plafonnée à 200 lignes, une `Date` JavaScript tronque les
+microsecondes d'un `timestamptz`, et `created_at` est nullable — or `ORDER BY …
+DESC` place les NULL DEVANT en PostgreSQL. La ligne pouvait donc ouvrir un fil
+pendant que le prochain message partait dans un autre. Le remède final ne corrige
+pas la formule : il la SUPPRIME. La base désigne le fil courant, avec la règle
+exacte de `resolveConversation`, et l'écran affiche.
+
+**Le lot 5 tenait dans un drapeau, puis dans un compteur ; ni l'un ni l'autre ne
+pouvait marcher.** Le drapeau restait armé quand le fil était déjà en bas, et
+avalait le geste suivant du lecteur. Le compteur d'événements ne pouvait pas
+marcher davantage : le navigateur FUSIONNE les événements de défilement d'un même
+élément (CSSOM View §13.2). C'est la position mémorisée qui tranche.
+
+**Deux réserves assumées, portées au backlog du harnais** : deux entrelacements
+SOUS la frame subsistent — le lecteur défile et le contenu grandit avant que
+l'événement de son geste ne soit distribué. Ils se réparent au geste suivant, et
+les fermer demanderait un second état à tenir cohérent avec le premier. La
+technique qui les supprime par construction est le conteneur inversé
+(`flex-direction: column-reverse`), qui impose de rendre le fil à l'envers :
+c'est un chantier à soi.
+
+**Trois silences trouvés par la revue, qu'aucun lot n'avait prévus** : un chat
+dont toutes les conversations tombent hors de la fenêtre disparaissait sans un
+mot ; une lecture des fils en échec faisait disparaître la section entière ; et
+un nom de chat qu'on n'a pas pu LIRE s'affichait comme un nom qui n'existe pas —
+ce qui est le cas normal du propriétaire. L'écran dit maintenant chacun des
+trois.
 
 ## Les trois preuves
 

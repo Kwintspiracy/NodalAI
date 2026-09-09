@@ -337,8 +337,14 @@
 <div class="wrap">
   <h1>Parler, c'est se souvenir</h1>
   <p class="stamp">
-    Deux PR · 08/09/2026 · tout ce qui suit est lu en base, appel d'outil par appel d'outil — rien
-    n'est déduit
+    Deux PR · 08/09/2026, les deux mergées le 09/09 · tout ce qui suit est lu en base, appel d'outil
+    par appel d'outil — rien n'est déduit
+  </p>
+
+  <p class="thesis" style="background: var(--ok-bg); border-left-color: var(--ok); font-size: 15px">
+    <b>Les deux PR sont mergées</b> — #47 et #48, cette dernière après <b>douze passes</b> de revue.
+    La ligne d'un chat ouvre désormais le fil que le prochain message alimentera, ce qui n'était pas
+    vrai.
   </p>
 
   <p class="thesis">
@@ -381,30 +387,73 @@
         <td><span class="pill pr">A · le fil</span></td>
         <td>Ce qu'un agent dit dans un chat appartient au fil de ce chat</td>
         <td><span class="pill m">M</span></td>
-        <td>—</td>
+        <td><span class="pill s">PR #48</span></td>
       </tr>
       <tr>
         <td>3</td>
         <td><span class="pill pr">A · le fil</span></td>
         <td>Un envoi rend « envoyé », pas un identifiant à interpréter</td>
         <td><span class="pill s">S</span></td>
-        <td>—</td>
+        <td><span class="pill s">PR #48</span></td>
       </tr>
       <tr>
         <td>4</td>
         <td><span class="pill pr">A · le fil</span></td>
         <td>La page Chat sépare les canaux des conversations</td>
         <td><span class="pill m">M</span></td>
-        <td>—</td>
+        <td><span class="pill s">PR #48</span></td>
       </tr>
       <tr>
         <td>5</td>
         <td><span class="pill pr">A · le fil</span></td>
         <td>Le fil descend tout seul quand un message arrive</td>
         <td><span class="pill s">S</span></td>
-        <td>—</td>
+        <td><span class="pill s">PR #48 · 2 réserves</span></td>
       </tr>
     </table>
+  </div>
+
+  <h2>Ce que la vérification a corrigé dans ce plan</h2>
+  <p>
+    Douze passes sur la PR du fil, et le plan ne prévoyait <b>aucun</b> des trois défauts les plus
+    sérieux. Ils portent tous sur la même erreur de méthode : recalculer côté écran une règle qui
+    vit ailleurs.
+  </p>
+  <div class="card">
+    <h3>Le lot 4 supposait qu'une liste de conversations désigne le fil courant</h3>
+    <p>
+      Faux, de trois façons, et il a fallu deux correctifs pour le voir : la liste est plafonnée à
+      200 lignes, une date JavaScript tronque les microsecondes que la base garde, et une date de
+      création absente passe en TÊTE du tri décroissant en PostgreSQL. La ligne pouvait donc ouvrir
+      un fil pendant que le prochain message partait dans un autre.
+    </p>
+    <p>
+      Le remède final ne corrige pas la formule : il la <b>supprime</b>. La base désigne le fil
+      courant, avec la règle exacte du runner, et l'écran affiche.
+    </p>
+  </div>
+  <div class="card">
+    <h3>Le lot 5 tenait dans un drapeau, puis dans un compteur</h3>
+    <p>
+      Ni l'un ni l'autre ne pouvait marcher. Le drapeau restait armé quand le fil était déjà en bas
+      et avalait le geste suivant du lecteur. Le compteur d'événements ne pouvait pas marcher
+      davantage : le navigateur <b>fusionne</b> les événements de défilement d'un même élément, donc
+      on ne sait pas combien arriveront. C'est la position mémorisée qui tranche.
+    </p>
+    <p>
+      <b>Deux réserves assumées</b>, portées au backlog : deux entrelacements subsistent quand le
+      lecteur défile pendant que le contenu grandit. Ils se réparent au geste suivant. La technique
+      qui les supprime par construction impose de rendre le fil à l'envers — un chantier à soi.
+    </p>
+  </div>
+  <div class="card">
+    <h3>Trois silences qu'aucun lot n'avait prévus</h3>
+    <p>
+      Un chat dont toutes les conversations tombent hors de la fenêtre disparaissait sans un mot ;
+      une lecture des fils en échec faisait disparaître la section entière ; et un nom de chat qu'on
+      n'a pas pu LIRE s'affichait comme un nom qui n'existe pas — ce qui est le cas normal du
+      propriétaire, que personne n'a « demandé ». L'écran dit maintenant chacun des trois.
+    </p>
   </div>
 
   <h2>Preuve 1 — le doublon Discord</h2>

@@ -351,11 +351,11 @@
 <div class="wrap">
   <h1>Backlog vivant</h1>
   <p class="stamp">
-    Nodal-Agents · mis à jour le 07/09/2026 · une PR par chantier, remis à jour à chaque session ·
+    Nodal-Agents · mis à jour le 09/09/2026 · une PR par chantier, remis à jour à chaque session ·
     cap :
     <b
-      >publier la 0.8.9, alléger le coût d'un tour de chat, développer v7 « vérifier sans configurer
-      »</b
+      >publier la 0.8.9, alléger le coût d'un tour de chat, finir v7 « vérifier sans configurer »
+      (v7-B document et envoi, v7-D critères tirés de la demande)</b
     >
   </p>
 
@@ -381,12 +381,31 @@
     <span class="step">#44 CI 18 min → 1 min · mergée</span><span class="arrow">→</span>
     <span class="step">#45 Profils d'agents · mergée</span><span class="arrow">→</span>
     <span class="step">#46 Vérifier &amp; Corriger PR① · mergée</span><span class="arrow">→</span>
+    <span class="step">#47 Routine · mergée</span><span class="arrow">→</span>
+    <span class="step">#48 Le fil dit la vérité · mergée</span><span class="arrow">→</span>
+    <span class="step">#49 Prouver sans configurer · mergée</span><span class="arrow">→</span>
     <span class="step">0.8.9 · fix connexion LAN</span>
   </div>
   <p class="pipenote">
+    <b>09/09 · plus aucune PR ouverte, et la vérification a enfin tourné.</b>
+    <a href="https://github.com/Kwintspiracy/nodal-agents/pull/48">#48</a> «&nbsp;Le fil dit la
+    vérité&nbsp;» (squash <code>28fcb25e</code>, <b>douze passes</b>) et
+    <a href="https://github.com/Kwintspiracy/nodal-agents/pull/49">#49</a> «&nbsp;Prouver sans
+    configurer&nbsp;» (squash <code>6e92e558</code>, <b>six passes</b>) sont mergées. Plans&nbsp;:
+    <a href="https://claude.ai/code/artifact/a7bc52c8-b9e9-4561-a44d-5ec1c78dca81"
+      >Parler, c'est se souvenir</a
+    >
+    et
+    <a href="https://claude.ai/code/artifact/34ee90de-3bd5-46e3-94c0-9e17e3028c62"
+      >Prouver sans configurer</a
+    >. <b><code>verification_runs</code> portait 0 ligne depuis l'origine</b>&nbsp;: le produit
+    demandait au propriétaire une information qu'il n'a pas. C'est l'agent qui déclare désormais
+    comment on vérifie son travail, et la finalisation qui exécute.
+  </p>
+  <p class="pipenote">
     <b
-      >Une PR ouverte : <a href="https://github.com/Kwintspiracy/nodal-agents/pull/45">#45</a>, les
-      profils d'agents</b
+      >[07/09] <a href="https://github.com/Kwintspiracy/nodal-agents/pull/45">#45</a>, les profils
+      d'agents</b
     >
     — plan et bilan des revues dans
     <a href="https://claude.ai/code/artifact/6bd5e3c9-4fdd-4704-b34a-ec600a9f3d15"
@@ -401,7 +420,7 @@
     local sur sa branche — le vert de la CI ne suffisait pas à le dire.
   </p>
   <p class="pipenote">
-    <b>Plus aucune PR ouverte.</b>
+    <b>[07/09]</b>
     <a href="https://github.com/Kwintspiracy/nodal-agents/pull/46">#46</a>, « Vérifier &amp;
     Corriger » PR①, est <b>mergée le 07/09</b> (squash, <code>fa3914b8</code>) : 70 000 lignes, 492
     fichiers, 189 commits, <b>soixante-cinq passes Codex</b>. Elle porte tout le plan « De la
@@ -636,6 +655,40 @@
   </div>
 
   <h2>Fait récemment</h2>
+  <p class="daylabel">Mardi 09/09 · la vérification tourne, et le fil dit vrai</p>
+  <ul class="done">
+    <li>
+      <b>La vérification de Nodal n'avait jamais tourné une seule fois</b> —
+      <code>verification_runs</code> portait 0 ligne depuis l'origine, parce qu'un projet ne se
+      vérifiait que si son propriétaire avait saisi ET approuvé des commandes. L'agent déclare
+      maintenant comment on vérifie ce qu'il a produit&nbsp;; aucune ligne du moteur ne change.
+      Migrations 0102 à 0106.
+    </li>
+    <li>
+      <b>La ligne d'un chat ouvre le fil que le prochain message alimentera</b> — elle pouvait en
+      ouvrir un autre&nbsp;: l'écran choisissait par date de modification, le runner par date de
+      création, et un rattachement de projet remue le vieux fil. Le fil courant est désormais
+      désigné par la BASE, avec la règle exacte de <code>resolveConversation</code>.
+    </li>
+    <li>
+      <b>Deux «&nbsp;Recettes&nbsp;» dans /spaces, dont un était tout le dossier Dev</b> — la seule
+      garde à la création comparait l'égalité EXACTE du chemin, donc elle ne voyait pas un dossier
+      qui en contient dix-huit. Un projet ne peut plus ni contenir un projet enregistré ni être
+      dedans&nbsp;: comparaison lexicale ET physique (une jonction traversait), sous verrou, dans
+      une transaction (deux créations simultanées passaient toutes les deux). La ligne fautive a été
+      supprimée en base — les trois jobs rattachés survivent.
+    </li>
+    <li>
+      <b
+        >Dix-huit passes de revue, et presque tous les constats portaient sur le correctif
+        précédent</b
+      >
+      — trois fois, la bonne réponse n'était pas d'ajuster une règle mais de la RETIRER et de la
+      demander à l'endroit qui la détient&nbsp;: la base pour le fil courant, le succès réel pour la
+      production, la contenance physique pour les projets. Deux fois, Codex m'a donné tort sur une
+      correction que je venais de défendre.
+    </li>
+  </ul>
   <p class="daylabel">Dimanche 07/09 · les deux PR fermées</p>
   <ul class="done">
     <li>
@@ -913,6 +966,17 @@
         <th>Chantier</th>
         <th>Pour l'utilisateur</th>
         <th>Taille</th>
+      </tr>
+      <tr>
+        <td>Constater les écritures réelles sur le disque</td>
+        <td>
+          Une preuve qui dit vrai&nbsp;: aujourd'hui «&nbsp;ce travail a produit ici&nbsp;» se
+          déduit (un outil a nommé la cible et n'a pas déclaré d'échec) au lieu de se constater. Ni
+          le code de sortie d'un shell ni l'instantané de checkpoint ne peuvent le dire — le premier
+          vaut 1 quand <code>robocopy</code> a copié, le second est pris une fois par tour et exclut
+          <code>dist/</code>. Sans ça, <code>echo ok</code> reste déclarable comme preuve.
+        </td>
+        <td><span class="pill plain">moyenne</span></td>
       </tr>
       <tr>
         <td>Génération média</td>
