@@ -24,6 +24,8 @@ import {
   llmCalls,
   toolCalls,
   users,
+  eq,
+  sql,
 } from '@nodal-agents/db';
 import { projectKey } from '@nodal-agents/shared';
 
@@ -1021,5 +1023,113 @@ describe('getConversationThreadAction — l’état des documents (P12)', () => 
     // Et la section de preuve, elle, ne voit toujours QUE le non configuré :
     // un document `dirty` n'est pas un trou de configuration.
     expect(r.data.verification.unconfigured.map((u) => u.canonicalKey)).toEqual([cleNonConfig]);
+  });
+});
+
+// ─── La DÉSIGNATION du fil courant, contre une vraie base ────────────────────
+//
+// Revue Codex PR #48, passes 5 à 7. La règle vit en SQL parce qu'elle ne peut
+// pas vivre ailleurs : la liste est plafonnée, les `Date` de JavaScript
+// tronquent les microsecondes de `timestamptz`, et `created_at` est nullable —
+// or `ORDER BY … DESC` place les NULL DEVANT en PostgreSQL. Trois pièges que
+// deux correctifs successifs en TypeScript n'ont pas su éviter.
+//
+// Ces tests exercent donc la REQUÊTE, pas une mise en scène : chaque cas insère
+// de vraies lignes et relit ce que la base désigne.
+describe('listCurrentThreadByChatAction — la base désigne, avec la règle du runner', () => {
+  /** Un chat neuf, à l'écart des fils du seed. */
+  async function chatAvec(
+    chatId: string,
+    fils: ReadonlyArray<{ id?: string; createdAt: Date | null }>,
+  ): Promise<string[]> {
+    const ids: string[] = [];
+    for (const f of fils) {
+      const [row] = await testDb
+        .insert(conversations)
+        .values({
+          ...(f.id ? { id: f.id } : {}),
+          entityId: seed.entityId,
+          agentId: seed.agentId,
+          channel: 'telegram',
+          chatId,
+          origin: 'user',
+          createdAt: f.createdAt,
+        })
+        .returning({ id: conversations.id });
+      ids.push(row!.id);
+    }
+    return ids;
+  }
+
+  it('désigne le dernier fil OUVERT, pas le dernier remué', async () => {
+    const [ancien, recent] = await chatAvec('desig-1', [
+      { createdAt: new Date('2026-09-01T10:00:00Z') },
+      { createdAt: new Date('2026-09-08T10:00:00Z') },
+    ]);
+    // Le fil ANCIEN est remué après coup — ce que fait un rattachement de
+    // projet. C'est exactement la séquence qui trompait l'écran.
+    await testDb
+      .update(conversations)
+      .set({ updatedAt: new Date('2026-09-09T10:00:00Z') })
+      .where(eq(conversations.id, ancien!));
+
+    const { listCurrentThreadByChatAction } = await actions();
+    const r = await listCurrentThreadByChatAction();
+    if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
+    expect(r.data[`${seed.agentId}:telegram:desig-1`]).toBe(recent);
+  });
+
+  it('départage deux fils de la même MICROSECONDE par l’identifiant, comme le runner', async () => {
+    // Une `Date` JavaScript ne distingue pas ces deux instants : côté écran ils
+    // paraissaient égaux, et le départage par `id` se déclenchait sur une
+    // égalité qui n'existe pas en base.
+    const meme = '2026-09-08T09:00:00.123Z';
+    const [a, b] = await chatAvec('desig-2', [
+      { createdAt: new Date(meme) },
+      { createdAt: new Date(meme) },
+    ]);
+    // On écarte les deux de 800 microsecondes, sous la résolution d'une `Date`.
+    await testDb.execute(
+      sql`UPDATE conversations SET created_at = timestamptz '2026-09-08 09:00:00.123100+00' WHERE id = ${a!}`,
+    );
+    await testDb.execute(
+      sql`UPDATE conversations SET created_at = timestamptz '2026-09-08 09:00:00.123900+00' WHERE id = ${b!}`,
+    );
+
+    const { listCurrentThreadByChatAction } = await actions();
+    const r = await listCurrentThreadByChatAction();
+    if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
+    // La base voit la différence : c'est `b`, quel que soit l'ordre des `id`.
+    expect(r.data[`${seed.agentId}:telegram:desig-2`]).toBe(b);
+  });
+
+  it('un fil SANS date de création gagne — c’est ce que fait le runner, et on le copie', async () => {
+    // `ORDER BY created_at DESC` place les NULL DEVANT en PostgreSQL. Ce n'est
+    // pas le choix qu'on ferait de zéro, mais c'est CELUI DU RUNNER : diverger
+    // « en mieux » ferait ouvrir à l'écran un fil que le message n'alimentera
+    // pas, et c'est le défaut qu'on répare.
+    const [avecDate, sansDate] = await chatAvec('desig-3', [
+      { createdAt: new Date('2026-09-08T10:00:00Z') },
+      { createdAt: null },
+    ]);
+    expect(avecDate).toBeTruthy();
+
+    const { listCurrentThreadByChatAction } = await actions();
+    const r = await listCurrentThreadByChatAction();
+    if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
+    expect(r.data[`${seed.agentId}:telegram:desig-3`]).toBe(sansDate);
+  });
+
+  it('une ligne par chat, et les chats du dashboard n’y sont pas', async () => {
+    const { listCurrentThreadByChatAction } = await actions();
+    const r = await listCurrentThreadByChatAction();
+    if (!r.ok) throw new Error(`echec inattendu : ${r.code} ${r.message}`);
+
+    // Trois fils ouverts sur `desig-1` … `desig-3`, une seule entrée chacun.
+    for (const chat of ['desig-1', 'desig-2', 'desig-3']) {
+      expect(r.data[`${seed.agentId}:telegram:${chat}`]).toBeTruthy();
+    }
+    // Aucune clé ne désigne un fil du dashboard : ils n'ont pas de chat.
+    expect(Object.keys(r.data).some((k) => k.includes(':dashboard:'))).toBe(false);
   });
 });
