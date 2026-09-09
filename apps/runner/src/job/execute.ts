@@ -738,8 +738,14 @@ async function runJob(
   // don't force tool_choice:'required' on a model that rejects it.
   let modelSupportsForcedToolChoice = true;
 
-  // Wall-clock timer for total_duration_ms persistence. Captured at function
-  // entry so it includes job/agent loading, not just the LLM loop.
+  // Chronomètre du SEGMENT en cours. Capturé à l'entrée de la fonction pour
+  // couvrir le chargement du job et de l'agent, pas seulement la boucle LLM.
+  //
+  // Il ne suffit pas à lui seul : un job qui se suspend — pour déléguer, pour
+  // attendre une approbation — rentre à nouveau ici avec un chronomètre neuf.
+  // Écrire `Date.now() - startedAt` écrasait alors tout ce qui précédait, et la
+  // valeur finale ne mesurait plus que le dernier segment. Voir
+  // `dureeCumuleeMs` juste sous les autres accumulateurs.
   const startedAt = Date.now();
 
   // Trace logger — minimal, prefixed with jobId for grep. Goes to runner.log
@@ -783,7 +789,10 @@ async function runJob(
       effectiveInputTokens: job.effectiveInputTokens ?? job.inputTokens ?? 0,
       totalCostUsd: job.totalCostUsd ?? 0,
       turn: job.turn ?? 0,
-      totalDurationMs: 0,
+      // Ce refus tombe à l'entrée, avant tout travail : le segment vaut zéro,
+      // mais les précédents comptent. Écrire 0 effaçait le cumul — la même
+      // faute que l'écrasement corrigé plus bas, sur le chemin d'échec.
+      totalDurationMs: job.totalDurationMs ?? 0,
     });
     return { status: 'failed', error: 'chain_limit_exceeded' };
   }
@@ -825,6 +834,13 @@ async function runJob(
   let servedProvider: string | null = job.servedProvider ?? null;
   let turn = job.turn ?? 0;
   let toolsUsed: string[] = Array.isArray(job.toolsUsed) ? (job.toolsUsed as string[]) : [];
+  // Temps d'exécution DÉJÀ compté sur les segments précédents, amorcé depuis la
+  // ligne comme tous les accumulateurs au-dessus. Ce que le champ mesure : le
+  // temps où le job a réellement tourné, suspensions exclues. Le temps écoulé
+  // de bout en bout, lui, se lit `completed_at − created_at` et n'a pas besoin
+  // d'une colonne.
+  const dejaCompteMs = job.totalDurationMs ?? 0;
+  const dureeCumuleeMs = (): number => dejaCompteMs + (Date.now() - startedAt);
 
   const runStats = (): {
     inputTokens: number;
@@ -841,7 +857,7 @@ async function runJob(
     totalCostUsd,
     servedProvider,
     turn,
-    totalDurationMs: Date.now() - startedAt,
+    totalDurationMs: dureeCumuleeMs(),
   });
 
   // ── 3. Load agent ─────────────────────────────────────────────────────────────
@@ -4142,7 +4158,7 @@ async function runJob(
             effectiveInputTokens,
             totalCostUsd,
             servedProvider,
-            totalDurationMs: Date.now() - startedAt,
+            totalDurationMs: dureeCumuleeMs(),
           });
           return { status: 'awaiting_tasks' };
         }

@@ -149,6 +149,19 @@ export const agentJobs = pgTable(
     requestId: text('request_id'),
     parentJobId: uuid('parent_job_id'),
     parentRequestId: text('parent_request_id'),
+    /**
+     * Temps où le job a réellement TOURNÉ, cumulé sur tous ses segments —
+     * suspensions exclues. Un job qui délègue ou attend une approbation sort de
+     * `executeJob` et y rentre plus tard : chaque rentrée ajoute son segment,
+     * elle ne remplace pas le total (apps/runner/src/job/execute.ts,
+     * `dureeCumuleeMs`).
+     *
+     * Ce n'est PAS le temps écoulé de bout en bout. Celui-là se lit
+     * `completed_at − created_at` et ne mérite pas une colonne. La distinction
+     * compte : sur le run 20b73ed1 (09/09/2026), l'orchestrateur a tourné une
+     * trentaine de secondes pour 34 minutes écoulées — le reste était de
+     * l'attente, et les deux chiffres disent des choses différentes.
+     */
     totalDurationMs: integer('total_duration_ms').default(0),
     inputTokens: integer('input_tokens').default(0),
     outputTokens: integer('output_tokens').default(0),
