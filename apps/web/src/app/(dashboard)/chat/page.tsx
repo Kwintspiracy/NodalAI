@@ -25,8 +25,8 @@ export default async function ChatPage() {
     // page : les chats s'affichent alors par leur identifiant.
     listChatNamesAction(),
     // Le fil courant de chaque chat, désigné par la BASE avec la règle du
-    // runner. Une lecture qui échoue rend une carte vide, et le regroupement
-    // retombe sur son approximation — dégradée, jamais absente.
+    // runner. Une lecture qui échoue n'emporte pas la page — mais elle se DIT :
+    // voir `threadsUnreadable` ci-dessous.
     listCurrentThreadByChatAction(),
   ]);
   const { channels, dashboard, missingCurrent, hiddenByWindow } = groupChatLists(
@@ -36,12 +36,20 @@ export default async function ChatPage() {
     currents.ok ? currents.data.listable : [],
   );
 
+  // L'échec de la désignation se transmet TEL QUEL, sans passer par les lignes.
+  // Quand la liste ne rapporte aucun canal — 200 conversations du dashboard
+  // devant — et que cette lecture échoue, tous les compteurs valent zéro et la
+  // section disparaissait : l'utilisateur ne pouvait pas distinguer « aucun chat
+  // de canal » de « impossible de le vérifier » (revue Codex, PR #48, passe 11).
+  const threadsUnreadable = !currents.ok;
+
   return (
     <PageShell title="Chat" subtitle="Your channels, and the conversations you started here.">
       {result.ok ? (
         <>
           <ChannelChatsTable
             rows={channels}
+            threadsUnreadable={threadsUnreadable}
             missingCurrent={missingCurrent}
             hiddenByWindow={hiddenByWindow}
           />
