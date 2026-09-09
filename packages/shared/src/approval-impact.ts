@@ -95,6 +95,31 @@ export function computeApprovalImpactLine(toolName: string, toolInput: unknown):
       return `Runs script "${str(input['script'])}" from skill "${str(input['skill'])}".`;
     case 'skill_file_write':
       return `Writes a file into skill "${str(input['skill'])}"'s bundle.`;
+    case 'declare_verification': {
+      // Ce qu'on approuve ici, ce n'est pas une écriture en base : ce sont des
+      // commandes qui tourneront À LA FINALISATION, sans repasser par une
+      // approbation. Le catch-all « irreversible or destructive action »
+      // demandait donc un accord SANS montrer sur quoi (revue Codex, PR #49,
+      // passe 2). Les commandes sont dites, comme celles de `run_command`.
+      const raw = input['commands'];
+      const commands = Array.isArray(raw)
+        ? raw
+            .map((c) => (c as { command?: unknown })?.command)
+            .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+        : [];
+      if (commands.length === 0) {
+        return `Records how "${str(input['project_path'])}" is verified — no command declared, so nothing will run.`;
+      }
+      const liste = commands.map((c) => `\`${c}\``).join(', ');
+      const heavy = commands.some(isDestructiveOrHeavyCommand);
+      return (
+        `Records ${liste} as the proof for "${str(input['project_path'])}". ` +
+        `${commands.length === 1 ? 'It runs' : 'They run'} when the job finishes, without asking again` +
+        (heavy
+          ? ' — and at least one deletes/moves files, installs software, or changes system state.'
+          : '.')
+      );
+    }
     case 'file_search': {
       // Gaté uniquement par une règle UTILISATEUR (riskLevel: read) — le
       // catch-all « irreversible or destructive » mentait sur une recherche

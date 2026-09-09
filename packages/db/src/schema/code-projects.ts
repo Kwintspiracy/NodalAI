@@ -85,6 +85,18 @@ export const codeProjects = pgTable(
     /** Empreinte (D1) de la révision exacte approuvée par le propriétaire. */
     verifyApprovedManifestHash: text('verify_approved_manifest_hash'),
     verifyApprovedAt: timestamp('verify_approved_at', { withTimezone: true }),
+    /**
+     * QUI a décidé de cette séquence de preuve : `owner` quand le propriétaire
+     * l'a saisie et approuvée, `agent` quand celui qui a construit l'a déclarée
+     * en finissant. `null` sur les lignes d'avant la migration 0102.
+     *
+     * La distinction est pour l'ÉCRAN, pas pour le moteur : une preuve déclarée
+     * par un agent s'exécute exactement comme une preuve approuvée, mais on ne
+     * la présente pas comme le choix du propriétaire.
+     */
+    verifySource: text('verify_source').$type<'owner' | 'agent' | null>(),
+    /** Le job qui a déclaré cette séquence, quand `verify_source = 'agent'`. */
+    verifyDeclaredByJobId: uuid('verify_declared_by_job_id'),
     /** SET NULL : l'utilisateur approbateur peut disparaître, l'approbation reste tracée. */
     verifyApprovedBy: uuid('verify_approved_by').references(() => users.id, {
       onDelete: 'set null',

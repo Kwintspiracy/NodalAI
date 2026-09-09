@@ -73,13 +73,33 @@ export const conversations = pgTable(
      * LA requête du runner à chaque message entrant : la ligne la plus récente
      * du tuple (entité, agent, canal, chat).
      */
-    index('idx_conversations_thread').on(
+    // `id` en dernier : c'est le DÉPARTAGE de `resolveConversation` à date
+    // égale, et sans lui l'index ne couvre pas l'ordre entier — le moteur
+    // trie ce qui reste (revue Codex, PR #48, passe 7). Deux chemins chauds
+    // s'en servent : le runner sur chaque message entrant, et le `DISTINCT ON`
+    // qui désigne le fil courant de chaque chat pour `/chat`.
+    // `.desc()` sur les deux dernières, comme le SQL de la migration : sans
+    // elles, Drizzle déclare un index ASC là où la migration en crée un mixte,
+    // et le schéma décrit un index que la base n'a pas (revue Codex, PR #49,
+    // passe 4).
+    index('idx_conversations_thread_tiebreak').on(
       table.entityId,
       table.agentId,
       table.channel,
       table.chatId,
-      table.createdAt,
+      table.createdAt.desc(),
+      table.id.desc(),
     ),
+    // L'autre question de `/chat` : quels chats DEVRAIENT être listés ? Elle
+    // filtre sur l'ORIGINE, qu'aucun index ne portait (revue Codex, PR #48,
+    // passe 10). PARTIEL, avec les prédicats exacts de la requête : il ne
+    // couvre que les lignes qui peuvent répondre, et reste petit là où la
+    // table grandit surtout par les fils qu'il exclut.
+    index('idx_conversations_listable_chats')
+      .on(table.entityId, table.agentId, table.channel, table.chatId)
+      .where(
+        sql`${table.origin} IN ('user', 'project') AND ${table.channel} <> 'dashboard' AND ${table.chatId} IS NOT NULL AND ${table.chatId} <> ''`,
+      ),
     check('conversations_origin_check', sql`${table.origin} IN ('user','onboarding','project')`),
     check(
       'conversations_channel_check',

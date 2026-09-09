@@ -13209,6 +13209,17 @@ export interface CodeProjectPrefs {
   verifyManifestHash: string | null;
   /** Calculé AU SERVEUR (D9) — le client ne recalcule jamais un hash. */
   verifyStatus: VerifyStatus;
+  /**
+   * QUI a décidé de ces commandes : `agent` quand celui qui a construit les a
+   * déclarées en finissant, `owner` quand le propriétaire les a saisies.
+   * `null` tant que personne ne l'a fait.
+   *
+   * L'écran en a besoin pour ne pas présenter comme le choix du propriétaire ce
+   * qui est celui de l'agent — la vérification s'exécute pareil dans les deux
+   * cas, mais on ne dit pas « approuvé par toi » d'une décision qu'il n'a pas
+   * prise.
+   */
+  verifySource: 'owner' | 'agent' | null;
 }
 
 export async function listCodeProjectPrefsAction(): Promise<ActionResult<CodeProjectPrefs[]>> {
@@ -13222,6 +13233,7 @@ export async function listCodeProjectPrefsAction(): Promise<ActionResult<CodePro
         verifyCommands: codeProjects.verifyCommands,
         verifyApprovedAt: codeProjects.verifyApprovedAt,
         verifyApprovedManifestHash: codeProjects.verifyApprovedManifestHash,
+        verifySource: codeProjects.verifySource,
       })
       .from(codeProjects)
       .where(eq(codeProjects.entityId, session.entityId));
@@ -13296,6 +13308,9 @@ async function upsertCodeProject(
     verifyApprovedManifestHash?: string | null;
     verifyApprovedAt?: Date | null;
     verifyApprovedBy?: string | null;
+    /** Qui décide de la séquence de preuve — voir `code_projects.verify_source`. */
+    verifySource?: 'owner' | 'agent' | null;
+    verifyDeclaredByJobId?: string | null;
   },
 ): Promise<void> {
   const key = projectKey(projectPath);
@@ -13406,6 +13421,12 @@ export async function setCodeProjectVerifyCommandsAction(
       verifyApprovedManifestHash: null,
       verifyApprovedAt: null,
       verifyApprovedBy: null,
+      // Le propriétaire reprend la main : la séquence est la SIENNE, même si
+      // un agent l'avait déclarée avant. Sans ces deux lignes, l'écran
+      // continuait d'afficher « Declared by the agent » après une réécriture
+      // humaine (revue Codex, PR #49).
+      verifySource: 'owner',
+      verifyDeclaredByJobId: null,
     });
     revalidatePath('/code');
     return ok(undefined);
@@ -13623,6 +13644,10 @@ export async function approveCodeProjectVerifyManifestAction(
       verifyApprovedManifestHash: current,
       verifyApprovedAt: new Date(),
       verifyApprovedBy: session.userId,
+      // Approuver, c'est FAIRE SIENNE la séquence : l'écran doit dire
+      // « Approved » et non plus « Declared by the agent » (revue Codex, PR #49).
+      verifySource: 'owner',
+      verifyDeclaredByJobId: null,
     });
     revalidatePath('/code');
     return ok(undefined);

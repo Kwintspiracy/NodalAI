@@ -53,7 +53,7 @@ import { relativeTime } from '@/lib/format-time';
 /** Ce que la table porte pour un projet — un sous-ensemble des prefs serveur. */
 export type ProjectVerification = Pick<
   CodeProjectPrefs,
-  'verifyCommands' | 'verifyApprovedAt' | 'verifyManifestHash' | 'verifyStatus'
+  'verifyCommands' | 'verifyApprovedAt' | 'verifyManifestHash' | 'verifyStatus' | 'verifySource'
 >;
 
 /** Une ligne du brouillon : le timeout est du TEXTE tant qu'il est saisi. */
@@ -257,15 +257,26 @@ export default function ProjectVerificationPanel({
     });
   }
 
+  // La PROVENANCE, pas seulement l'état. Dire « Approved » d'une séquence que
+  // l'agent a déclarée présenterait comme le choix du propriétaire ce qu'il n'a
+  // pas décidé. Elle s'exécute pareil — c'est le mot qui change, pas le
+  // pouvoir.
+  const parLAgent = verification?.verifySource === 'agent';
   const statusTag =
     status === 'approved' ? (
-      <MonoMicroTag tone="skill">
-        Approved {relativeTime(verification?.verifyApprovedAt)}
-      </MonoMicroTag>
+      parLAgent ? (
+        <MonoMicroTag tone="skill">
+          Declared by the agent {relativeTime(verification?.verifyApprovedAt)}
+        </MonoMicroTag>
+      ) : (
+        <MonoMicroTag tone="skill">
+          Approved {relativeTime(verification?.verifyApprovedAt)}
+        </MonoMicroTag>
+      )
     ) : status === 'pending_approval' ? (
       <MonoMicroTag tone="warn">Needs your approval</MonoMicroTag>
     ) : (
-      <MonoMicroTag tone="ink">Not configured</MonoMicroTag>
+      <MonoMicroTag tone="ink">Nothing declared yet</MonoMicroTag>
     );
 
   return (
@@ -279,8 +290,11 @@ export default function ProjectVerificationPanel({
         {!isOwner && <MonoMicroTag tone="err">owner only</MonoMicroTag>}
       </div>
       <p className="text-body-13 leading-[1.4]! text-ink-3">
-        Commands that run in this folder after a coding task, in order. Nothing is blocked yet: the
-        runs are recorded so you can read them.
+        {parLAgent
+          ? 'The agent that built this project declared these commands, and they run in this folder after each coding task. Change them if you want — you never have to write them.'
+          : status === 'not_configured'
+            ? 'Nothing to fill in. The agent that builds here declares how to check its own work, and those commands run after each coding task. You can still write your own.'
+            : 'Commands that run in this folder after a coding task, in order. Nothing is blocked yet: the runs are recorded so you can read them.'}
       </p>
       {!isOwner && (
         <p className="text-body-12 text-ink-4">

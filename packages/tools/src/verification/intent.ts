@@ -97,6 +97,12 @@ export interface DirtiedDeliverable {
    * en ont une, dans `code_projects`).
    */
   readonly verificationEpoch: number | null;
+  /**
+   * Ce livrable a-t-il été NOMMÉ par l'outil, ou entre-t-il dans le périmètre
+   * par précaution ? Remonte au seam, qui marquera `produced` sur les seuls
+   * livrables nommés une fois le succès de l'écriture connu.
+   */
+  readonly addressed: boolean;
 }
 
 /**
@@ -207,6 +213,12 @@ interface ResolvedDeliverable {
   readonly deliverableType: DeliverableType;
   readonly key: string;
   readonly path: string;
+  /**
+   * Un outil a-t-il NOMMÉ ce chemin, ou entre-t-il dans le périmètre par
+   * précaution ? Voir `MutationTarget.scope` : la garde traite les deux de la
+   * même façon, l'écran ne montre que le premier.
+   */
+  readonly addressed: boolean;
 }
 
 /**
@@ -248,13 +260,42 @@ async function resolveDeliverables(
   for (const [deliverableType, group] of byType) {
     switch (deliverableType) {
       case 'code_project': {
+        // Les projets réellement VISÉS, résolus SANS expansion : le périmètre
+        // large d'un shell ne doit pas les diluer. Ce sont eux, et eux seuls,
+        // que l'écran présentera comme des livrables.
+        //
+        // L'expansion est réservée au périmètre SALE, et il faut résister à la
+        // tentation de l'appliquer ici « pour que les clés correspondent » —
+        // essayé en passe 1, retiré en passe 2. Une racine sans manifeste y est
+        // remplacée par ses enfants : la faire passer aux cibles visées marquait
+        // VISÉ chacun des enfants d'une racine où un shell avait simplement été
+        // lancé, alors que la commande n'en désignait aucun. C'est le défaut que
+        // cette PR corrige, réintroduit par son propre correctif.
+        //
+        // Le cas qui avait motivé l'essai se règle sans elle : quand la racine
+        // porte un manifeste, c'est ELLE le projet, `expandWorkspaceRoots` ne
+        // l'éclate pas, et la clé correspond d'elle-même. Quand elle n'en porte
+        // pas, aucune clé ne correspond — et c'est la bonne réponse : lancer un
+        // shell à la racine, c'est ne pas choisir de projet.
+        const addressedKeys = new Set(
+          resolveProjectRoots({
+            targets: group.filter((t) => t.scope !== 'precaution'),
+            workspaceRoots,
+            hasMarker,
+          }).map((p) => p.key),
+        );
         const expanded = await expandWorkspaceRoots(group, workspaceRoots);
         for (const project of resolveProjectRoots({
           targets: expanded,
           workspaceRoots,
           hasMarker,
         })) {
-          out.push({ deliverableType, key: project.key, path: project.path });
+          out.push({
+            deliverableType,
+            key: project.key,
+            path: project.path,
+            addressed: addressedKeys.has(project.key),
+          });
         }
         break;
       }
@@ -272,7 +313,7 @@ async function resolveDeliverables(
         // et passer par la fonction partagée garantit que la carte de l'outil
         // (P12) et cette ligne d'état portent LA MÊME clé.
         for (const file of officeFileDeliverables(group, workspaceRoots)) {
-          out.push({ deliverableType, key: file.key, path: file.path });
+          out.push({ deliverableType, key: file.key, path: file.path, addressed: true });
         }
         break;
       }
@@ -578,6 +619,7 @@ export async function writeMutationIntent(
             displayPathSnapshot: deliverable.path,
             dirtyGeneration: 1,
             decisionStatus: DECISION_STATUS_DIRTY,
+            addressed: deliverable.addressed,
           })
           .onConflictDoUpdate({
             target: [
@@ -589,6 +631,10 @@ export async function writeMutationIntent(
               dirtyGeneration: sql`${jobDeliverableVerificationState.dirtyGeneration} + 1`,
               decisionStatus: DECISION_STATUS_DIRTY,
               displayPathSnapshot: deliverable.path,
+              // Une cible d'abord vue par précaution puis NOMMÉE devient un
+              // livrable ; l'inverse n'est pas vrai — on ne rétrograde jamais
+              // ce qu'un outil a explicitement visé.
+              ...(deliverable.addressed ? { addressed: true } : {}),
               updatedAt: new Date(),
             },
           })
@@ -601,6 +647,7 @@ export async function writeMutationIntent(
           path: deliverable.path,
           dirtyGeneration: state.dirtyGeneration,
           verificationEpoch,
+          addressed: deliverable.addressed,
         });
       }
 

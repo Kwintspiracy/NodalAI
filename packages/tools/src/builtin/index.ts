@@ -27,6 +27,7 @@ import { codeTaskTool } from './code-task';
 import { reviewVerdictTool } from './review-verdict';
 import { runSkillScriptTool } from './run-skill-script';
 import { saveRoutineStateTool } from './save-routine-state';
+import { declareVerificationTool } from './declare-verification';
 import { skillViewTool } from './skill-view';
 import { listModelsTool } from './list-models';
 import { listSchedulesTool } from './list-schedules';
@@ -112,6 +113,7 @@ export { reviewVerdictTool } from './review-verdict';
 export type { ReviewVerdictInput, ReviewVerdictOutput } from './review-verdict';
 export { runSkillScriptTool } from './run-skill-script';
 export { saveRoutineStateTool } from './save-routine-state';
+export { declareVerificationTool } from './declare-verification';
 export type { SaveRoutineStateInput, SaveRoutineStateOutput } from './save-routine-state';
 export type { RunSkillScriptInput, RunSkillScriptOutput } from './run-skill-script';
 export { buildChildEnv, safeEnvAllowlistSnapshot } from './child-env';
@@ -206,6 +208,9 @@ export function registerBuiltins(registry: ToolRegistry): void {
   // (`agent_jobs.schedule_id`). Porté ici au registre, ajouté à la whitelist par
   // le runner. Un agent qui n'a pas de routine ne le voit pas dans son prompt.
   registry.register(saveRoutineStateTool);
+  // declare_verification — offert avec les outils d'écriture de fichiers : un
+  // agent qui produit doit pouvoir dire comment on vérifie ce qu'il a produit.
+  registry.register(declareVerificationTool);
 }
 
 /**
@@ -225,6 +230,11 @@ export const ALWAYS_ON_TOOLS = [
   // « où ranger ce rapport ? » mais pas créer le projet que l'utilisateur vient
   // de choisir n'aurait plus qu'à écrire quelque part au hasard.
   'register_project',
+  // declare_verification — la seconde moitié de « produire » : un agent qui
+  // écrit doit pouvoir dire comment on vérifie ce qu'il a écrit. Optionnel, il
+  // ne serait jamais là quand il faut — et la vérification système n'a jamais
+  // tourné une seule fois tant qu'elle a dépendu d'une saisie du propriétaire.
+  'declare_verification',
   'skill_view',
   'list_models',
   'list_schedules',
@@ -277,6 +287,7 @@ export const ALWAYS_ON_TOOL_DOCS: ReadonlyArray<{ name: string; description: str
   { name: returnResultTool.name, description: returnResultTool.description },
   { name: askUserTool.name, description: askUserTool.description },
   { name: registerProjectTool.name, description: registerProjectTool.description },
+  { name: declareVerificationTool.name, description: declareVerificationTool.description },
   { name: skillViewTool.name, description: skillViewTool.description },
   { name: listModelsTool.name, description: listModelsTool.description },
   { name: listSchedulesTool.name, description: listSchedulesTool.description },

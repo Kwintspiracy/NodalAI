@@ -190,6 +190,16 @@ export default function NewProjectButton() {
                   A subfolder is a relative path inside the folder. No “..”, no drive letter.
                 </p>
               )}
+              {/* Laisser le champ vide prend le dossier ENTIER, et le
+                  placeholder ne le disait pas assez fort : le 08/09/2026, un
+                  projet « Recipes » est devenu tout le dossier `Dev`, qui en
+                  portait dix-huit autres. L'action refuse désormais ce
+                  chevauchement — l'écran le dit AVANT le clic. */}
+              {preview !== null && subfolder.trim() === '' && (
+                <p className="text-body-12 text-ink-3 mt-1">
+                  The whole folder becomes the project. It cannot already contain one.
+                </p>
+              )}
             </div>
           </div>
 

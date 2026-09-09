@@ -35,7 +35,17 @@
 // leurs CHECK — un écart entre les deux se voit au premier test de
 // contrainte (constraints.test.ts).
 
-import { pgTable, text, uuid, integer, timestamp, index, check, unique } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  uuid,
+  integer,
+  boolean,
+  timestamp,
+  index,
+  check,
+  unique,
+} from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { entities } from './entities.ts';
 import { agentJobs } from './jobs.ts';
@@ -63,6 +73,31 @@ export const jobDeliverableVerificationState = pgTable(
     dirtyGeneration: integer('dirty_generation'),
     /** Livrables MUTABLES seulement : la génération que la preuve a validée en vert. */
     verifiedGeneration: integer('verified_generation'),
+    /**
+     * Ce livrable a-t-il été NOMMÉ par un outil (`true`), ou entre-t-il dans le
+     * périmètre par précaution (`false`) ?
+     *
+     * La GARDE traite les deux pareil : un shell écrit où il veut, donc tout
+     * son périmètre est marqué sale. L'ÉCRAN, lui, ne montre que ce qui a été
+     * visé — sans quoi une application de recettes s'affiche avec vingt
+     * livrables non vérifiés, dont `shared/_archive` (constaté le 08/09/2026).
+     */
+    addressed: boolean('addressed').notNull().default(true),
+    /**
+     * Un outil a-t-il RÉUSSI à écrire dans ce livrable pendant ce job ?
+     *
+     * `addressed` ne peut pas répondre : l'intention est posée AVANT
+     * l'exécution, et une tentative qui échoue la laisse en place — c'est la
+     * bonne garde, mais une mauvaise autorisation. `declare_verification` s'en
+     * servait pourtant comme telle, si bien qu'un `file_edit` au `old_string`
+     * absent suffisait à déclarer la preuve d'un projet qu'on n'avait pas
+     * produit (revue Codex, PR #49, passe 2).
+     *
+     * Deux colonnes, deux questions : `addressed` est ce que l'écran MONTRE,
+     * `produced` est ce qui AUTORISE à déclarer une preuve. Défaut `false` —
+     * une autorisation ne se présume pas.
+     */
+    produced: boolean('produced').notNull().default(false),
     /** DecisionStatus — l'état lisible affiché à l'owner. */
     decisionStatus: text('decision_status').notNull(),
     /** Empreinte de la dernière commande de preuve exécutée (diagnostic, pas le hash d'approbation). */

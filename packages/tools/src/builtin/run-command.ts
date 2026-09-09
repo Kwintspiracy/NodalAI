@@ -131,15 +131,25 @@ export const runCommandTool: ToolDefinition<typeof runCommandSchema, RunCommandO
   resolveMutationTargets: async (input, ctx) => {
     // Un shell touche le PROJET : on ne sait pas quels fichiers il écrira, mais
     // le périmètre déclaré est celui d'un projet de code (v7-A).
+    // PRÉCAUTION, pas livrable : ces racines entrent dans le périmètre parce
+    // qu'un shell peut écrire où il veut, pas parce que le travail les a
+    // produites. La garde les marque sales ; l'écran ne les montre pas.
     const roots = (ctx.workspaces ?? []).map((w) => ({
       kind: 'dir' as const,
       path: w.path,
       deliverableType: 'code_project' as const,
+      scope: 'precaution' as const,
     }));
     try {
       const cwd = await resolveAndCheckPath(ctx, input.cwd ?? '.');
       return [
-        { kind: 'dir' as const, path: cwd, deliverableType: 'code_project' as const },
+        // ADRESSÉ : l'agent a choisi de lancer sa commande LÀ.
+        {
+          kind: 'dir' as const,
+          path: cwd,
+          deliverableType: 'code_project' as const,
+          scope: 'addressed' as const,
+        },
         ...roots,
       ];
     } catch {

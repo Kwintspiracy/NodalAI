@@ -22,7 +22,8 @@ import { presentToolResult } from './cards';
 import type { ToolCardPayload } from '@nodal-agents/shared';
 import { snapshot, headCheckpoint } from '@nodal-agents/checkpoints';
 import { stat } from 'node:fs/promises';
-import { writeMutationIntent } from './verification/intent';
+import { writeMutationIntent, type DirtiedDeliverable } from './verification/intent';
+import { markDeliverablesProduced } from './verification/produced';
 import { attachProductionToProject } from './projects/attach';
 
 // ─── Outils d'exécution de code ───────────────────────────────────────────────
@@ -52,6 +53,15 @@ export const CODE_EXECUTION_TOOL_NAMES: readonly string[] = [
   'skill_file_write',
   'create_mcp',
   'attach_mcp',
+  // DÉCLARER une commande de preuve, c'est la faire exécuter plus tard, à la
+  // finalisation, hors de tout flux d'approbation. La première version de cet
+  // outil se contentait du même `defaultApproval` que `run_command` et
+  // manquait donc les quatre gardes qui comptent : le mode autonome levait son
+  // approbation, une règle wildcard la balayait, le frein global l'ignorait, et
+  // le refus des commandes catastrophiques ne s'y appliquait pas. Un agent
+  // pouvait enregistrer une commande que `run_command` aurait REFUSÉE (revue
+  // Codex, PR #49).
+  'declare_verification',
 ];
 
 const CODE_EXECUTION_TOOL_SET = new Set(CODE_EXECUTION_TOOL_NAMES);
@@ -214,6 +224,26 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
   // run_command run without a human in the loop.
   let effectiveAction = matchedRule?.action ?? tool.defaultApproval;
 
+  // ── Les commandes que CET appel fera tourner ────────────────────────────────
+  //
+  // UNE seule définition, lue à deux endroits : la relaxation `destructive_gate`
+  // juste en dessous, et le plancher catastrophique plus bas. Les séparer était
+  // le défaut : la passe 1 avait donné ses commandes au plancher, et laissé la
+  // relaxation ne regarder que `run_command` (revue Codex, PR #49, passe 2).
+  //
+  // `declare_verification` en fait partie parce que sa séquence s'exécutera à
+  // la finalisation, SANS repasser par une approbation : ce qui n'est pas jugé
+  // ici ne le sera jamais. Un outil qui n'exécute aucun shell rend une liste
+  // vide, et se juge alors sur son seul `riskLevel`, comme avant.
+  const commandesJugees =
+    tool.name === 'run_command'
+      ? [String((validatedInput as { command?: unknown })?.command ?? '')]
+      : tool.name === 'declare_verification'
+        ? ((validatedInput as { commands?: { command?: unknown }[] })?.commands ?? []).map((c) =>
+            String(c?.command ?? ''),
+          )
+        : [];
+
   // ── Autonomy-based relaxation ────────────────────────────────────────────────
   // The owner's ROOT autonomy level can relax the safe-by-default require_approval
   // posture. Guarded by `!matchedRule` so any EXPLICIT rule still wins (a user-set
@@ -256,10 +286,16 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
       //    'destructive' as a blanket safe-by-default, so it must be judged by
       //    the command rule, NOT that blanket level — otherwise destructive_gate
       //    would gate every shell command (the bug).
-      const command = String((validatedInput as { command?: unknown })?.command ?? '');
       const mcpTransport = String((validatedInput as { transport?: unknown })?.transport ?? '');
       let isHeavy: boolean;
-      if (tool.name === 'run_command') isHeavy = isDestructiveOrHeavyCommand(command);
+      // Jugé sur les COMMANDES, pas sur le riskLevel — pour `run_command` comme
+      // pour `declare_verification`. UNE commande lourde dans la séquence gate
+      // la déclaration entière : elle s'exécutera entière, et la juger sur sa
+      // commande la plus lourde est la seule lecture qui ne laisse pas passer
+      // la lourde. Une liste vide n'est lourde en rien, et c'est exact : rien
+      // ne tournera.
+      if (tool.name === 'run_command' || tool.name === 'declare_verification')
+        isHeavy = commandesJugees.some(isDestructiveOrHeavyCommand);
       // É-2 (audit sécu 2026-07-07): create_mcp with a stdio transport spawns an
       // arbitrary local subprocess (npx/uvx <cmd>) — RCE-equivalent to
       // run_command — so it must stay gated under destructive_gate. Its declared
@@ -323,11 +359,15 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
   // `node -e`, …): an opaque payload can smuggle any destruction, so it is
   // forced to a human here and refused even after approval on the resume path
   // (owner's decision, A2). No separate softer tier.
+  // Les mêmes commandes qu'a jugées la relaxation d'autonomie plus haut : une
+  // preuve déclarée s'exécutera sans repasser ici, elle doit franchir ce
+  // plancher MAINTENANT, ou jamais.
+
   if (
-    tool.name === 'run_command' &&
+    commandesJugees.length > 0 &&
     effectiveAction !== 'block' &&
     effectiveAction !== 'require_approval' &&
-    isCatastrophicCommand(String((validatedInput as { command?: unknown })?.command ?? ''))
+    commandesJugees.some(isCatastrophicCommand)
   ) {
     effectiveAction = 'require_approval';
   }
@@ -498,6 +538,7 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
   // Les cibles de mutation, gardées jusqu'à l'exécution : le registre des
   // projets (P5) ne se pose qu'une fois l'écriture RÉUSSIE.
   let mutationTargets: readonly MutationTarget[] | null = null;
+  let mutationDeliverables: readonly DirtiedDeliverable[] = [];
   if (tool.mutatesWorkspace) {
     // ── 2.8 Intention de mutation — le projet est sale AVANT d'être écrit ────
     //
@@ -533,6 +574,7 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
       return result;
     }
     mutationTargets = gate.targets;
+    mutationDeliverables = gate.deliverables;
   }
 
   // ── 3. Execute ─────────────────────────────────────────────────────────────
@@ -553,6 +595,10 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
     // garde — une panne ici se dit dans les logs, par un code, jamais en
     // refusant une écriture qui, elle, a eu lieu.
     if (mutationTargets && !isPresentedFailure(auditTool, validatedInput, output)) {
+      // La MÊME lecture du succès sert aux deux : ce qui a été nommé par cet
+      // outil ET réellement écrit devient `produced`, la seule trace sur
+      // laquelle `declare_verification` accepte de laisser déclarer une preuve.
+      await markDeliverablesProduced(ctx.db, ctx.jobId, mutationDeliverables);
       await attachProductionToProject(
         {
           db: ctx.db,
@@ -730,14 +776,68 @@ const MAX_REMEMBERED_TURNS = 500;
  * dire « ce travail a produit dans ce projet » d'un outil qui n'avait encore
  * rien produit, et qui pouvait encore échouer).
  */
-type MutationGate = { readonly error: string } | { readonly targets: readonly MutationTarget[] };
+type MutationGate =
+  | { readonly error: string }
+  | {
+      readonly targets: readonly MutationTarget[];
+      /** Les livrables que l'intention a posés — pour marquer `produced` après succès. */
+      readonly deliverables: readonly DirtiedDeliverable[];
+    };
 
 /**
- * Un résultat qui est un ÉCHEC sous une carte structurée (`failureText`,
- * P1) : l'outil a répondu, mais rien n'a été produit. C'est la seule lecture
- * du succès qui ne dépende pas de la forme de sortie de chaque outil. Un
- * présentateur qui lève est un bug de CET outil (déjà compté dans
- * `presentation_error`) — il ne doit pas cacher une production réelle.
+ * Un résultat qui est un ÉCHEC DÉCLARÉ par l'outil : il a répondu, et il dit
+ * lui-même n'avoir rien produit. C'est la lecture du succès qui ne dépend pas
+ * de la forme de sortie de chaque outil. Un présentateur qui lève est un bug de
+ * CET outil (déjà compté dans `presentation_error`) — il ne doit pas cacher
+ * une production réelle.
+ *
+ * UNE seule carte sait le dire : `text` avec `failure: true` — un refus (chemin
+ * hors terrain, fichier trop gros, `old_string` introuvable). L'outil a
+ * constaté qu'il n'écrivait pas, et il l'annonce.
+ *
+ * POURQUOI PAS LE CODE DE SORTIE D'UN SHELL, essayé puis retiré. La passe 3 de
+ * la revue avait raison de dire qu'un `exit 1` ne prouve pas une production ;
+ * la passe 4 a montré que l'inverse n'est pas vrai non plus, et c'est
+ * rédhibitoire :
+ *
+ *   - `robocopy` rend 1 quand il A copié des fichiers ;
+ *   - `npm run build && npm test` sort non-zéro sur un test rouge, alors que le
+ *     build a bel et bien écrit son dossier de sortie.
+ *
+ * Juger là-dessus refusait donc des productions RÉELLES — et pas seulement pour
+ * la déclaration de preuve : le REGISTRE des projets (P5) lit le même signal,
+ * et un travail cessait de se rattacher au projet qu'il venait d'écrire. Un
+ * comportement établi cassé pour fermer un trou plus étroit que la brèche
+ * ouverte.
+ *
+ * Le statut d'un processus ne dit rien de ce qui a été écrit sur le disque. Le
+ * savoir demanderait de CONSTATER les écritures — un mécanisme à part, pas une
+ * lecture de code de sortie. Porté au backlog plutôt que bricolé ici.
+ *
+ * Et l'instantané de checkpoint N'EST PAS ce mécanisme, contrairement à ce que
+ * ce commentaire a d'abord affirmé (revue Codex, PR #49, passe 5). Deux raisons
+ * l'en empêchent, et les écrire ici évite qu'on s'y reprenne :
+ *
+ *   - il est pris UNE fois par tour et réutilisé, donc une comparaison avec lui
+ *     voit l'écriture du premier outil sans pouvoir l'attribuer au second ;
+ *   - il pose des exclusions PAR DÉFAUT (`dist/`, `.next/`, `node_modules/`)
+ *     et respecte le `.gitignore` du projet — c'est-à-dire qu'il rate
+ *     ordinairement ce qu'un build produit, le cas qui motive tout ce
+ *     raisonnement.
+ *
+ *     « Ordinairement », et pas « toujours » : ces exclusions vivent dans
+ *     l'`info/exclude` du magasin, que le `.gitignore` du projet peut
+ *     surclasser (un `!dist/` y suffit), et un fichier déjà entré dans l'index
+ *     du checkpoint y reste même si une règle l'exclut ensuite. La couverture
+ *     est donc variable — ce qui est encore pire pour en faire une preuve :
+ *     elle dépendrait du `.gitignore` de chaque projet.
+ *
+ * Il pourrait servir de comparaison PARTIELLE ; il ne fait pas un détecteur de
+ * production.
+ *
+ * Ce qui reste couvert, et c'était le constat d'origine (passe 2) : un
+ * `file_edit` dont l'`old_string` est absent rend une carte `text` en échec, ne
+ * marque rien produit, et n'autorise donc aucune déclaration.
  */
 function isPresentedFailure(
   tool: ToolDefinition<z.ZodTypeAny, unknown>,
@@ -807,9 +907,10 @@ async function takeMutationIntent<TInput extends z.ZodTypeAny, TOutput>(
   // passer sans intention (revue de T16).
   if (outcome.kind === 'already_terminal')
     return { error: 'verification_intent_failed: intent_already_terminal' };
-  // Les cibles remontent à l'appelant : le REGISTRE des projets (P5) les
-  // relira après l'exécution, une fois le succès connu — voir executeTool.
-  return { targets };
+  // Les cibles ET les livrables remontent à l'appelant : le REGISTRE des
+  // projets (P5) relira les premières après l'exécution, une fois le succès
+  // connu, et les seconds y seront marqués `produced` — voir executeTool.
+  return { targets, deliverables: outcome.kind === 'written' ? outcome.deliverables : [] };
 }
 
 /**

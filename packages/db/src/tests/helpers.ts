@@ -524,6 +524,8 @@ export async function spinUpTestDb(): Promise<{ db: TestDb; pg: PGlite }> {
       verification_epoch integer NOT NULL DEFAULT 0,
       verify_approved_manifest_hash text,
       verify_approved_at timestamptz,
+      verify_source text CHECK (verify_source IS NULL OR verify_source IN ('owner','agent')),
+      verify_declared_by_job_id uuid,
       verify_approved_by uuid REFERENCES users(id) ON DELETE SET NULL,
       -- mirrors migration 0093 — le REGISTRE : registered_at NULL = ligne de
       -- comptabilité, NOT NULL = projet déclaré.
@@ -601,8 +603,15 @@ export async function spinUpTestDb(): Promise<{ db: TestDb; pg: PGlite }> {
       updated_at timestamptz DEFAULT now()
     );
 
-    CREATE INDEX IF NOT EXISTS idx_conversations_thread
-      ON conversations(entity_id, agent_id, channel, chat_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_conversations_thread_tiebreak
+      ON conversations(entity_id, agent_id, channel, chat_id, created_at DESC, id DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_conversations_listable_chats
+      ON conversations(entity_id, agent_id, channel, chat_id)
+      WHERE origin IN ('user', 'project')
+        AND channel <> 'dashboard'
+        AND chat_id IS NOT NULL
+        AND chat_id <> '';
 
     CREATE TABLE IF NOT EXISTS chat_messages (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -838,6 +847,8 @@ export async function spinUpTestDb(): Promise<{ db: TestDb; pg: PGlite }> {
       display_path_snapshot text,
       dirty_generation integer,
       verified_generation integer,
+      addressed boolean NOT NULL DEFAULT true,
+      produced boolean NOT NULL DEFAULT false,
       decision_status text NOT NULL
         CHECK (decision_status IN ('dirty','green','red','pending_approval','not_configured','infra_error')),
       command_hash_snapshot text,

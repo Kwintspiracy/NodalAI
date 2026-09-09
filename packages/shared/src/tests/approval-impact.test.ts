@@ -148,3 +148,38 @@ describe('computeApprovalImpactLine — register_project (P10b, passe Codex 44)'
     expect(sansChemin).not.toContain('irreversible');
   });
 });
+
+describe('computeApprovalImpactLine — declare_verification (revue Codex PR #49, passe 2)', () => {
+  it('MONTRE les commandes qu’on approuve, et dit qu’elles tourneront sans redemander', () => {
+    // Ce qu'on approuve n'est pas l'écriture en base : ce sont des commandes
+    // qui s'exécuteront à la finalisation, hors de tout flux d'approbation.
+    // Le catch-all « irreversible or destructive action » demandait un accord
+    // sans jamais dire sur quoi.
+    const line = computeApprovalImpactLine('declare_verification', {
+      project_path: 'C:/Users/kwint/Documents/Dev/recipes-app',
+      commands: [{ command: 'node --check app.js' }, { command: 'node app.test.js' }],
+    });
+    expect(line).toContain('`node --check app.js`');
+    expect(line).toContain('`node app.test.js`');
+    expect(line).toContain('recipes-app');
+    expect(line).toContain('without asking again');
+    expect(line).not.toContain('irreversible');
+  });
+
+  it('signale la commande lourde plutôt que de la noyer dans la liste', () => {
+    const line = computeApprovalImpactLine('declare_verification', {
+      project_path: 'C:/p',
+      commands: [{ command: 'node --check app.js' }, { command: 'npm install' }],
+    });
+    expect(line).toContain('installs software');
+  });
+
+  it('une déclaration VIDE le dit : rien ne tournera', () => {
+    const line = computeApprovalImpactLine('declare_verification', {
+      project_path: 'C:/p',
+      commands: [],
+    });
+    expect(line).toContain('nothing will run');
+    expect(line).not.toContain('irreversible');
+  });
+});

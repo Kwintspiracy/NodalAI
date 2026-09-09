@@ -188,6 +188,105 @@ describe('createProjectAction', () => {
     expect(ligne!.kind).toBe('code');
   });
 
+  it('un dossier qui CONTIENT un projet enregistré est refusé', async () => {
+    // Vécu le 08/09/2026. Quentin crée « Recipes » en laissant « Subfolder »
+    // vide : le projet devient son dossier `Dev` ENTIER, qui portait déjà dix-
+    // huit projets. Le travail suivant s'est rattaché à cette racine, puis
+    // `Dev/recipes-app` a été enregistré à son tour — deux projets pour un
+    // seul travail, dont l'un contient l'autre, et « Recipes » qui raconte ce
+    // qui s'est fait dans `recipes-app`.
+    //
+    // La seule garde était l'égalité EXACTE du chemin. Elle ne pouvait pas
+    // voir ça.
+    const { createProjectAction } = await import('../project-actions.ts');
+
+    const result = await createProjectAction({
+      name: 'Tout le terrain',
+      agentId: seed.agentId,
+      workspaceId: terrain.workspaceId,
+      // Vide = le terrain lui-même, qui contient déjà `projet-x`.
+      subfolder: '',
+      kind: 'code',
+    });
+    expect(result).toEqual({
+      ok: false,
+      code: 'overlaps_registered',
+      message: `This folder contains the project "${terrain.path}/projet-x". Pick a folder that does not overlap one.`,
+    });
+
+    // Aucune ligne n'a été enregistrée pour le terrain.
+    const ligne = await ligneDuProjet(terrain.path);
+    expect(ligne?.registeredAt ?? null).toBeNull();
+  });
+
+  it('un dossier DANS un projet enregistré est refusé aussi', async () => {
+    // L'inverse du précédent, et il compte autant : un projet dans un projet
+    // rend le rattachement d'un travail ambigu, et l'écran montre deux fois le
+    // même travail.
+    const { createProjectAction } = await import('../project-actions.ts');
+
+    const result = await createProjectAction({
+      name: 'Sous-projet',
+      agentId: seed.agentId,
+      workspaceId: terrain.workspaceId,
+      subfolder: 'projet-x/api',
+      kind: 'code',
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('overlaps_registered');
+    expect(result.message).toContain('is inside the project');
+    expect(result.message).toContain('projet-x');
+  });
+
+  it('un projet dont le DOSSIER a disparu n’avale pas ses voisins', async () => {
+    // Revue Codex PR #49, passe 4. La comparaison physique passait par
+    // `realNearestAncestor`, qui remonte au premier ancêtre EXISTANT : un
+    // projet enregistré dont le dossier avait été supprimé y remontait à son
+    // parent, et tout voisin créé sous ce parent paraissait « dedans ». Le
+    // registre refusait alors un projet légitime — et laissait son dossier
+    // créé derrière lui.
+    const { createProjectAction } = await import('../project-actions.ts');
+
+    // Un projet enregistré, puis son dossier effacé du disque.
+    const cree = await createProjectAction({
+      name: 'Disparu',
+      agentId: seed.agentId,
+      workspaceId: terrain.workspaceId,
+      subfolder: 'disparu',
+      kind: 'code',
+    });
+    expect(cree.ok).toBe(true);
+    await rm(join(racine, 'disparu'), { recursive: true, force: true });
+    expect(existsSync(join(racine, 'disparu'))).toBe(false);
+
+    // Un VOISIN, sans aucun chevauchement avec lui.
+    const voisin = await createProjectAction({
+      name: 'Voisin',
+      agentId: seed.agentId,
+      workspaceId: terrain.workspaceId,
+      subfolder: 'voisin-du-disparu',
+      kind: 'code',
+    });
+    expect(voisin.ok, voisin.ok ? '' : `refusé : ${voisin.code} ${voisin.message}`).toBe(true);
+  });
+
+  it('un dossier VOISIN, lui, passe : « projet-x » n’avale pas « projet-x-bis »', async () => {
+    // La frontière est celle du SEGMENT. Sans elle, la garde de chevauchement
+    // refuserait un projet parfaitement légitime — le remède serait alors pire
+    // que le mal qu'il corrige.
+    const { createProjectAction } = await import('../project-actions.ts');
+
+    const result = await createProjectAction({
+      name: 'Projet X bis',
+      agentId: seed.agentId,
+      workspaceId: terrain.workspaceId,
+      subfolder: 'projet-x-bis',
+      kind: 'code',
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it('un sous-dossier qui remonte : refusé, et RIEN au-dessus du terrain', async () => {
     const { createProjectAction } = await import('../project-actions.ts');
 

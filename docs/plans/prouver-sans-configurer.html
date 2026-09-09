@@ -1,0 +1,534 @@
+<title>Prouver sans configurer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap"
+/>
+<style>
+  /* Mêmes jetons que les deux plans précédents : ils se lisent à la suite et
+     doivent se ressembler exactement, pas à peu près. */
+  :root {
+    --bg: #f7f6f3;
+    --surface: #ffffff;
+    --surface-2: #efede8;
+    --ink: #1f2328;
+    --ink-2: #4b5158;
+    --ink-3: #7a8087;
+    --rule: #e3e0d9;
+    --accent: #3d6b8e;
+    --accent-soft: #e7eef4;
+    --ok: #2e7d4f;
+    --ok-bg: #e5f2ea;
+    --amber: #9a6a12;
+    --amber-bg: #f7efdc;
+    --p0: #b3362c;
+    --p0-bg: #f9e9e7;
+    --shadow: 0 1px 3px rgba(31, 35, 40, 0.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --bg: #16181c;
+      --surface: #1f2228;
+      --surface-2: #262a31;
+      --ink: #e8e6e1;
+      --ink-2: #b3b0aa;
+      --ink-3: #82807b;
+      --rule: #33373f;
+      --accent: #7ba7c9;
+      --accent-soft: #24323d;
+      --ok: #6fbf8f;
+      --ok-bg: #22342a;
+      --amber: #d9a94f;
+      --amber-bg: #3a3120;
+      --p0: #e0796f;
+      --p0-bg: #3a2523;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+  }
+  :root[data-theme='dark'] {
+    --bg: #16181c;
+    --surface: #1f2228;
+    --surface-2: #262a31;
+    --ink: #e8e6e1;
+    --ink-2: #b3b0aa;
+    --ink-3: #82807b;
+    --rule: #33373f;
+    --accent: #7ba7c9;
+    --accent-soft: #24323d;
+    --ok: #6fbf8f;
+    --ok-bg: #22342a;
+    --amber: #d9a94f;
+    --amber-bg: #3a3120;
+    --p0: #e0796f;
+    --p0-bg: #3a2523;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    margin: 0;
+    padding: 40px 20px 80px;
+  }
+  .wrap {
+    max-width: 820px;
+    margin: 0 auto;
+  }
+  h1,
+  h2 {
+    font-family: 'Sora', 'Segoe UI', system-ui, sans-serif;
+    text-wrap: balance;
+  }
+  h1 {
+    font-size: 30px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .stamp {
+    color: var(--ink-3);
+    font-size: 13.5px;
+    margin: 0 0 28px;
+  }
+  h2 {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--ink-3);
+    margin: 42px 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+  }
+  p {
+    margin: 0 0 12px;
+    color: var(--ink-2);
+  }
+  b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  code {
+    font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    font-size: 0.92em;
+  }
+
+  .thesis {
+    background: var(--accent-soft);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 0 0 8px;
+    font-size: 16.5px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .thesis b {
+    font-weight: 600;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 1px 9px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .pill.s {
+    background: var(--ok-bg);
+    color: var(--ok);
+  }
+  .pill.m {
+    background: var(--amber-bg);
+    color: var(--amber);
+  }
+  .pill.pr {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .tablewrap {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13.5px;
+  }
+  th {
+    text-align: left;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink-3);
+    font-weight: 600;
+  }
+  th,
+  td {
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  tr:last-child td {
+    border-bottom: none;
+  }
+  td {
+    color: var(--ink-2);
+  }
+  td:first-child {
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  .card h3 {
+    font-size: 15.5px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: var(--ink);
+  }
+  .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+    flex: none;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-family: 'Sora', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .card .size {
+    margin-left: auto;
+  }
+  .proof {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    background: var(--surface-2);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  .proof b {
+    color: var(--ink-3);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.07em;
+  }
+  .warn {
+    margin: 10px 0 0;
+    padding: 10px 14px;
+    background: var(--p0-bg);
+    border: 1px solid var(--p0);
+    border-radius: 8px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+  }
+  .warn b {
+    color: var(--p0);
+  }
+
+  /* Les trois preuves : citations tirées de la base, pas des reformulations. */
+  .quote {
+    margin: 10px 0;
+    padding: 10px 16px;
+    border-left: 3px solid var(--rule);
+    font-family: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border-radius: 0 8px 8px 0;
+    overflow-x: auto;
+  }
+  .replay {
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 13px;
+    counter-reset: tour;
+  }
+  .replay li {
+    display: flex;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px dashed var(--rule);
+    color: var(--ink-2);
+  }
+  .replay li:last-child {
+    border-bottom: none;
+  }
+  .replay .when {
+    flex: none;
+    width: 58px;
+    color: var(--ink-3);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .replay li.gap {
+    color: var(--p0);
+    font-weight: 600;
+  }
+  .replay li.gap .when {
+    color: var(--p0);
+  }
+
+  ul.plain {
+    margin: 0 0 12px;
+    padding-left: 20px;
+    color: var(--ink-2);
+  }
+  ul.plain li {
+    margin-bottom: 6px;
+  }
+
+  .foot {
+    margin-top: 44px;
+    font-size: 12.5px;
+    color: var(--ink-3);
+    border-top: 1px solid var(--rule);
+    padding-top: 14px;
+  }
+  @media (max-width: 560px) {
+    body {
+      padding: 24px 12px 60px;
+    }
+    h1 {
+      font-size: 24px;
+    }
+    .thesis {
+      font-size: 15px;
+    }
+  }
+</style>
+
+<div class="wrap">
+  <h1>Prouver sans configurer</h1>
+  <p class="stamp">08/09/2026 · une PR, un lot, mergée dans la semaine</p>
+
+  <p class="thesis">
+    Celui qui <b>construit</b> sait comment on vérifie. C'est donc <b>lui</b> qui le dit — pas
+    l'utilisateur.
+  </p>
+
+  <h2>Ce qui a été constaté</h2>
+  <p>
+    Sur ta base, la table des preuves porte <b>zéro ligne</b>. Depuis toujours. Aucun projet n'a de
+    commandes de vérification, aucun n'a de manifeste approuvé. 118 états de livrables enregistrés,
+    tous « sale » ou « non configuré » — jamais un vert, jamais un rouge.
+  </p>
+  <p>
+    <b>La vérification système de Nodal n'a jamais tourné une seule fois.</b> Le moteur existe et il
+    est testé ; l'écran existe aussi, avec un bouton qui lit <code>package.json</code> pour proposer
+    des commandes. Ce qui manque est ailleurs : le produit demande à l'utilisateur une information
+    qu'il n'a pas et ne veut pas avoir.
+  </p>
+  <div class="quote">
+    « je sais pas quelle commande, je sais pas ce qu'il faut taper. En fait ça m'intéresse pas de
+    savoir ce qu'il faut taper. Je m'en fous. Ce que je veux, c'est que Nodal fasse des tests et que
+    ces tests soient décidés par l'agent. »
+  </div>
+  <p>
+    Et l'agent SAIT. Sur le job de l'app « Mes Recettes », sans que personne ne le lui demande :
+  </p>
+  <div class="tablewrap">
+    <table>
+      <tr>
+        <th>Ce qu'il a lancé</th>
+        <th>Résultat</th>
+      </tr>
+      <tr>
+        <td><code>node --check app.js</code></td>
+        <td>exit 0 — la syntaxe tient</td>
+      </tr>
+      <tr>
+        <td>un serveur HTTP, puis une requête sur les trois fichiers</td>
+        <td><code>index:200 css:200 js:200</code>, titre « Mes Recettes » présent</td>
+      </tr>
+    </table>
+  </div>
+  <p style="margin-top: 12px">
+    Trois preuves d'exécution, produites spontanément, et <b>aucune enregistrée</b> : elles passent
+    par l'outil de commande, qui n'écrit jamais dans la table des preuves. Seule une commande
+    CONFIGURÉE y écrit, et la finalisation saute tout ce qui ne l'est pas.
+  </p>
+
+  <h2>Suivi</h2>
+  <div class="tablewrap">
+    <table>
+      <tr>
+        <th>#</th>
+        <th>Ce qui change</th>
+        <th>Taille</th>
+      </tr>
+      <tr>
+        <td>1</td>
+        <td>L'agent déclare comment vérifier ce qu'il vient de produire</td>
+        <td><span class="pill m">M</span></td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>Le système l'exécute à la fin et l'enregistre comme preuve</td>
+        <td><span class="pill m">M</span></td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>L'écran des commandes MONTRE au lieu de DEMANDER</td>
+        <td><span class="pill s">S</span></td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>Un livrable est ce qui a été écrit, pas ce qui aurait pu l'être</td>
+        <td><span class="pill m">M</span></td>
+      </tr>
+    </table>
+  </div>
+
+  <h2>Ce que tu verras changer</h2>
+  <p>
+    <b>Tu ne taperas plus jamais une commande de test.</b> À la fin d'un travail qui produit quelque
+    chose, l'écran dira « vérifié » avec ce qui a été lancé et ce que ça a donné, ou « rouge » avec
+    la sortie qui l'explique.
+  </p>
+  <p>
+    <b>Une app livrée ne comptera plus vingt livrables.</b> L'outil de commande déclare
+    conservativement tout ce qu'un shell POURRAIT écrire — le dossier courant plus tous les dossiers
+    attachés, dépliés en sous-dossiers. C'est le bon périmètre pour une garde de sécurité, et le
+    mauvais pour une liste de livrables : l'écran affichait <code>shared/_archive</code>,
+    <code>shared/notes</code> et <code>waterapp-animation-qwen3.827b</code> comme des livrables non
+    vérifiés d'une app de recettes.
+  </p>
+
+  <h2>Les points</h2>
+
+  <div class="card">
+    <h3>
+      <span class="num">1</span> L'agent déclare sa vérification <span class="pill m size">M</span>
+    </h3>
+    <p>
+      Un outil, appelé quand il a fini de produire :
+      <i>voici comment on vérifie ce que je viens de faire</i>. Une ou plusieurs commandes, avec le
+      dossier où les lancer.
+    </p>
+    <p>
+      <b>Ce n'est pas un pouvoir nouveau</b>, et c'est ce qui rend la brique possible : ces
+      commandes, l'agent les a DÉJÀ exécutées pendant son travail, sous les règles d'autorisation
+      que tu lui as fixées. Déclarer sa propre vérification n'ouvre aucune porte — cela garde une
+      trace de ce qui était déjà fait.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — un job qui a lancé une vérification de syntaxe puis une requête HTTP déclare
+      ces deux commandes ; la déclaration est relue à l'identique.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>
+      <span class="num">2</span> Le système exécute et enregistre <span class="pill m size">M</span>
+    </h3>
+    <p>
+      La finalisation exécute la séquence déclarée et écrit une ligne par commande dans la table des
+      preuves — elle est déjà faite pour ça : commande, code de sortie, sortie standard, durée. Rien
+      à changer au schéma. Le verdict du livrable devient vert ou rouge au lieu de « non configuré
+      ».
+    </p>
+    <p class="warn">
+      <b>À trancher avant de coder</b> — la finalisation ignore aujourd'hui tout livrable dont la
+      configuration n'est pas « prête », un état qui suppose des commandes approuvées par le
+      propriétaire. Une vérification déclarée par l'agent n'a pas cette approbation. Faut-il un
+      troisième état, ou la déclaration de l'agent vaut-elle configuration ?
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>
+      <span class="num">3</span> L'écran MONTRE au lieu de DEMANDER
+      <span class="pill s size">S</span>
+    </h3>
+    <p>
+      Le panneau de vérification d'un projet ne présente plus un champ à remplir. Il affiche ce que
+      l'agent a décidé de lancer, et ce que ça a donné. Tu peux corriger ; tu n'as jamais à écrire.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>
+      <span class="num">4</span> Un livrable est ce qui a été écrit
+      <span class="pill m size">M</span>
+    </h3>
+    <p>
+      Le périmètre déclaré par l'outil de commande reste ce qu'il est : une garde, large exprès. Ce
+      que l'écran liste devient autre chose — les chemins RÉELLEMENT touchés. La distinction manque
+      aujourd'hui, et c'est elle qui produit les dix-neuf livrables fantômes.
+    </p>
+    <p class="proof">
+      <b>Preuve</b> — le job de l'app de recettes, rejoué, déclare un livrable et pas vingt.
+    </p>
+  </div>
+
+  <h2>Les questions que je ne sais pas trancher</h2>
+  <ul class="plain">
+    <li>
+      <b>Une vérification qui échoue à s'exécuter</b> — commande introuvable, dépassement de temps —
+      est-elle un échec du livrable, ou un silence ?
+    </li>
+    <li>
+      <b>Un « changements demandés » d'un relecteur doit-il empêcher d'annoncer « livré » ?</b> Sur
+      ce job, DEUX relecteurs ont demandé des changements — le tri Z→A qui n'inverse pas, une
+      injection résiduelle dans l'attribut d'image, un crash possible à l'édition, le quota de
+      stockage ignoré — et le job s'est terminé en annonçant « application livrée ».
+    </li>
+    <li>
+      <b>Faut-il une approbation la première fois ?</b> L'argument du point 1 dit non. Mais la
+      vérification tourne à la FIN, hors du flux d'approbation : si l'agent est en « approbation
+      requise » pour les commandes, laisser passer sa vérification sans approbation contournerait la
+      règle que tu as posée.
+    </li>
+  </ul>
+
+  <h2>Ce que ça ne contient pas</h2>
+  <ul class="plain">
+    <li>
+      <b>Le typage du livrable et le vérificateur de document</b> — c'est « Créer, c'est prouver »,
+      qui reste valable et vient après : il traite ce qui n'est PAS un projet de code.
+    </li>
+    <li><b>Le rattachement des envois au fil de leur chat</b> — PR séparée, déjà prévue.</li>
+  </ul>
+
+  <p class="foot">
+    Source versionnée : <code>docs/plans/prouver-sans-configurer.md</code>. Rien n'est codé avant
+    ton go.
+  </p>
+</div>

@@ -150,6 +150,9 @@ export {
   workspaceLockKey,
   assertRuntimeSessionKey,
   CODE_TASK_KEY_PREFIX,
+  // L'outil par lequel un agent déclare comment on vérifie ce qu'il a produit —
+  // exporté pour que le runner puisse l'éprouver de bout en bout.
+  declareVerificationTool,
 } from './builtin/index';
 export type {
   AlwaysOnTool,

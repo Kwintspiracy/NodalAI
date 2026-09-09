@@ -375,6 +375,24 @@ async function realNearestAncestor(path: string): Promise<string | null> {
 }
 
 /**
+ * Le chemin réel de `path`, ou `null` s'il N'EXISTE PAS.
+ *
+ * À ne pas confondre avec `realNearestAncestor`, qui remonte jusqu'au premier
+ * ancêtre existant : ce repli-là sert à savoir où `mkdir -p` atterrirait, et il
+ * est FAUX pour comparer deux projets. Un projet enregistré dont le dossier a
+ * été supprimé y remontait à son parent, si bien que tout voisin créé sous ce
+ * parent paraissait « dans » un projet qui n'existe plus (revue Codex, PR #49,
+ * passe 4).
+ */
+async function realPathIfExists(path: string): Promise<string | null> {
+  try {
+    return normalizePath(await realpath(normalizePath(path)));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * La cible, une fois les liens suivis, reste-t-elle DANS le terrain réel ?
  *
  * Les deux côtés sont ramenés à leur ancêtre EXISTANT le plus proche : un lien
@@ -473,58 +491,130 @@ export async function createProjectAction(
       return fail('mkdir_failed', 'Could not create the project folder');
     }
 
-    const [existing] = await db
-      .select({ id: codeProjects.id, registeredAt: codeProjects.registeredAt })
-      .from(codeProjects)
-      .where(and(eq(codeProjects.entityId, session.entityId), eq(codeProjects.projectKey, key)))
-      .limit(1);
+    // TOUT ce qui suit tient dans UNE transaction, sous un verrou consultatif
+    // par entité. Sans lui, la garde de chevauchement se contourne à deux mains
+    // (revue Codex, PR #49, passe 3) : deux créations simultanées de `Dev/app`
+    // et `Dev/app/sub` lisent chacune les projets AVANT l'insertion de l'autre,
+    // passent la garde toutes les deux, et s'enregistrent imbriquées — leurs
+    // clés étant distinctes, aucune contrainte d'unicité ne les arrête.
+    //
+    // Le verrou porte sur l'ENTITÉ : c'est le périmètre où les chemins se
+    // comparent, et créer un projet est un geste rare — sérialiser ces
+    // créations-là ne coûte rien à personne. Le dossier, lui, reste créé AVANT
+    // (voir l'en-tête) : une transaction ne tient pas un verrou pendant une
+    // écriture disque.
+    return await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${`project-create:${session.entityId}`}))`,
+      );
 
-    // Une ligne DÉJÀ enregistrée est un projet : on ne le réécrit pas en
-    // silence sous un autre nom ou un autre agent.
-    if (existing?.registeredAt) {
-      return fail('already_registered', 'This folder is already a registered project');
-    }
+      const [existing] = await tx
+        .select({ id: codeProjects.id, registeredAt: codeProjects.registeredAt })
+        .from(codeProjects)
+        .where(and(eq(codeProjects.entityId, session.entityId), eq(codeProjects.projectKey, key)))
+        .limit(1);
 
-    const registeredAt = new Date();
-    if (existing) {
-      // Une ligne de COMPTABILITÉ existante DEVIENT le projet : sa
-      // configuration de preuve (`verify_*`) et son epoch sont conservés —
-      // c'est le même dossier, et ce qui a été approuvé dessus reste vrai.
-      const [updated] = await db
-        .update(codeProjects)
-        .set({
+      // Une ligne DÉJÀ enregistrée est un projet : on ne le réécrit pas en
+      // silence sous un autre nom ou un autre agent.
+      if (existing?.registeredAt) {
+        return fail('already_registered', 'This folder is already a registered project');
+      }
+
+      // Un projet ne CONTIENT pas un autre projet, et n'est pas DEDANS.
+      //
+      // Vécu le 08/09/2026 : « Recipes » créé en laissant « Subfolder » vide est
+      // devenu le dossier `Dev` entier, qui portait déjà dix-huit projets. Le
+      // travail suivant s'est rattaché à cette racine ; `Dev/recipes-app` a été
+      // enregistré douze minutes plus tard, et il était trop tard — un job
+      // rattaché ne se rattache pas deux fois. Résultat à l'écran : deux projets
+      // pour un seul travail, dont l'un raconte ce qui s'est fait dans l'autre.
+      //
+      // La garde d'avant ne comparait que l'égalité EXACTE du chemin, elle ne
+      // pouvait pas voir ça. Celle-ci compare la CONTENANCE, dans les deux sens,
+      // sur la frontière de segment — `projet-x` n'avale pas `projet-x-bis`.
+      //
+      // Et elle la compare PHYSIQUEMENT, par les chemins réels : une jonction
+      // `Dev/alias` → `Dev/app` n'a aucune contenance LEXICALE avec `Dev/app`,
+      // si bien qu'un projet déclaré en `Dev/alias/sub` se serait enregistré à
+      // l'intérieur du projet `app` (revue Codex, PR #49, passe 3). C'est la
+      // même précaution que `physicallyInside` prend déjà pour la frontière du
+      // terrain, et pour la même raison : sur Windows, une jonction se traverse
+      // sans qu'aucune comparaison de texte ne le voie.
+      const registres = await tx
+        .select({ path: codeProjects.projectPath })
+        .from(codeProjects)
+        .where(
+          and(eq(codeProjects.entityId, session.entityId), isNotNull(codeProjects.registeredAt)),
+        );
+      // Les chemins RÉELS, et seulement ceux qui EXISTENT : un projet dont le
+      // dossier a disparu n'a plus de chemin réel, et lui en inventer un —
+      // celui de son parent, ce que fait `realNearestAncestor` — le ferait
+      // avaler tous ses voisins (revue Codex, PR #49, passe 4).
+      const cheminReel = await realPathIfExists(path);
+      for (const r of registres) {
+        const autre = normalizePath(r.path);
+        const autreReel = await realPathIfExists(autre);
+        const dedans =
+          isUnderPath(path, autre) ||
+          (cheminReel !== null && autreReel !== null && isUnderPath(cheminReel, autreReel));
+        if (dedans) {
+          return fail(
+            'overlaps_registered',
+            `This folder is inside the project "${autre}". Pick a folder that does not overlap one.`,
+          );
+        }
+        const contient =
+          isUnderPath(autre, path) ||
+          (cheminReel !== null && autreReel !== null && isUnderPath(autreReel, cheminReel));
+        if (contient) {
+          return fail(
+            'overlaps_registered',
+            `This folder contains the project "${autre}". Pick a folder that does not overlap one.`,
+          );
+        }
+      }
+
+      const registeredAt = new Date();
+      if (existing) {
+        // Une ligne de COMPTABILITÉ existante DEVIENT le projet : sa
+        // configuration de preuve (`verify_*`) et son epoch sont conservés —
+        // c'est le même dossier, et ce qui a été approuvé dessus reste vrai.
+        const [updated] = await tx
+          .update(codeProjects)
+          .set({
+            displayName: input.name,
+            kind: input.kind,
+            agentId: input.agentId,
+            registeredAt,
+            registeredFrom: 'spaces',
+            projectPath: path,
+            updatedAt: registeredAt,
+          })
+          .where(eq(codeProjects.id, existing.id))
+          .returning({ id: codeProjects.id });
+        if (!updated) return fail('create_failed', 'Could not register the project');
+        revalidatePath('/spaces');
+        return ok({ id: updated.id, path });
+      }
+
+      const [inserted] = await tx
+        .insert(codeProjects)
+        .values({
+          entityId: session.entityId,
+          projectPath: path,
+          projectKey: key,
           displayName: input.name,
           kind: input.kind,
           agentId: input.agentId,
           registeredAt,
           registeredFrom: 'spaces',
-          projectPath: path,
-          updatedAt: registeredAt,
         })
-        .where(eq(codeProjects.id, existing.id))
         .returning({ id: codeProjects.id });
-      if (!updated) return fail('create_failed', 'Could not register the project');
+      if (!inserted) return fail('create_failed', 'Could not register the project');
+
       revalidatePath('/spaces');
-      return ok({ id: updated.id, path });
-    }
-
-    const [inserted] = await db
-      .insert(codeProjects)
-      .values({
-        entityId: session.entityId,
-        projectPath: path,
-        projectKey: key,
-        displayName: input.name,
-        kind: input.kind,
-        agentId: input.agentId,
-        registeredAt,
-        registeredFrom: 'spaces',
-      })
-      .returning({ id: codeProjects.id });
-    if (!inserted) return fail('create_failed', 'Could not register the project');
-
-    revalidatePath('/spaces');
-    return ok({ id: inserted.id, path });
+      return ok({ id: inserted.id, path });
+    });
   } catch (err) {
     console.error('[projects] PROJECT_CREATE_FAILED', err);
     return fail('create_failed', 'Could not create the project');

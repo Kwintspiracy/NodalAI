@@ -44,6 +44,25 @@ export interface MutationTarget {
    * une erreur du compilateur, pas un livrable rangé au hasard.
    */
   readonly deliverableType: DeliverableType;
+  /**
+   * ADRESSÉE ou de PRÉCAUTION — ce qui décide si ce chemin est un LIVRABLE, ou
+   * seulement une chose qui pourrait avoir bougé.
+   *
+   * `addressed` : l'outil a nommé ce chemin. Un `file_write` écrit CE fichier ;
+   * un shell tourne dans CE dossier. C'est ce que le travail a produit.
+   *
+   * `precaution` : le chemin entre dans le périmètre parce qu'un shell peut
+   * écrire où il veut — `cd ..`, un chemin absolu, un script qui en appelle un
+   * autre. La garde a raison de le marquer sale, et l'ÉCRAN a tort de le
+   * présenter comme un livrable : le 08/09/2026, une application de recettes
+   * s'affichait avec vingt livrables non vérifiés, dont `shared/_archive` et
+   * `waterapp-animation-qwen3.827b`.
+   *
+   * Absent ⇒ `addressed` : les outils qui écrivent un chemin nommé n'ont rien à
+   * déclarer de plus, et un oubli sur un outil neuf le rend visible plutôt que
+   * de le cacher.
+   */
+  readonly scope?: 'addressed' | 'precaution';
 }
 
 /** Un projet touché : sa clé d'identité, et le chemin à afficher. */

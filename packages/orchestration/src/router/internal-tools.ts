@@ -25,6 +25,7 @@ const LABELS: Readonly<Record<string, string>> = {
   return_result: 'Finish a task',
   ask_user: 'Ask the user a question',
   register_project: 'Create a project',
+  declare_verification: 'Declare how to verify what it built',
   skill_view: 'Read its own skills',
   list_models: 'List available models',
   list_schedules: 'List its schedules',
@@ -49,6 +50,7 @@ const LABELS: Readonly<Record<string, string>> = {
  */
 const RISK: Readonly<Record<string, OperationDescriptor['risk']>> = {
   register_project: 'write',
+  declare_verification: 'write',
   save_memory: 'write',
   mark_memory_helpful: 'write',
   mark_memory_outdated: 'write',

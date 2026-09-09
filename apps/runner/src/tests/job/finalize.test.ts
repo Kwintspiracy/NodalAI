@@ -171,11 +171,19 @@ async function insertJob(status: string, result = ''): Promise<string> {
   return row.id;
 }
 
+/**
+ * `produced` reste FAUX par défaut, comme la colonne : la plupart des tests de
+ * ce fichier n'exercent que la finalisation, qui ne le lit pas. Seule la
+ * DÉCLARATION s'en sert — c'est ce qui prouve qu'un outil a réellement écrit
+ * dans ce projet pendant ce job, et les deux tests de la boucle complète le
+ * posent explicitement.
+ */
 async function insertState(
   jobId: string,
   deliverableType: string,
   canonicalKey: string,
   dirtyGeneration: number,
+  produced = false,
 ): Promise<string> {
   const [row] = await db
     .insert(jobDeliverableVerificationState)
@@ -185,6 +193,7 @@ async function insertState(
       canonicalKey,
       dirtyGeneration,
       decisionStatus: 'dirty',
+      produced,
     })
     .returning({ id: jobDeliverableVerificationState.id });
   if (!row) throw new Error('state insert failed');
@@ -421,6 +430,78 @@ describe('finalizeJobSuccess — non configuré et non approuvé', () => {
     expect(await runsOf(jobId)).toHaveLength(0);
     expect((await stateRow(stateId)).decisionStatus).toBe('not_configured');
     expect((await jobRow(jobId)).status).toBe('completed');
+  });
+
+  // ─── La boucle complète : l'agent DÉCLARE, le système PROUVE ───────────────
+  //
+  // Le seul test de ce fichier qui parte d'un projet SANS configuration, comme
+  // l'est tout projet réel : sur la base de référence, aucun n'en avait, et
+  // `verification_runs` portait 0 ligne depuis l'origine. Ici l'agent déclare
+  // sa propre vérification en finissant, et la finalisation l'exécute.
+  it('un projet SANS configuration devient prouvable quand l’agent déclare', async () => {
+    // Le projet existe (déclaré au registre) mais n'a AUCUNE commande : l'état
+    // dans lequel se trouvent tous les projets réels. La ligne d'état est
+    // `produced` : ce job a écrit dans ce projet, ce qui est précisément ce qui
+    // lui donne le droit de dire comment on le vérifie.
+    await setProject(null, null);
+    const jobId = await insertJob('processing');
+    const stateId = await insertState(jobId, 'code_project', key, 1, true);
+
+    // Sans déclaration, rien ne tourne — c'est le point de départ.
+    const cmd = await script('preuve.js', 'process.exit(0)');
+    const { declareVerificationTool } = await import('@nodal-agents/tools');
+    const out = await declareVerificationTool.execute(
+      { project_path: projectPath, commands: [{ command: cmd, timeout_seconds: 60 }] },
+      {
+        jobId,
+        agentId: seed.agentId,
+        entityId: seed.entityId,
+        db: db as never,
+        jobChatId: null,
+      },
+    );
+    expect(out.declared).toBe(true);
+
+    const outcome = await finalizeJobSuccess(
+      asDb(),
+      { jobId: jobId, result: 'ok', toolsUsed: [] },
+      deps(),
+    );
+
+    // La preuve a TOURNÉ : une ligne, verte, avec la commande déclarée.
+    const runs = await runsOf(jobId);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.verdict).toBe('green');
+    expect(runs[0]?.exitCode).toBe(0);
+    expect((await stateRow(stateId)).decisionStatus).toBe('green');
+    expect(outcome.observedOutcome).toBe('completed');
+  });
+
+  it('une preuve déclarée qui ÉCHOUE rend le livrable rouge', async () => {
+    await setProject(null, null);
+    const jobId = await insertJob('processing');
+    const stateId = await insertState(jobId, 'code_project', key, 1, true);
+
+    const cmd = await script('preuve-rouge.js', 'process.exit(3)');
+    const { declareVerificationTool } = await import('@nodal-agents/tools');
+    await declareVerificationTool.execute(
+      { project_path: projectPath, commands: [{ command: cmd, timeout_seconds: 60 }] },
+      {
+        jobId,
+        agentId: seed.agentId,
+        entityId: seed.entityId,
+        db: db as never,
+        jobChatId: null,
+      },
+    );
+
+    await finalizeJobSuccess(asDb(), { jobId: jobId, result: 'ok', toolsUsed: [] }, deps());
+
+    const runs = await runsOf(jobId);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.verdict).toBe('red');
+    expect(runs[0]?.exitCode).toBe(3);
+    expect((await stateRow(stateId)).decisionStatus).toBe('red');
   });
 
   it('hash approuvé ≠ hash courant ⇒ état pending_approval et AUCUNE commande lancée', async () => {

@@ -762,6 +762,7 @@ export async function getConversationThreadAction(
                 canonicalKey: jobDeliverableVerificationState.canonicalKey,
                 displayPath: jobDeliverableVerificationState.displayPathSnapshot,
                 decisionStatus: jobDeliverableVerificationState.decisionStatus,
+                addressed: jobDeliverableVerificationState.addressed,
               })
               .from(jobDeliverableVerificationState)
               .where(
@@ -911,7 +912,13 @@ export async function getConversationThreadAction(
         // `dirty` ou `green` n'est pas un trou de configuration.
         unconfigured: unconfiguredRows
           .filter(
-            (r) => r.decisionStatus === 'not_configured' || r.decisionStatus === 'pending_approval',
+            (r) =>
+              // ADRESSÉ seulement : le périmètre large d'un shell est une garde,
+              // pas une liste de livrables. Sans ce filtre, une application de
+              // recettes s'affichait avec vingt livrables non vérifiés, dont
+              // `shared/_archive` et `waterapp-animation-qwen3.827b` (08/09/2026).
+              r.addressed &&
+              (r.decisionStatus === 'not_configured' || r.decisionStatus === 'pending_approval'),
           )
           .map(
             (r): VerificationUnconfiguredView => ({

@@ -1911,11 +1911,18 @@ async function runJob(
         // BEFORE calling executeTool, and fail the job loud with a message the
         // user can actually act on — pure UX, the command still never executes
         // either way.
-        const resumeCommand = String(
-          (req.toolInput as { command?: unknown } | null)?.command ?? '',
-        );
-        const isCatastrophicResume =
-          req.toolName === 'run_command' && isCatastrophicCommand(resumeCommand);
+        // `run_command` porte UNE commande, `declare_verification` en porte une
+        // liste qui s'exécutera plus tard : les deux se jugent ici, sinon la
+        // seconde contournerait le refus (revue Codex, PR #49).
+        const resumeCommands =
+          req.toolName === 'run_command'
+            ? [String((req.toolInput as { command?: unknown } | null)?.command ?? '')]
+            : req.toolName === 'declare_verification'
+              ? (
+                  (req.toolInput as { commands?: { command?: unknown }[] } | null)?.commands ?? []
+                ).map((c) => String(c?.command ?? ''))
+              : [];
+        const isCatastrophicResume = resumeCommands.some(isCatastrophicCommand);
 
         if (isCatastrophicResume) {
           // Only machine-wide destroyers (`rm -rf /`, `mkfs`, `shutdown`, …)
