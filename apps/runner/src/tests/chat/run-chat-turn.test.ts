@@ -719,3 +719,187 @@ describe("runChatTurn — le tour appartient à l'agent DU fil", () => {
     expect(messages[0]?.content).toBe('coucou');
   });
 });
+
+// ─── La relance d'escalade : elle rattrape, sans rejouer le tour ─────────────
+//
+// Mesuré sur la base de Quentin le 09/09/2026, tour de 15:46 :
+//
+//     15:46:02  in=9142  out=126   ← la réponse
+//     15:46:04  in=9366  out=44    ← la RELANCE, aussi chère que la réponse
+//     15:46:04  in=211   out=8     ← le titre
+//
+// 18 719 jetons d'entrée pour un tour, dont la moitié pour reposer une question
+// dont la réponse ne dépend ni des skills, ni de la mémoire, ni des sous-agents,
+// ni des tours précédents.
+describe('runChatTurn — la relance d’escalade (coût d’un tour, 09/09)', () => {
+  async function nouvelleConversation(): Promise<string> {
+    const [c] = await db
+      .insert(conversations)
+      .values({
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        title: '',
+        origin: 'user',
+        channel: 'dashboard',
+      })
+      .returning({ id: conversations.id });
+    return c!.id;
+  }
+
+  /**
+   * Un client qui capture le `system` ET les `messages` de chaque appel, et
+   * dont la réponse est scriptée appel par appel : le premier NARRE une action
+   * sans appeler l'outil (le défaut que la relance existe pour rattraper), le
+   * second appelle `run_task`.
+   */
+  function makeMockCapture(
+    scenario: ReadonlyArray<{ text?: string; runTask?: string }>,
+    captured: Array<{ system?: string; messages: ModelMessage[] }>,
+  ): RunnerDeps['llmClient'] {
+    let appel = 0;
+    const mockModel = new MockLanguageModelV3({
+      provider: 'mock',
+      modelId: 'mock',
+      doGenerate: async () => {
+        const etape = scenario[Math.min(appel, scenario.length - 1)] ?? {};
+        appel += 1;
+        return {
+          content: etape.runTask
+            ? [
+                {
+                  type: 'tool-call' as const,
+                  toolCallId: `tc-${appel}`,
+                  toolName: 'run_task',
+                  input: JSON.stringify({ instruction: etape.runTask }),
+                },
+              ]
+            : [{ type: 'text' as const, text: etape.text ?? '' }],
+          finishReason: { unified: 'stop' as const, raw: 'stop' },
+          usage: {
+            inputTokens: { total: 10, noCache: 10, cacheRead: undefined, cacheWrite: undefined },
+            outputTokens: { total: 5, text: 5, reasoning: undefined },
+          },
+          warnings: [],
+        };
+      },
+    });
+    return {
+      config: { provider: 'anthropic', model: 'mock' } as RunnerDeps['llmClient']['config'],
+      capabilities: {
+        toolUse: true,
+        promptCaching: false,
+        vision: false,
+        structuredOutputs: false,
+        streaming: false,
+      },
+      generateText: (args) => {
+        captured.push({
+          system: args.system as string | undefined,
+          messages: (args.messages ?? []) as ModelMessage[],
+        });
+        return generateText({ ...args, model: mockModel } as Parameters<
+          typeof generateText
+        >[0]) as ReturnType<RunnerDeps['llmClient']['generateText']>;
+      },
+      streamText: () => {
+        throw new Error('streamText not supported in mock');
+      },
+      generateObject: () => {
+        throw new Error('generateObject not supported in mock');
+      },
+    };
+  }
+
+  it('rattrape toujours une action NARRÉE sans appel d’outil', async () => {
+    // Le défaut d'origine : un modèle de raisonnement raconte l'action au lieu
+    // de l'appeler, environ un tour sur cinq. La relance doit continuer à le
+    // rattraper — c'est la contrainte qui borne toute optimisation ici.
+    const captured: Array<{ system?: string; messages: ModelMessage[] }> = [];
+    setActiveLlmClient(
+      makeMockCapture(
+        [
+          { text: 'Je lance la recherche et je te reviens.' },
+          { runTask: 'Chercher les nouveautés IGDB' },
+          { text: 'Recherche IGDB' },
+        ],
+        captured,
+      ),
+    );
+
+    const res = await runChatTurn({
+      deps,
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      conversationId: await nouvelleConversation(),
+      message: 'Trouve-moi les nouveautés IGDB',
+    });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.spawnedJobId, 'la narration a bien été escaladée en job').toBeTruthy();
+  });
+
+  it('la relance n’envoie NI le prompt système NI l’historique', async () => {
+    const captured: Array<{ system?: string; messages: ModelMessage[] }> = [];
+    setActiveLlmClient(
+      makeMockCapture(
+        [{ text: 'Bonjour Quentin, je suis là.' }, { text: '' }, { text: 'Salutations' }],
+        captured,
+      ),
+    );
+
+    await runChatTurn({
+      deps,
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      conversationId: await nouvelleConversation(),
+      message: 'Bonjour, tu es là ?',
+    });
+
+    // Le premier appel est la réponse : il porte le prompt système complet.
+    const reponse = captured[0];
+    expect(reponse?.system, 'la réponse garde son prompt système').toBeTruthy();
+    expect((reponse?.system ?? '').length).toBeGreaterThan(200);
+
+    // Le second est la relance : rien de tout ça.
+    const relance = captured[1];
+    expect(relance, 'la relance a bien eu lieu').toBeDefined();
+    expect(relance?.system, 'AUCUN prompt système sur la relance').toBeUndefined();
+
+    // Trois messages, pas un de plus : la demande, la réponse, la consigne.
+    expect(relance?.messages).toHaveLength(3);
+    expect(relance?.messages[0]?.role).toBe('user');
+    expect(relance?.messages[0]?.content, 'la demande, mot pour mot').toBe('Bonjour, tu es là ?');
+    expect(relance?.messages[1]?.role).toBe('assistant');
+    expect(relance?.messages[1]?.content).toBe('Bonjour Quentin, je suis là.');
+    expect(relance?.messages[2]?.role).toBe('user');
+    expect(String(relance?.messages[2]?.content)).toContain('Re-read your previous reply');
+  });
+
+  it('la relance est un ORDRE DE GRANDEUR plus petite que la réponse', async () => {
+    // L'assertion qui dit le gain, et la seule qui rougirait si quelqu'un
+    // remettait le prompt système ou l'historique « pour être sûr ».
+    const captured: Array<{ system?: string; messages: ModelMessage[] }> = [];
+    setActiveLlmClient(
+      makeMockCapture(
+        [{ text: 'Bonjour Quentin, je suis là.' }, { text: '' }, { text: 'Salutations' }],
+        captured,
+      ),
+    );
+
+    await runChatTurn({
+      deps,
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      conversationId: await nouvelleConversation(),
+      message: 'Bonjour, tu es là ?',
+    });
+
+    const taille = (c?: { system?: string; messages: ModelMessage[] }): number =>
+      (c?.system ?? '').length + JSON.stringify(c?.messages ?? []).length;
+
+    const reponse = taille(captured[0]);
+    const relance = taille(captured[1]);
+    expect(relance * 5, `réponse=${reponse} caractères, relance=${relance}`).toBeLessThan(reponse);
+  });
+});

@@ -473,12 +473,28 @@ export async function runChatTurn(opts: {
   //     calling the tool. Since tool_choice can't be forced (404 on MiniMax),
   //     re-prompt ONCE: show it its own reply and have it either escalate or
   //     confirm it was conversation. Recovers the ~1-in-5 narration misses.
+  //
+  //     ET ELLE NE REJOUE PAS LE TOUR ENTIER. Mesuré sur la base de Quentin le
+  //     09/09 : cette relance envoyait le prompt système COMPLET et tout
+  //     l'historique, soit ~9 300 jetons — autant que la réponse elle-même, pour
+  //     un tour où l'utilisateur avait dit bonjour. Trois appels par tour, 18 500
+  //     jetons d'entrée, et la moitié pour reposer une question dont la réponse
+  //     ne dépend d'aucun d'eux.
+  //
+  //     La question est LOCALE : « ma réponse promettait-elle une action ? ». Ni
+  //     les skills injectés, ni les descriptions de sous-agents, ni les faits de
+  //     mémoire, ni les tours précédents n'aident à y répondre — seuls comptent
+  //     la demande de l'utilisateur (que `run_task` doit transmettre fidèlement)
+  //     et la réponse qu'on relit. C'est donc tout ce qu'on envoie.
+  //
+  //     Le prompt système est retiré, pas allégé : le cadre nécessaire tient dans
+  //     la consigne, et l'outil porte sa propre description. Un système partiel
+  //     aurait été un troisième prompt à tenir cohérent avec les deux autres.
   if (!runTask && text) {
     try {
       const recheck = await llmClient.generateText({
-        system: systemPrompt,
         messages: [
-          ...messages,
+          { role: 'user', content: message },
           { role: 'assistant', content: text },
           { role: 'user', content: ESCALATION_RECHECK },
         ],
