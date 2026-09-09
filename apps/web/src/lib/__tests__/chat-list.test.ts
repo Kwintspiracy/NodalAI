@@ -152,6 +152,26 @@ describe('groupChatLists', () => {
     expect(hiddenByWindow).toBe(1);
   });
 
+  it('un chat listable SANS désignation a une ligne : il n’est pas « caché »', () => {
+    // Revue Codex PR #48, passe 10. Aucun des cinq tests ne couvrait ce
+    // croisement, et c'est celui où l'écran pourrait se contredire : dire à la
+    // fois « ce chat n'est pas listé » et « le voici, indisponible ».
+    //
+    // Il a une ligne, donc il n'est pas caché ; il n'a pas de fil courant, donc
+    // il est marqué indisponible. Les deux compteurs disent des choses
+    // différentes du même chat, et c'est cohérent.
+    const { channels, hiddenByWindow, missingCurrent } = groupChatLists(
+      [row({ id: 'A', channel: 'telegram', chatId: '111' })],
+      {},
+      {},
+      ['a1:telegram:111'],
+    );
+    expect(channels).toHaveLength(1);
+    expect(channels[0]?.currentConversationId, 'aucun fil désigné').toBeNull();
+    expect(missingCurrent, 'l’écran le dit indisponible').toBe(true);
+    expect(hiddenByWindow, 'mais il a bien une ligne : rien n’est caché').toBe(0);
+  });
+
   it('avec désignation partout, l’écran n’a rien à signaler', () => {
     const { missingCurrent } = groupChatLists(
       [row({ id: 'A', channel: 'telegram', chatId: '199791464' })],
