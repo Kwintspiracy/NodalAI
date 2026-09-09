@@ -621,6 +621,50 @@ describe('executeJob', () => {
     expect(rows[0]?.totalDurationMs).toBeGreaterThanOrEqual(0);
   });
 
+  // `total_duration_ms` est un CUMUL, comme tous ses voisins (input_tokens,
+  // output_tokens, total_cost_usd, effective_input_tokens) : chacun est amorcé
+  // depuis la ligne pour qu'une reprise ajoute au lieu d'écraser. Celui-là ne
+  // l'était pas — il repartait de zéro à chaque entrée dans executeJob, donc la
+  // valeur finale ne mesurait que le DERNIER segment.
+  //
+  // Sur le run 20b73ed1 (09/09) : Alfred enregistrait 19 s pour 34 min 03 de
+  // travail réel, Dev C 46 s pour 30 min 22. Reviewer C, seul job à n'avoir
+  // jamais été suspendu, était juste. Autrement dit le champ mesurait bien les
+  // jobs qui ne délèguent pas, et faux d'un ordre de grandeur pour tous les
+  // autres — l'inverse de ce qu'on veut voir.
+  it('la durée CUMULE sur une reprise au lieu d’écraser le segment précédent', async () => {
+    // 30 minutes déjà passées à travailler avant la suspension. Une valeur
+    // qu'aucun segment de test ne peut atteindre : si elle survit, c'est
+    // qu'elle a été amorcée depuis la ligne, pas recalculée.
+    const DEJA_PASSE_MS = 1_800_000;
+    const [job] = await db
+      .insert(agentJobs)
+      .values({
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        channel: 'api',
+        task: 'un job repris après suspension',
+        status: 'pending',
+        messages: [],
+        chainCount: 0,
+        totalDurationMs: DEJA_PASSE_MS,
+      })
+      .returning();
+    if (!job) throw new Error('Failed to create resumed test job');
+
+    const llmClient = makeMockLlmClient([{ text: 'reprise terminée.' }]);
+    const result = await executeJob(job.id as JobId, makeDeps(llmClient), testEnv);
+    expect(result.status).toBe('completed');
+
+    const rows = await db
+      .select({ totalDurationMs: agentJobs.totalDurationMs })
+      .from(agentJobs)
+      .where(eq(agentJobs.id, job.id));
+
+    // Le segment qui vient de tourner s'AJOUTE aux 30 minutes déjà comptées.
+    expect(rows[0]?.totalDurationMs).toBeGreaterThanOrEqual(DEJA_PASSE_MS);
+  });
+
   it('chemin texte : course perdue PENDANT le tour ⇒ already_handled, la ligne n’est pas réécrite (T10)', async () => {
     // Le reaper (ou une annulation) termine le job pendant que le LLM répond.
     // L'ancien code renvoyait 'completed' après la course perdue ; le chemin
