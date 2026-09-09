@@ -10,6 +10,91 @@ nodal-agents update   # upgrade in place — your data is preserved
 
 ---
 
+## v0.8.9 — Sep 9, 2026
+
+Nodal now proves what it builds. Until this release its verification engine had
+never run once — not in your install, not in any install. Agents also gained a
+purpose you choose at creation, and the chat thread stopped lying about which
+conversation it was in.
+
+**Your agents prove their own work**
+
+- **Verification had never run. Not once.** The engine existed, the screen
+  existed, and the table that records proof had been empty since day one — in
+  every install. The reason was a question no one wanted to answer: Nodal asked
+  you which commands prove your project. You don't know, and it isn't your job
+  to know. **The agent that built the thing now declares how to check it**, and
+  Nodal runs that check when the work ends. A project turns green or red with
+  the command that decided it, and the output that explains it.
+- **What an agent already ran is what it declares.** These are not new powers:
+  the syntax check, the build, the request against a server it started — it ran
+  them while working. They were simply never recorded. Declaring them is now
+  subject to the same approval rules as running them, so nothing slips past the
+  gate you set.
+- **A deliverable is what was aimed at.** A finished app used to be listed with
+  twenty unverified deliverables, including archive folders it never touched —
+  because a shell declares everything it *could* write. The guard stays that
+  wide; the screen no longer does.
+
+**Every agent gets a purpose, at creation**
+
+- **"What should this agent do?"** Creating an agent starts from what you want
+  it for, not from an empty form. Recipes pre-fill the model, the tools and the
+  autonomy that fit — and everything stays editable, because nothing exists in
+  the database until you click.
+- **Connectors are recommended, never imposed.** A recipe suggests what it would
+  use; you decide what it gets.
+
+**The chat thread tells the truth**
+
+- **A chat row now opens the thread your next message will land in.** It could
+  open another one: the screen picked the most recently *touched* thread while
+  the runner picks the most recently *opened* one. Typing `/new`, then having
+  earlier work finish, was enough to split them.
+- **Channels and dashboard conversations are two lists.** One row per chat —
+  named after the person or room at the other end, not after the first message
+  ever sent in it. A ten-day-old Telegram thread no longer carries the title of
+  the app you asked for at its start.
+- **Threads scroll like a messenger.** A thread opens at its last message and
+  follows new ones, but only if you were already at the bottom — reading back
+  through history stays put.
+- **An agent's own send is no longer mistaken for your reply.** Sending a
+  message returned an identifier that the model sometimes read as if you had
+  typed it, and answered.
+
+**Scheduled runs remember what they did**
+
+- **A routine keeps its own state.** It used to store "what I last announced" as
+  a memory, searched back in plain language — and a memory that got cleaned up
+  made it announce a release twice on a public Discord. State is now a value it
+  owns, read and written without a model.
+- **Memories stop filling with logbook entries.** More than a third of an
+  agent's memory was routine reports. Memory is what an agent knows about you.
+
+**Projects, and the folder they live in**
+
+- **A project can no longer contain another project.** Creating one on a folder
+  that already holds projects produced two entries for the same work, one
+  swallowing the other. Junctions and simultaneous creations are covered too.
+- **Naming a project's folder is optional.** Leave it empty and it takes the
+  project's name.
+
+**Faster, cheaper conversations**
+
+- **A chat turn costs about half of what it did.** Every turn silently made a
+  second full-size call to re-ask a question whose answer depended on none of
+  the context it was sending — roughly nine thousand tokens, on every message,
+  including "hello". It now sends what the question actually needs.
+
+**Fixes**
+
+- **Signing in over the local network works again.** The dashboard answered 500
+  in LAN mode since v0.8.7.
+- **A chat turn's token count is no longer zero.** Turns that don't go through a
+  job had nothing to attribute their model calls to.
+
+---
+
 ## v0.8.8 — Aug 28, 2026
 
 Your bot tokens stop being readable in the database, a Slack bot that loses its
