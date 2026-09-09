@@ -432,8 +432,50 @@
         <td>Constater les écritures réelles sur le disque</td>
         <td><span class="pill m">backlog</span></td>
       </tr>
+      <tr>
+        <td>7</td>
+        <td>Deux gardes qui mesuraient faux <i>(trouvées par le premier run réel)</i></td>
+        <td><span class="pill m">PR ouverte</span></td>
+      </tr>
     </table>
   </div>
+
+  <h2>Ce que le premier run réel a montré</h2>
+  <p>
+    Le 9 septembre, un run est passé par le moteur en production pour la première fois : quatre
+    agents en cascade, pour fabriquer une page de suivi de candidatures.
+    <b>L'application livrée est bonne</b> — 756 lignes, présente sur le disque, testée dans un vrai
+    navigateur, injection XSS comprise. Ce sont les mécaniques autour qui ont coûté.
+    <a href="https://claude.ai/code/artifact/e53baa34-79a7-43c1-808d-f27806de0329"
+      >Le rapport complet</a
+    >.
+  </p>
+  <p>
+    <b>La question ouverte nº 3 de ce plan est tranchée — et elle l'était dans les deux sens.</b>
+    Elle demandait si laisser passer une vérification sans approbation contournerait la règle que tu
+    as posée. C'était vrai. Mais la réciproque aussi, qu'on n'avait pas vue : un agent autorisé à
+    lancer des commandes a fait tourner la sienne deux fois sans que personne ne soit consulté, puis
+    a <i>déclaré</i> cette même commande — et le job s'est arrêté
+    <b>24 minutes 28 secondes, 72 % de sa durée</b>, à attendre ton feu vert pour écrire une ligne
+    en base.
+  </p>
+  <p>
+    <b>Un refus explicite devenait une question.</b> Un agent à qui tu as interdit de lancer des
+    commandes voyait sa déclaration retomber sur le niveau d'autonomie, qui ne sait que demander.
+    Personne ne l'avait vu en six passes de relecture — il fallait un run.
+  </p>
+  <p>
+    <b>La durée d'un job ne mesurait que son dernier morceau.</b> 19 secondes affichées pour 34
+    minutes réelles. Juste pour les agents qui travaillent seuls, faux d'un facteur cent pour ceux
+    qui délèguent.
+  </p>
+  <p>
+    Les deux sont corrigés dans la PR ouverte. Trois autres constats vont au backlog sans être
+    traités : les tests du relecteur ne sont enregistrés nulle part (c'est la brique « relecteurs »
+    qui manque, pas un bug) ; une garde de navigateur se contourne par un outil voisin
+    <i>(à toi de trancher — une garde du même genre a déjà été retirée à ta demande)</i> ; et le
+    coût est inversé, relire coûte onze fois plus qu'écrire.
+  </p>
 
   <h2>Ce que tu verras changer</h2>
   <p>
@@ -556,9 +598,12 @@
   <h2>Les questions, tranchées</h2>
   <ul class="plain">
     <li>
-      <b>Faut-il une approbation la première fois ?</b> <b>OUI.</b> L'outil demande une approbation
-      et rejoint les outils d'exécution de code ; une commande lourde dans une séquence déclarée
-      gate la déclaration entière — elle s'exécutera entière.
+      <b>Faut-il une approbation la première fois ?</b>
+      <b>Ni oui ni non : c'est la règle que tu as posée sur les commandes qui décide</b>, et dans
+      les deux sens. Tu autorises un agent à lancer des commandes, sa déclaration passe. Tu le lui
+      interdis, elle est refusée. Tu demandes à être consulté, elle te consulte. Première réponse —
+      « oui, toujours » — corrigée le 10/09 après le premier run réel, où elle coûtait 24 minutes
+      d'attente sur 34.
     </li>
     <li>
       <b>Un shell lancé à la racine d'un dossier qui contient plusieurs projets ?</b> Il ne désigne
