@@ -179,20 +179,63 @@ describe('declare_verification', () => {
       ctx(),
     );
     expect(out.declared).toBe(false);
-    if (!out.declared) expect(out.reason).toContain('did not produce anything');
+    if (!out.declared) expect(out.reason).toContain('never touched');
     expect((await projet())?.verifyCommands).toBeNull();
   });
 
-  it('une trace de PRÉCAUTION ne suffit pas : il faut avoir VISÉ ce projet', async () => {
+  it('une trace de PRÉCAUTION ne suffit pas, et le refus DIT quoi faire', async () => {
     // Un shell salit tout son périmètre par précaution. Cela ne fait pas de
     // chaque dossier voisin quelque chose qu'on a produit.
+    //
+    // Décision Quentin du 09/09/2026 : le remède est le `cwd` PRÉCIS, et le
+    // refus doit l'enseigner. Un « this job did not produce anything » sec
+    // était vrai et inutilisable — l'agent n'avait aucun moyen de savoir que
+    // relancer sa commande depuis le projet suffisait.
     await poserLaTrace(projectKey(PROJET), { addressed: false, produced: false });
     const out = await declareVerificationTool.execute(
       { project_path: PROJET, commands: [{ command: 'node --check app.js' }] },
       ctx(),
     );
     expect(out.declared).toBe(false);
+    if (!out.declared) {
+      expect(out.reason).toContain('no tool named it as its target');
+      expect(out.reason, 'le refus dit le geste exact').toContain(`cwd set to ${PROJET}`);
+    }
     expect((await projet())?.verifyCommands).toBeNull();
+  });
+
+  it('les trois refus sont DISTINCTS — jamais fondus en un seul message', async () => {
+    // Un message par cause : jamais touché / seulement dans le périmètre d'un
+    // shell / visé mais rien écrit. Les trois appellent trois gestes
+    // différents, et un message unique les rendait indistinguables.
+    const jamais = await declareVerificationTool.execute(
+      { project_path: PROJET, commands: [{ command: 'node --check app.js' }] },
+      ctx(),
+    );
+    expect(jamais.declared).toBe(false);
+    if (!jamais.declared) expect(jamais.reason).toContain('never touched');
+
+    await db.delete(jobDeliverableVerificationState);
+    await poserLaTrace(projectKey(PROJET), { addressed: false, produced: false });
+    const precaution = await declareVerificationTool.execute(
+      { project_path: PROJET, commands: [{ command: 'node --check app.js' }] },
+      ctx(),
+    );
+    expect(precaution.declared).toBe(false);
+    if (!precaution.declared) expect(precaution.reason).toContain('write scope');
+
+    await db.delete(jobDeliverableVerificationState);
+    await poserLaTrace(projectKey(PROJET), { addressed: true, produced: false });
+    const echoue = await declareVerificationTool.execute(
+      { project_path: PROJET, commands: [{ command: 'node --check app.js' }] },
+      ctx(),
+    );
+    expect(echoue.declared).toBe(false);
+    if (!echoue.declared) expect(echoue.reason).toContain('reported a failure');
+
+    // Les trois messages diffèrent : c'est ce qui les rend utiles.
+    const messages = [jamais, precaution, echoue].map((r) => (r.declared ? '' : r.reason));
+    expect(new Set(messages).size).toBe(3);
   });
 
   it('avoir VISÉ ne suffit pas : il faut avoir RÉUSSI à écrire', async () => {
@@ -206,7 +249,7 @@ describe('declare_verification', () => {
       ctx(),
     );
     expect(out.declared).toBe(false);
-    if (!out.declared) expect(out.reason).toContain('did not produce anything');
+    if (!out.declared) expect(out.reason).toContain('Nothing was successfully written');
     expect((await projet())?.verifyCommands).toBeNull();
   });
 

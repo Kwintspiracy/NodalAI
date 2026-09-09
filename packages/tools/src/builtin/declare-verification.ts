@@ -78,7 +78,10 @@ export const declareVerificationTool: ToolDefinition<
     'your own output — a syntax check, a build, a test suite, a request against a server you ' +
     'started. Each command must exit 0 when the project is healthy and non-zero when it is not; ' +
     'never declare a command that always succeeds, it would prove nothing. Do not declare ' +
-    'anything for a project you did not produce or change.',
+    'anything for a project you did not produce or change. You can only declare for a project ' +
+    'a tool of yours NAMED as its target: run your commands with cwd set to the project itself, ' +
+    'not to the folder above it — a shell started one level up could have written anywhere, so ' +
+    'it names nothing.',
   inputSchema: DeclareVerificationInputSchema,
   riskLevel: 'write',
   card: 'text',
@@ -121,23 +124,56 @@ export const declareVerificationTool: ToolDefinition<
     //
     // `produced` n'est posé qu'APRÈS une écriture réussie, sur les seuls
     // livrables nommés. On lit cette ligne, on n'en fabrique pas une nouvelle.
-    const [touche] = await ctx.db
-      .select({ id: jobDeliverableVerificationState.id })
+    // UN REFUS PAR CAUSE, et chacun dit quoi faire.
+    //
+    // Le refus unique d'avant — « this job did not produce anything » — était
+    // vrai et inutilisable : il ne distinguait pas « tu n'as jamais touché ce
+    // projet » de « tu l'as bien écrit, mais depuis la racine du terrain, donc
+    // rien ne dit que c'est LUI que tu visais ». Le second cas est le plus
+    // fréquent, et sa réponse tient en une phrase : relancer la commande avec
+    // `cwd` sur le projet. Sans elle, l'agent voit un mur (décision Quentin,
+    // 09/09/2026, après la passe 3 de la revue Codex).
+    const [trace] = await ctx.db
+      .select({
+        addressed: jobDeliverableVerificationState.addressed,
+        produced: jobDeliverableVerificationState.produced,
+      })
       .from(jobDeliverableVerificationState)
       .where(
         and(
           eq(jobDeliverableVerificationState.jobId, ctx.jobId),
           eq(jobDeliverableVerificationState.canonicalKey, key),
-          eq(jobDeliverableVerificationState.produced, true),
         ),
       )
       .limit(1);
-    if (!touche) {
+    if (!trace) {
       return {
         declared: false,
         reason:
-          `This job did not produce anything in ${path}. Declare a verification only for what ` +
-          'you built or changed in this run.',
+          `This job never touched ${path}. Declare a verification only for what you built or ` +
+          'changed in this run.',
+      };
+    }
+    if (!trace.addressed) {
+      // Le projet est dans le périmètre SALE — un shell peut écrire n'importe
+      // où — mais aucun outil ne l'a nommé. C'est le cas du shell lancé à la
+      // racine d'un dossier qui contient plusieurs projets : la commande a pu
+      // écrire dans celui-ci, dans un autre, ou dans aucun, et rien dans la
+      // trace ne le dit.
+      return {
+        declared: false,
+        reason:
+          `${path} is in this run's write scope, but no tool named it as its target — a shell ` +
+          'run from the parent folder could have written anywhere in it. Run the command that ' +
+          `proves this project with cwd set to ${path}, then declare its verification.`,
+      };
+    }
+    if (!trace.produced) {
+      return {
+        declared: false,
+        reason:
+          `Nothing was successfully written to ${path} in this run: the tool that targeted it ` +
+          'reported a failure. Fix the work first, then declare how it is verified.',
       };
     }
 
