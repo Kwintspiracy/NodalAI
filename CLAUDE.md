@@ -113,6 +113,21 @@ Le dépôt a porté jusqu'au 09/09/2026 trois dossiers `tests/architecture`,
 les avait signalés ; ils sont supprimés. Quiconque ouvrait le dépôt y voyait la
 promesse de tests qui vivaient ailleurs.
 
+## Ajouter une migration
+
+Deux gestes, jamais un seul :
+
+1. `packages/db/migrations/NNNN_nom.sql`
+2. **une entrée dans `packages/db/migrations/meta/_journal.json`** (`idx`, `tag`
+   = le nom du fichier sans `.sql`)
+
+Sans le journal, drizzle-kit **ignore le fichier en silence**. `pnpm test` reste
+vert — la base de test de `spinUpTestDb` est construite en SQL inline
+(`packages/db/src/tests/helpers.ts`), pas depuis les migrations — et seuls les
+tests `*.pg.test.ts`, qui appliquent les VRAIES migrations sur un vrai Postgres,
+rougissent. Une colonne ajoutée au schéma Drizzle demande donc **trois**
+endroits : le schéma, la migration + son journal, et le SQL inline des tests.
+
 ## Legacy reference
 
 The KwintAgents legacy code lives at `D:\APPS\KwintAgents/` — read-only reference during migration. Each brique in the plan file lists which legacy files to port from.

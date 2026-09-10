@@ -120,6 +120,8 @@ export async function spinUpTestDb(): Promise<{ db: TestDb; pg: PGlite }> {
       system_agent boolean DEFAULT false,
       max_tokens_per_job integer NOT NULL DEFAULT 0 CHECK (max_tokens_per_job >= 0),
       memory_token_budget integer NOT NULL DEFAULT 1500,
+      -- mirrors migration 0107 : NULL = suivre entities.reflection_enabled
+      reflection_enabled boolean,
       cli_daily_budget_usd real NOT NULL DEFAULT 10,
       cli_defaults jsonb,
       runtime text NOT NULL DEFAULT 'nodal' CHECK (runtime IN ('nodal', 'claude-code', 'codex')),

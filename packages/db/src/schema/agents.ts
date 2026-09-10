@@ -67,6 +67,22 @@ export const agents = pgTable(
     // (Memory Sprint 2). Pure char budget — token estimation done at call site
     // (length/4). 1500 chars ≈ ~375 tokens, similar to Hermes' 2200+1375 split.
     memoryTokenBudget: integer('memory_token_budget').default(1500).notNull(),
+    /**
+     * La réflexion (boucle d'apprentissage de skills) pour CET agent.
+     *
+     * `null` = suivre le réglage du propriétaire (`entities.reflection_enabled`),
+     * qui est le comportement historique et reste le défaut. `false` = jamais,
+     * même quand le propriétaire l'a activée. `true` n'est pas un
+     * contournement : la porte de l'entité s'applique toujours au-dessus.
+     *
+     * Existe parce que la réflexion était TOUT ou RIEN par propriétaire. Sur le
+     * run 20b73ed1 (09/09), un relecteur qui avait rendu « approve » sans le
+     * moindre constat a déclenché trois appels de réflexion à 0,041 $ — 12 % de
+     * la facture du run, pour apprendre d'un travail qui n'avait rien à
+     * apprendre. Un agent dont le métier est de juger n'accumule pas de savoir-
+     * faire réutilisable ; c'est celui qui PRODUIT qui en accumule.
+     */
+    reflectionEnabled: boolean('reflection_enabled'),
     // Daily budget for coding-CLI runs (code_task, étape B of the
     // subscription-runtimes plan), in NOTIONAL USD — the cost the claude CLI
     // reports even under subscription (codex reports none; its runs count 0

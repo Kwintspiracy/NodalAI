@@ -256,6 +256,15 @@ beforeEach(async () => {
     .update(entitiesTable)
     .set({ reflectionEnabled: true })
     .where(eqFn(entitiesTable.id, seed.entityId));
+
+  // La porte PAR AGENT (`agents.reflection_enabled`) revient à NULL — « suivre
+  // le propriétaire », son défaut. Sans ce reset, le test qui la met à FALSE
+  // éteindrait la réflexion pour tous ceux qui suivent.
+  const { agents: agentsTable } = await import('@nodal-agents/db');
+  await db
+    .update(agentsTable)
+    .set({ reflectionEnabled: null })
+    .where(eqFn(agentsTable.id, seed.agentId));
 });
 
 // ── 1. Happy path create ────────────────────────────────────────────────────────
@@ -855,6 +864,89 @@ describe('reflection — non-blocking', () => {
     );
     expect(reflectionStarted).toBe(true);
     expect(reflectionFinished).toBe(true);
+  });
+});
+
+// ── 11bis. Porte PAR AGENT ────────────────────────────────────────────────────
+//
+// La réflexion était tout ou rien par propriétaire. Sur le run 20b73ed1
+// (09/09/2026), un relecteur qui venait de rendre « approve » sans un seul
+// constat a déclenché trois appels de réflexion à 0,041 $ — 12 % de la facture
+// du run — pour apprendre d'un travail qui n'avait rien à apprendre.
+//
+// `agents.reflection_enabled` : NULL suit le propriétaire (défaut, aucune
+// installation ne change), FALSE n'apprend jamais. TRUE n'est PAS un
+// contournement : la porte de l'entité reste au-dessus.
+describe('reflection — porte par agent', () => {
+  async function poserDrapeauAgent(valeur: boolean | null): Promise<void> {
+    const { agents: agentsTable, eq: eqFn } = await import('@nodal-agents/db');
+    await db
+      .update(agentsTable)
+      .set({ reflectionEnabled: valeur })
+      .where(eqFn(agentsTable.id, seed.agentId));
+  }
+
+  async function lancer(slug: string): Promise<void> {
+    const deps = makeDeps(
+      makeScriptedClient([
+        {
+          toolCalls: [
+            { toolCallId: 'r1', toolName: 'create_skill', args: { slug, name: 'S', content: 'x' } },
+          ],
+        },
+      ]),
+    );
+    const job = await insertCompletedJob();
+    await maybeRunReflection(
+      deps,
+      db as RunnerDeps['db'],
+      {
+        ...job,
+        status: 'completed',
+      } as Parameters<typeof maybeRunReflection>[2],
+    );
+  }
+
+  it('agent.reflection_enabled = false ⇒ aucune passe, même si le propriétaire l’a activée', async () => {
+    // Le beforeEach met entities.reflection_enabled = true : seul le drapeau de
+    // l'agent doit bloquer ici.
+    await poserDrapeauAgent(false);
+    const avant = (await skillsForAgentCreatedBy('agent')).length;
+
+    await lancer('agent-flag-blocked');
+
+    expect((await skillsForAgentCreatedBy('agent')).length).toBe(avant);
+    expect(
+      await db.select().from(agentSkills).where(eq(agentSkills.slug, 'agent-flag-blocked')),
+    ).toHaveLength(0);
+  });
+
+  it('agent.reflection_enabled = NULL ⇒ suit le propriétaire, donc la passe tourne', async () => {
+    // Le défaut. Aucune installation existante ne doit changer de comportement.
+    await poserDrapeauAgent(null);
+
+    await lancer('agent-flag-inherit');
+
+    expect(
+      await db.select().from(agentSkills).where(eq(agentSkills.slug, 'agent-flag-inherit')),
+    ).toHaveLength(1);
+  });
+
+  it('agent.reflection_enabled = true ne CONTOURNE pas le refus du propriétaire', async () => {
+    // Deux clés, pas une porte dérobée : un agent ne s'autorise pas la
+    // réflexion contre le réglage de son propriétaire.
+    const { entities: entitiesTable, eq: eqFn } = await import('@nodal-agents/db');
+    await db
+      .update(entitiesTable)
+      .set({ reflectionEnabled: false })
+      .where(eqFn(entitiesTable.id, seed.entityId));
+    await poserDrapeauAgent(true);
+
+    await lancer('agent-flag-no-bypass');
+
+    expect(
+      await db.select().from(agentSkills).where(eq(agentSkills.slug, 'agent-flag-no-bypass')),
+    ).toHaveLength(0);
   });
 });
 

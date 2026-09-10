@@ -11,7 +11,7 @@
 // Must NEVER block or delay the job response — caller invokes with `void … .catch`.
 
 import type { AnyDrizzleDb, AgentJobRow } from '@nodal-agents/db';
-import { eq, entities } from '@nodal-agents/db';
+import { eq, entities, agents } from '@nodal-agents/db';
 import { env as globalEnv, type RunnerEnv } from '../env.ts';
 import type { RunnerDeps } from '../deps.ts';
 import { tryReserveReflectionSlot } from './throttle.ts';
@@ -104,6 +104,8 @@ function countToolIterations(messages: unknown): number {
  *   - job.status === 'completed'                 (only successful runs)
  *   - job.channel ∉ {chat, reflection}           (no interactive / no recursion)
  *   - ≥ REFLECTION_MIN_TOOL_ITERS tool calls     (substantial job — complexity gate)
+ *   - agents.reflection_enabled !== false        (refus PAR AGENT ; NULL = suit
+ *                                                 le propriétaire, le défaut)
  *   - per-entity throttle slot available         (≤ REFLECTION_MAX_PER_HOUR/h)
  *
  * Reads config from `runnerEnv` when provided (used by tests and recursive job
@@ -148,6 +150,27 @@ export async function maybeRunReflection(
     .where(eq(entities.id, job.entityId))
     .limit(1);
   if (!entityRow?.reflectionEnabled) return;
+
+  // Gate 5c — le refus PAR AGENT. `agents.reflection_enabled` : NULL suit le
+  // propriétaire (le défaut, donc aucune installation ne change), FALSE
+  // n'apprend jamais.
+  //
+  // Deux clés, pas une porte dérobée : ce drapeau ne peut que RETIRER la
+  // réflexion, jamais l'accorder contre le réglage du propriétaire — la porte
+  // 5b est passée avant, et le reste.
+  //
+  // Existe parce que la réflexion était tout ou rien par propriétaire. Sur le
+  // run 20b73ed1 (09/09/2026), un relecteur qui venait de rendre « approve »
+  // sans un seul constat a déclenché trois passes à 0,041 $ — 12 % de la
+  // facture du run — pour apprendre d'un travail qui n'avait rien à apprendre.
+  // Un agent dont le métier est de juger n'accumule pas de savoir-faire
+  // réutilisable ; c'est celui qui PRODUIT qui en accumule.
+  const [agentRow] = await db
+    .select({ reflectionEnabled: agents.reflectionEnabled })
+    .from(agents)
+    .where(eq(agents.id, job.agentId))
+    .limit(1);
+  if (agentRow?.reflectionEnabled === false) return;
 
   // Gate 6 — per-entity rolling-hour throttle. Check-and-reserve in one step so
   // back-to-back completions can't slip past the cap.
