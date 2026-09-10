@@ -704,19 +704,29 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
     // aucune trace dans `tool_calls` — sur le run 20b73ed1, l'orchestrateur a
     // fait deux appels d'outils et la table en montrait un. Qui diagnostique un
     // run par cette table lit une délégation comme un trou (revue croisée
-    // Codex, 10/09). L'enfant existe déjà à ce point : `delegate.ts` le crée
-    // puis lève. La ligne nomme donc un fait, pas une intention.
+    // Codex, 10/09).
+    //
+    // Elle ne dit QUE ce qui est vrai ici : vers quel agent. Pas quel job
+    // enfant — il n'existe pas encore. Le signal ne porte à ce point qu'un
+    // placeholder `pending:<slug>` (assign-tools.ts le dit dans son propre
+    // commentaire) ; c'est `handleDelegation` qui crée l'enfant ENSUITE et
+    // remplace la valeur. Une première version inscrivait ce placeholder :
+    // la ligne annonçait un identifiant qui n'a jamais existé, et affirmait la
+    // délégation faite alors que la création pouvait encore échouer (revue
+    // Codex, passe 4). Le lien vers l'enfant se lit de l'autre côté, sur
+    // `agent_jobs.parent_job_id`, où il est exact.
     if (err instanceof Error && err.name === 'DelegationPendingError') {
-      const signal = err as Error & { childJobId?: string; childSlug?: string };
+      const signal = err as Error & { childSlug?: string };
       try {
         await _writeToolCall(
           ctx,
           auditTool,
           validatedInput,
           JSON.stringify({
-            outcome: 'delegated',
-            childJobId: signal.childJobId ?? null,
-            childSlug: signal.childSlug ?? null,
+            // « demandée », pas « faite » : à cet instant l'agent a émis le
+            // signal, rien de plus. Le sort de l'enfant se lit sur l'enfant.
+            outcome: 'delegation_requested',
+            to: signal.childSlug ?? null,
           }),
           Date.now() - startMs,
         );

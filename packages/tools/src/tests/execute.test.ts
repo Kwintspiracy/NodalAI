@@ -1320,7 +1320,11 @@ describe('executeTool — une preuve déclarée est jugée sous la règle de run
 // arrivé en analysant ce run.
 describe('executeTool — une délégation laisse une ligne d’audit', () => {
   const assignSchema = z.object({ task: z.string() });
-  const CHILD_JOB = '11111111-2222-3333-4444-555555555555';
+  // Ce que le VRAI signal porte à cet instant. Pas un UUID : `assign-tools.ts`
+  // lève avec un placeholder, et `handleDelegation` crée l'enfant ensuite. Le
+  // premier jet de ce test fabriquait un UUID — il ne pouvait donc pas voir que
+  // la ligne d'audit annonçait un identifiant inexistant (revue Codex, passe 4).
+  const PLACEHOLDER = 'pending:lead-dev';
 
   function makeAssignTool(): ToolDefinition<typeof assignSchema, string> {
     return {
@@ -1333,7 +1337,7 @@ describe('executeTool — une délégation laisse une ligne d’audit', () => {
         // `instanceof` (le paquet tools ne peut pas dépendre d'orchestration).
         const err = Object.assign(new Error('delegation_pending: delegated to lead-dev'), {
           name: 'DelegationPendingError',
-          childJobId: CHILD_JOB,
+          childJobId: PLACEHOLDER,
           childSlug: 'lead-dev',
         });
         throw err;
@@ -1341,7 +1345,7 @@ describe('executeTool — une délégation laisse une ligne d’audit', () => {
     };
   }
 
-  it('écrit la ligne, en nommant le job enfant créé', async () => {
+  it('écrit la ligne, en nommant l’agent visé — et rien qu’elle sache', async () => {
     const tache = `deleguer-${Date.now()}`;
     await expect(
       executeTool(makeAssignTool(), { task: tache }, makeCtx(), makeOpts()),
@@ -1355,12 +1359,16 @@ describe('executeTool — une délégation laisse une ligne d’audit', () => {
     // serait pire que pas de ligne. Elle nomme ce qui s'est passé et vers qui.
     const out = JSON.parse(String(row?.toolOutput)) as {
       outcome?: string;
-      childJobId?: string;
-      childSlug?: string;
+      to?: string;
+      childJobId?: unknown;
     };
-    expect(out.outcome).toBe('delegated');
-    expect(out.childJobId).toBe(CHILD_JOB);
-    expect(out.childSlug).toBe('lead-dev');
+    // « demandée », pas « faite » : la création de l'enfant peut encore échouer
+    // après ce point, et une ligne qui l'affirmerait mentirait.
+    expect(out.outcome).toBe('delegation_requested');
+    expect(out.to).toBe('lead-dev');
+    // Aucun identifiant d'enfant, et surtout pas le placeholder.
+    expect(out.childJobId).toBeUndefined();
+    expect(JSON.stringify(out)).not.toContain('pending:');
   });
 
   it('le signal de délégation reste relancé — écrire l’audit ne l’avale pas', async () => {

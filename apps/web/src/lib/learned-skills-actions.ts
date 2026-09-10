@@ -16,6 +16,7 @@ import {
   entities,
   archiveAgentSkill,
   assignSkillRepo,
+  dropApprovalRulesForDetachedSkill,
 } from '@nodal-agents/db';
 import { getDb, applyActiveEntity, getAuthProvider } from './server.ts';
 import { requireAuth } from '@nodal-agents/auth';
@@ -487,6 +488,17 @@ export async function unassignLearnedSkillAction(
           eq(agentSkillAssignments.entityId, session.entityId),
         ),
       );
+
+    // Même nettoyage que sur l'écran Skills : un Yolo posé puis « retiré » en
+    // enlevant la skill se rallumait tout seul à la réassignation. Ce chemin-ci
+    // l'avait manqué au premier correctif — une règle nettoyée par un écran et
+    // laissée par l'autre, c'est pire qu'un trou franc.
+    await dropApprovalRulesForDetachedSkill(db, {
+      entityId: session.entityId,
+      agentId: parsedAgent.data,
+      skillId: parsedSkill.data,
+    });
+
     revalidatePath('/learned-skills');
     return ok(undefined);
   } catch (err) {
