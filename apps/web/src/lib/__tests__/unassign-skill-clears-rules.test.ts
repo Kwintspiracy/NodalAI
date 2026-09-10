@@ -117,11 +117,19 @@ describe('unassignSkillAction — retirer une skill retire ses règles', () => {
     expect(await reglesDe('run_command')).toHaveLength(0);
   });
 
-  it('une règle sur un outil que la skill ne débloque PAS est laissée intacte', async () => {
+  it('un don sur un outil que la skill ne débloque PAS est laissé intact', async () => {
+    // Les deux règles sont des DONS : seul le PÉRIMÈTRE est en jeu ici. La
+    // distinction don/restriction est prouvée dans `packages/db`, où vit la
+    // logique — ce fichier prouve que l'écran Skills l'APPELLE.
     const { unassignSkillAction } = await import('@/lib/actions.ts');
     const skillId = await seedSkill('exec-test-2', ['run_command']);
     await testDb.insert(approvalRules).values([
-      { entityId: seed.entityId, agentId: seed.agentId, toolName: 'run_command', action: 'block' },
+      {
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        toolName: 'run_command',
+        action: 'auto_approve',
+      },
       {
         entityId: seed.entityId,
         agentId: seed.agentId,
@@ -136,6 +144,26 @@ describe('unassignSkillAction — retirer une skill retire ses règles', () => {
     // `web_search` est toujours disponible : sa règle n'a rien à voir avec la
     // skill retirée, et l'effacer serait détruire un réglage sans raison.
     expect(await reglesDe('web_search')).toHaveLength(1);
+  });
+
+  it("un BLOCK du propriétaire survit — l'écran passe bien par la garde partagée", async () => {
+    // La preuve que cet appelant hérite de l'asymétrie, et pas seulement la
+    // fonction qu'il appelle : c'est ce chemin-là qu'un futur refactor pourrait
+    // court-circuiter.
+    const { unassignSkillAction } = await import('@/lib/actions.ts');
+    const skillId = await seedSkill('exec-test-3', ['run_command']);
+    await testDb.insert(approvalRules).values({
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      toolName: 'run_command',
+      action: 'block',
+    });
+
+    await unassignSkillAction({ skillId, agentId: seed.agentId });
+
+    const restantes = await reglesDe('run_command');
+    expect(restantes).toHaveLength(1);
+    expect(restantes[0]?.action).toBe('block');
   });
 
   it('un outil encore débloqué par une AUTRE skill assignée garde sa règle', async () => {

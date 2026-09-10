@@ -100,10 +100,88 @@ describe('dropApprovalRulesForDetachedSkill', () => {
     expect(await reglesDe('run_command')).toHaveLength(0);
   });
 
-  it('une règle sur un outil que la skill ne débloque PAS reste intacte', async () => {
+  // ── Ce que le nettoyage n'a PAS le droit de faire ────────────────────────
+  //
+  // La première version supprimait TOUTES les règles portant sur les outils de
+  // la skill. C'était une escalade de privilège, trouvée par la revue Codex
+  // (passe 5, P1) : un agent ROOT qui porte les droits de gestion des skills
+  // peut appeler `detach_skill` puis `attach_skill` sans approbation sous
+  // `destructive_gate`. Le cycle effaçait donc le `block` posé par le
+  // propriétaire, et le worker retrouvait un shell auto-exécuté.
+  //
+  // La règle est asymétrique, et elle doit l'être : un `auto_approve` est un
+  // DON, on le reprend avec la skill ; un `block` ou un `require_approval` est
+  // une RESTRICTION, et la retirer n'est pas « revenir au défaut prudent »,
+  // c'est lever une interdiction. Une restriction dormante sur un outil que
+  // l'agent n'a plus ne coûte rien ; elle reprend son effet si la skill revient,
+  // ce qui est exactement l'intention du propriétaire.
+  it('un BLOCK posé par le propriétaire SURVIT au détachement', async () => {
+    const skillId = await poserSkill('exec', ['run_command']);
+    await db.insert(approvalRules).values({
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      toolName: 'run_command',
+      action: 'block',
+    });
+
+    const retires = await detacher(skillId);
+
+    expect(retires).toEqual([]);
+    const restantes = await reglesDe('run_command');
+    expect(restantes).toHaveLength(1);
+    expect(restantes[0]?.action).toBe('block');
+  });
+
+  it('un REQUIRE_APPROVAL posé par le propriétaire survit aussi', async () => {
+    const skillId = await poserSkill('exec', ['run_command']);
+    await db.insert(approvalRules).values({
+      entityId: seed.entityId,
+      agentId: seed.agentId,
+      toolName: 'run_command',
+      action: 'require_approval',
+    });
+
+    await detacher(skillId);
+
+    const restantes = await reglesDe('run_command');
+    expect(restantes).toHaveLength(1);
+    expect(restantes[0]?.action).toBe('require_approval');
+  });
+
+  it('un don est repris, une restriction est gardée — sur deux outils de la même skill', async () => {
+    // Les deux dans le même détachement : une implémentation qui traiterait
+    // toutes les règles de la même façon échoue forcément sur l'une des deux.
+    const skillId = await poserSkill('exec', ['run_command', 'code_task']);
+    await db.insert(approvalRules).values([
+      {
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        toolName: 'run_command',
+        action: 'auto_approve',
+      },
+      { entityId: seed.entityId, agentId: seed.agentId, toolName: 'code_task', action: 'block' },
+    ]);
+
+    const retires = await detacher(skillId);
+
+    expect(retires).toEqual(['run_command']);
+    expect(await reglesDe('run_command')).toHaveLength(0);
+    expect(await reglesDe('code_task')).toHaveLength(1);
+  });
+
+  it('un don sur un outil que la skill ne débloque PAS reste intact', async () => {
+    // `web_search` est toujours disponible : son Yolo n'a rien à voir avec la
+    // skill retirée, et l'effacer détruirait un réglage sans raison. Les deux
+    // règles sont des DONS, pour que seul le PÉRIMÈTRE soit en jeu ici — la
+    // distinction don/restriction a ses propres tests plus haut.
     const skillId = await poserSkill('exec', ['run_command']);
     await db.insert(approvalRules).values([
-      { entityId: seed.entityId, agentId: seed.agentId, toolName: 'run_command', action: 'block' },
+      {
+        entityId: seed.entityId,
+        agentId: seed.agentId,
+        toolName: 'run_command',
+        action: 'auto_approve',
+      },
       {
         entityId: seed.entityId,
         agentId: seed.agentId,
