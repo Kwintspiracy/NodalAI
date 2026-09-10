@@ -583,9 +583,26 @@ function buildPersistentMemoryBlock(
 // its system prompt — not buried in the LLM SDK's tool definitions, which can
 // be ignored when the personality is strongly worded ("just do math").
 // Data-driven from ALWAYS_ON_TOOL_DOCS — invariant #1 (no hardcoded metadata).
+//
+// Il NOMME les outils, il ne les DÉCRIT pas. La raison d'être du bloc ci-dessus
+// — les rendre visibles — n'exige pas les descriptions : celles-ci partent déjà,
+// en entier, dans les définitions d'outils du MÊME appel. Elles étaient donc
+// payées deux fois, à chaque tour de chaque agent. 9 781 caractères, le plus
+// gros bloc du prompt (ventilation Codex du run 20b73ed1, 09/09/2026) ; il en
+// reste quelques centaines.
+//
+// Si un jour un modèle appelle mal un outil faute de description ICI, la réponse
+// n'est pas de recopier les 9 781 caractères : c'est de corriger la description
+// de CET outil, là où elle vit.
 function buildBuiltinCapabilitiesBlock(): string {
-  const lines = ALWAYS_ON_TOOL_DOCS.map((t) => `- **${t.name}**: ${t.description}`).join('\n');
-  return `## Built-in capabilities\n\nThese tools are always available to you. Use them proactively when they fit:\n\n${lines}`;
+  const names = ALWAYS_ON_TOOL_DOCS.map((t) => `\`${t.name}\``).join(', ');
+  return (
+    `## Built-in capabilities\n\n` +
+    `These tools are always available to you — use them proactively when they ` +
+    `fit. Their full parameters and behaviour are in the tool definitions of ` +
+    `this same request; this list is only here so you never forget they exist:\n\n` +
+    `${names}`
+  );
 }
 
 // ─── buildWorkspacesBlock ─────────────────────────────────────────────────────
