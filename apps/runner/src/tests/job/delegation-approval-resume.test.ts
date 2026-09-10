@@ -32,6 +32,7 @@ import {
   agentSkillAssignments,
   agentWorkspaces,
   entities,
+  toolCalls,
 } from '@nodal-agents/db';
 import { createToolRegistry, registerBuiltins } from '@nodal-agents/tools';
 import { createEmbeddingClient } from '@nodal-agents/llm';
@@ -392,6 +393,41 @@ describe('delegation — parent suspends on child gate, resumes after approval',
     // Phase 3: re-trigger the parent (what triggerWorker/cron does) → completes.
     const r3 = await executeJob(parent.id as JobId, deps, testEnv);
     expect(r3.status).toBe('completed');
+
+    // ── La délégation laisse une ligne d'audit, et elle ne ment pas ──────────
+    //
+    // `assign_*` lève `DelegationPendingError` comme primitive de contrôle ;
+    // l'exception était relancée SANS écrire de ligne, donc déléguer — une
+    // ACTION — ne laissait aucune trace. Constaté sur le run 20b73ed1 : deux
+    // appels d'outils dans le transcript, un seul dans la table.
+    //
+    // La première correction inscrivait `childJobId`. C'était FAUX et une revue
+    // Codex l'a démontré : à ce point le signal ne porte qu'un placeholder
+    // `pending:<slug>` (assign-tools.ts le dit dans son propre commentaire), et
+    // le vrai enfant est créé APRÈS, par `handleDelegation`. La ligne annonçait
+    // donc un identifiant inexistant.
+    //
+    // Ce test-ci passe par le VRAI chemin — un vrai `assign_*`, un vrai enfant —
+    // là où le premier fabriquait l'objet d'erreur, et ne pouvait donc pas voir
+    // le placeholder.
+    const lignesAudit = await db
+      .select({ toolName: toolCalls.toolName, toolOutput: toolCalls.toolOutput })
+      .from(toolCalls)
+      .where(eq(toolCalls.jobId, parent.id));
+    const ligneDelegation = lignesAudit.find((r) => r.toolName === assignTool);
+    expect(ligneDelegation).toBeDefined();
+
+    const sortie = JSON.parse(String(ligneDelegation!.toolOutput)) as {
+      outcome?: string;
+      to?: string;
+      childJobId?: unknown;
+    };
+    // Elle dit vers QUI, ce qui est connu et vrai.
+    expect(sortie.to).toBe(childSlug);
+    // Et elle ne prétend PAS savoir quel enfant : ni un identifiant, ni le
+    // placeholder. Ce champ n'existe plus.
+    expect(sortie.childJobId).toBeUndefined();
+    expect(JSON.stringify(sortie)).not.toContain('pending:');
   });
 });
 

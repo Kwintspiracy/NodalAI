@@ -128,6 +128,7 @@ import {
   verificationRuns,
   jobDeliverableVerificationState,
   jobDeliveries,
+  dropApprovalRulesForDetachedSkill,
 } from '@nodal-agents/db';
 import {
   deliverableStatuses,
@@ -8273,65 +8274,16 @@ export async function unassignSkillAction(raw: unknown): Promise<ActionResult<vo
         ),
       );
 
-    // ── Les règles d'approbation partent avec la skill ────────────────────────
-    //
-    // Retirer une skill retire les outils qu'elle débloquait. Les RÈGLES posées
-    // sur ces outils restaient, elles — invisibles, parce que l'écran Autonomie
-    // affiche des OUTILS et va chercher leur règle, jamais l'inverse : un outil
-    // sans ligne à l'écran est un outil dont la règle n'est rendue nulle part.
-    //
-    // Le cas qui compte : un `run_command → auto_approve` (le toggle Yolo) posé,
-    // puis « retiré » en enlevant la skill, se RALLUMAIT tout seul à la
-    // réassignation. Le propriétaire ne l'avait pas redemandé et ne l'avait pas
-    // vu affiché entre-temps. « Pas sélectionné » doit vouloir dire « pas
-    // d'approbation », pas « approbation en sommeil » : réassigner repart du
-    // défaut prudent.
-    //
-    // Deux bornes, et elles sont le cœur du correctif :
-    //   - seuls les outils que CETTE skill débloquait, jamais les autres ;
-    //   - et seulement s'ils ne sont plus débloqués par une AUTRE skill encore
-    //     assignée — sinon l'agent garderait le pouvoir et perdrait sa posture,
-    //     ce qui est exactement le défaut qu'on corrige, à l'envers.
-    //
-    // Portée à l'agent : une règle d'entité (`agent_id` NULL) vaut pour tout le
-    // monde et ne peut pas être révoquée en touchant UN agent.
-    const [skillRetiree] = await db
-      .select({ requiredBuiltins: agentSkills.requiredBuiltins })
-      .from(agentSkills)
-      .where(
-        and(eq(agentSkills.id, parsed.data.skillId), eq(agentSkills.entityId, session.entityId)),
-      )
-      .limit(1);
-
-    const debloquesParLaSkill = skillRetiree?.requiredBuiltins ?? [];
-    if (debloquesParLaSkill.length > 0) {
-      const encoreDebloques = new Set(
-        (
-          await db
-            .select({ requiredBuiltins: agentSkills.requiredBuiltins })
-            .from(agentSkillAssignments)
-            .innerJoin(agentSkills, eq(agentSkills.id, agentSkillAssignments.skillId))
-            .where(
-              and(
-                eq(agentSkillAssignments.agentId, parsed.data.agentId),
-                eq(agentSkillAssignments.entityId, session.entityId),
-              ),
-            )
-        ).flatMap((r) => r.requiredBuiltins ?? []),
-      );
-      const aOublier = debloquesParLaSkill.filter((t) => !encoreDebloques.has(t));
-      if (aOublier.length > 0) {
-        await db
-          .delete(approvalRules)
-          .where(
-            and(
-              eq(approvalRules.entityId, session.entityId),
-              eq(approvalRules.agentId, parsed.data.agentId),
-              inArray(approvalRules.toolName, aOublier),
-            ),
-          );
-      }
-    }
+    // Les règles d'approbation partent avec la skill. La logique vit dans
+    // `packages/db` : TROIS chemins détachent une skill (cet écran, celui des
+    // skills apprises, et l'outil `detach_skill` qu'un agent appelle lui-même),
+    // et une règle nettoyée par l'un mais laissée par l'autre serait pire qu'un
+    // trou franc — le comportement dépendrait de l'endroit où l'on a cliqué.
+    await dropApprovalRulesForDetachedSkill(db, {
+      entityId: session.entityId,
+      agentId: parsed.data.agentId,
+      skillId: parsed.data.skillId,
+    });
 
     revalidatePath('/skills');
     return ok(undefined);

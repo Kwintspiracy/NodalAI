@@ -3,7 +3,12 @@
 // riskLevel 'write': reversible (re-attach with attach_skill).
 
 import { z } from 'zod';
-import { eq, and, agentSkillAssignments } from '@nodal-agents/db';
+import {
+  eq,
+  and,
+  agentSkillAssignments,
+  dropApprovalRulesForDetachedSkill,
+} from '@nodal-agents/db';
 import type { ToolDefinition } from '../../types';
 import { resolveAgentId, resolveSkillId } from './link-helpers';
 
@@ -35,9 +40,26 @@ export const detachSkillTool: ToolDefinition<typeof DetachSkillInput, DetachSkil
       .where(
         and(eq(agentSkillAssignments.agentId, agentId), eq(agentSkillAssignments.skillId, skillId)),
       );
+
+    // Les règles d'approbation partent avec la skill — y compris ici, où c'est
+    // un AGENT qui détache, pas le propriétaire depuis un écran. C'est le
+    // chemin le plus important des trois : un agent qui retire puis remet une
+    // skill se rendrait sinon un toggle Yolo que personne ne lui a redonné.
+    const retirees = await dropApprovalRulesForDetachedSkill(ctx.db, {
+      entityId: ctx.entityId,
+      agentId,
+      skillId,
+    });
+
     return {
       ok: true,
-      message: `Removed skill "${input.skillSlug}" from agent "${input.agentSlug}".`,
+      message:
+        `Removed skill "${input.skillSlug}" from agent "${input.agentSlug}".` +
+        // Dit, jamais silencieux : l'agent perd des permissions au passage, et
+        // il doit pouvoir l'expliquer au propriétaire (invariant #4).
+        (retirees.length > 0
+          ? ` Approval settings for ${retirees.join(', ')} were cleared with it — re-attaching the skill starts from the safe default.`
+          : ''),
     };
   },
 };
