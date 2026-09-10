@@ -342,20 +342,71 @@ export async function setSkillAssignmentModeAction(mode: unknown): Promise<Actio
 // ─── listAssignableAgentsAction ───────────────────────────────────────────────
 
 export async function listAssignableAgentsAction(): Promise<
-  ActionResult<{ id: string; name: string; slug: string }[]>
+  ActionResult<{ id: string; name: string; slug: string; learns: boolean }[]>
 > {
   try {
     const session = await getSession();
     const db = getDb();
     const rows = await db
-      .select({ id: agents.id, name: agents.name, slug: agents.slug })
+      .select({
+        id: agents.id,
+        name: agents.name,
+        slug: agents.slug,
+        reflectionEnabled: agents.reflectionEnabled,
+      })
       .from(agents)
       .where(and(eq(agents.entityId, session.entityId), eq(agents.active, true)))
       .orderBy(agents.position, agents.name);
-    return ok(rows);
+    // `null` = suivre le réglage du propriétaire, et c'est le défaut : l'écran
+    // le montre donc comme « apprend », puisque c'est ce qui se passera.
+    return ok(rows.map((r) => ({ ...r, learns: r.reflectionEnabled !== false })));
   } catch (err) {
     console.error('[listAssignableAgentsAction]', err);
     return fail('db_error', 'Failed to load agents');
+  }
+}
+
+// ─── setAgentLearningAction ───────────────────────────────────────────────────
+
+/**
+ * Retire ou rend l'apprentissage à UN agent.
+ *
+ * La réflexion était tout ou rien par propriétaire : l'activer, c'était
+ * l'activer pour tout le monde. Sur le run 20b73ed1 (09/09/2026), un relecteur
+ * qui venait de rendre « approve » sans le moindre constat a déclenché trois
+ * passes à 0,041 $ — 12 % de la facture du run — pour apprendre d'un travail
+ * qui n'avait rien à apprendre.
+ *
+ * `true` écrit NULL, pas TRUE : « suivre le propriétaire ». Un agent ne
+ * s'accorde pas la réflexion contre le réglage de son propriétaire, et la
+ * colonne dit donc « je ne m'en retire pas » plutôt que « je m'autorise ».
+ */
+export async function setAgentLearningAction(
+  agentId: unknown,
+  learns: unknown,
+): Promise<ActionResult<void>> {
+  try {
+    const session = await getSession();
+    const parsedAgent = z.string().uuid().safeParse(agentId);
+    const parsedLearns = z.boolean().safeParse(learns);
+    if (!parsedAgent.success) return fail('validation_failed', 'Invalid agent id');
+    if (!parsedLearns.success) return fail('validation_failed', 'learns must be a boolean');
+
+    const db = getDb();
+    const updated = await db
+      .update(agents)
+      .set({ reflectionEnabled: parsedLearns.data ? null : false, updatedAt: new Date() })
+      .where(and(eq(agents.id, parsedAgent.data), eq(agents.entityId, session.entityId)))
+      .returning({ id: agents.id });
+    // Le filtre sur l'entité est la garde : sans lui, un id d'agent suffirait à
+    // toucher l'agent de quelqu'un d'autre. Zéro ligne = pas le sien.
+    if (updated.length === 0) return fail('not_found', 'Agent not found');
+
+    revalidatePath('/learned-skills');
+    return ok(undefined);
+  } catch (err) {
+    console.error('[setAgentLearningAction]', err);
+    return fail('db_error', 'Failed to update agent learning setting');
   }
 }
 

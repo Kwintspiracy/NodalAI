@@ -15,6 +15,7 @@ import StatusPill from '@/components/ui/StatusPill';
 import AssignSkillModal from '@/app/(dashboard)/skills/AssignSkillModal.tsx';
 import {
   setReflectionEnabledAction,
+  setAgentLearningAction,
   archiveLearnedSkillAction,
   restoreLearnedSkillAction,
   deleteLearnedSkillAction,
@@ -24,7 +25,7 @@ import {
 } from '@/lib/learned-skills-actions.ts';
 import type { LearnedSkillRow } from '@/lib/learned-skills-actions.ts';
 
-type AssignableAgent = { id: string; name: string; slug: string };
+type AssignableAgent = { id: string; name: string; slug: string; learns: boolean };
 
 type Props = {
   skills: LearnedSkillRow[];
@@ -58,6 +59,7 @@ export default function LearnedSkillsClient({
   const [localSkills, setLocalSkills] = useState<LearnedSkillRow[]>(skills);
   const [assignSkillId, setAssignSkillId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [agentLearning, setAgentLearning] = useState<AssignableAgent[]>(assignableAgents);
 
   const assignSkill = assignSkillId ? localSkills.find((s) => s.id === assignSkillId) : undefined;
 
@@ -79,6 +81,24 @@ export default function LearnedSkillsClient({
         toast.error(result.message);
       } else {
         toast.success(next ? 'Agent learning enabled' : 'Agent learning disabled');
+      }
+    });
+  }
+
+  function handleAgentLearningToggle(agentId: string) {
+    const agent = agentLearning.find((a) => a.id === agentId);
+    if (!agent) return;
+    const next = !agent.learns;
+    setAgentLearning((prev) => prev.map((a) => (a.id === agentId ? { ...a, learns: next } : a)));
+    startTransition(async () => {
+      const result = await setAgentLearningAction(agentId, next);
+      if (!result.ok) {
+        setAgentLearning((prev) =>
+          prev.map((a) => (a.id === agentId ? { ...a, learns: !next } : a)),
+        );
+        toast.error(result.message);
+      } else {
+        toast.success(next ? `${agent.name} learns again` : `${agent.name} stops learning`);
       }
     });
   }
@@ -193,6 +213,38 @@ export default function LearnedSkillsClient({
             thumbClassName={`bg-white ${enabled ? 'translate-x-4' : 'translate-x-0'}`}
           />
         </div>
+
+        {/* Qui apprend, agent par agent. Un agent dont le métier est de juger
+            n'accumule pas de savoir-faire réutilisable — et une passe coûte. */}
+        {enabled && agentLearning.length > 0 && (
+          <div className="mt-4 border-t border-rule-2 pt-4">
+            <p className="mb-3 text-body-13 text-ink-3">
+              Turn it off for agents that review or judge. They rarely learn anything reusable, and
+              each pass costs a model call.
+            </p>
+            <ul className="flex flex-col gap-2">
+              {agentLearning.map((agent) => (
+                <li key={agent.id} className="flex items-center justify-between gap-4">
+                  <span
+                    id={`agent-learns-${agent.id}`}
+                    className={`text-body-13 ${agent.learns ? 'text-ink' : 'text-ink-3'}`}
+                  >
+                    {agent.name}
+                  </span>
+                  <Switch
+                    checked={agent.learns}
+                    onChange={() => handleAgentLearningToggle(agent.id)}
+                    disabled={isPending}
+                    size="sm"
+                    ariaLabelledBy={`agent-learns-${agent.id}`}
+                    trackClassName={agent.learns ? 'bg-ok' : 'bg-ink-4'}
+                    thumbClassName={`bg-white ${agent.learns ? 'translate-x-4' : 'translate-x-0'}`}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Assignment mode section */}

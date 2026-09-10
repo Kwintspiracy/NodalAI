@@ -743,6 +743,13 @@
       "when": 1786000440000,
       "tag": "0106_conversations_listable_chats",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1786000500000,
+      "tag": "0107_agent_reflection_enabled",
+      "breakpoints": true
     }
   ]
 }
