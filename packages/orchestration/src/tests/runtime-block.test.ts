@@ -8,6 +8,7 @@ import { buildRuntimeBlock, buildSystemPrompt } from '../system-prompt';
 import type { DeploymentContext } from '../system-prompt';
 import { spinUpTestDb } from '@nodal-agents/db/test-utils';
 import { agents } from '@nodal-agents/db';
+import { ALWAYS_ON_TOOL_DOCS } from '@nodal-agents/tools';
 import type { Agent, AgentId, EntityId } from '../types';
 import type { TestDb } from '@nodal-agents/db/test-utils';
 
@@ -284,6 +285,42 @@ describe('buildSystemPrompt — runtime block integration', () => {
     expect(builtinIdx).toBeGreaterThan(personalityIdx);
     expect(boundaryIdx).toBeGreaterThan(builtinIdx);
     expect(runtimeIdx).toBeGreaterThan(boundaryIdx);
+  });
+
+  // Le bloc « Built-in capabilities » NOMME les outils, il ne les DÉCRIT pas.
+  //
+  // Il existe pour une raison mesurée : les définitions d'outils du SDK se font
+  // ignorer quand la personnalité est fortement formulée (« just do math »), et
+  // nommer les outils dans le prompt les rend visibles. Cette raison n'exige pas
+  // les descriptions — celles-ci sont déjà envoyées, en entier, dans les
+  // définitions d'outils du même appel. Elles étaient donc payées DEUX FOIS, à
+  // chaque tour de chaque agent : 9 781 caractères, le plus gros bloc du prompt
+  // (ventilation Codex du run 20b73ed1).
+  it('le bloc des built-ins nomme les outils sans recopier leurs descriptions', async () => {
+    const { entityId } = await seedEntity(db);
+    const agent = await seedAgent(db, entityId);
+    const prompt = await buildSystemPrompt(agent, db, { origin: 'api' });
+
+    const debut = prompt.indexOf('## Built-in capabilities');
+    expect(debut).toBeGreaterThanOrEqual(0);
+    // Le bloc s'arrête au titre suivant.
+    const suite = prompt.indexOf('\n## ', debut + 5);
+    const bloc = suite === -1 ? prompt.slice(debut) : prompt.slice(debut, suite);
+
+    // Les outils sont nommés — c'est la raison d'être du bloc.
+    for (const nom of ['return_result', 'save_memory', 'web_search']) {
+      expect(bloc).toContain(nom);
+    }
+
+    // Aucune description n'y est recopiée. `return_result` a la plus longue et
+    // la plus reconnaissable : elle appartient aux définitions d'outils.
+    const doc = ALWAYS_ON_TOOL_DOCS.find((t) => t.name === 'return_result');
+    expect(doc?.description.length).toBeGreaterThan(40);
+    expect(bloc).not.toContain(doc!.description);
+
+    // Et le bloc reste petit : la liste des noms plus une phrase de cadrage.
+    // 9 781 caractères avant ce changement.
+    expect(bloc.length).toBeLessThan(1200);
   });
 
   it('surfaces jobContext.triggerContext as a "Scheduled run of" line end-to-end', async () => {
