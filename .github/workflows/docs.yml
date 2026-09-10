@@ -1,5 +1,10 @@
 name: Deploy Docs to GitHub Pages
 
+# Deux sites, un seul déploiement : GitHub n'accorde qu'un environnement
+# `github-pages` par dépôt. Les docs occupent la racine, le portail qualité
+# vit sous `/qa/`. Ils ne partagent RIEN d'autre que l'hébergeur — le portail
+# est un document autonome, avec son propre design.
+
 on:
   push:
     branches: [main]

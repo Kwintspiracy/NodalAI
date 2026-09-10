@@ -23,7 +23,7 @@ test.beforeAll(async () => {
   await cleanCredentialsByType('google-oauth');
 });
 
-test.describe('Google Drive OAuth flow (wizard-driven)', () => {
+test.describe('Google Drive OAuth flow (wizard-driven) @cap:connecter-un-service', () => {
   test('connect via wizard → callback → connected status and toast', async ({ page, context }) => {
     const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
     const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
@@ -61,7 +61,7 @@ test.describe('Google Drive OAuth flow (wizard-driven)', () => {
 
     // Find the Google Drive card.
     const driveCard = page
-      .locator('.rounded-xl')
+      .locator('[data-marketplace-card]')
       .filter({ has: page.getByRole('heading', { name: 'Google Drive', level: 3 }) });
     await expect(driveCard).toBeVisible({ timeout: 10_000 });
 
@@ -144,7 +144,7 @@ test.describe('Google Drive OAuth flow (wizard-driven)', () => {
 
     await expect(
       page
-        .locator('.rounded-xl')
+        .locator('[data-marketplace-card]')
         .filter({ has: page.getByRole('heading', { name: 'Google Drive', level: 3 }) })
         .getByText(/connected/i)
         .first(),

@@ -1,0 +1,249 @@
+name: Qualité — mesure complète
+
+# Ce workflow ne garde rien : il MESURE, et il écrit ce qu'il a mesuré dans
+# `apps/qa/data/`. C'est cette écriture, répétée, qui donne au portail son
+# historique — donc les réponses à « combien de fois ça tourne » et « à quelle
+# régularité ». Un rendu statique ne les aura jamais.
+#
+# Pourquoi la nuit et pas à chaque commit : la mesure complète instrumente
+# 34 paquets et joue 30 parcours navigateur. À chaque push elle doublerait le
+# temps de CI pour un chiffre qui ne bouge pas d'un commit à l'autre. Les
+# portes qui doivent bloquer une PR restent dans `ci.yml`.
+
+on:
+  schedule:
+    # 03:17 UTC — une heure creuse, et une minute qui n'est ni 0 ni 30 pour ne
+    # pas rejoindre la vague de tous les crons de la planète.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  # `alerte.mjs --appliquer` ouvre, met à jour et ferme SON billet. Sans cette
+  # ligne le jeton n'a pas le droit d'écrire une issue : chaque tentative aurait
+  # échoué, et le `|| true` de l'étape l'aurait masquée — une alerte qui ne part
+  # jamais et personne pour le dire (revue Codex du 11/09).
+  issues: write
+  # `collect.mjs` interroge `gh` pour le tableau. En lecture seule, mais il lui
+  # faut le droit de demander.
+  pull-requests: read
+
+concurrency:
+  group: qa-mesure
+  cancel-in-progress: false
+
+jobs:
+  mesure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Le job réécrit `apps/qa/data/` et pousse : il lui faut l'historique
+          # git, pas un checkout superficiel.
+          fetch-depth: 0
+          # ET il lui faut MAIN, quelle que soit la branche d'où part le
+          # déclenchement manuel. Sans cette ligne, un `workflow_dispatch` lancé
+          # depuis une branche mesurait cette branche puis poussait `HEAD:main` :
+          # tout son code partait sur main, pas seulement les données de mesure,
+          # sans revue et sans que les portes aient à passer. La mesure décrit
+          # main ; elle n'est pas un chemin pour y arriver (revue Codex 11/09).
+          ref: main
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ── Couverture, paquet par paquet ──────────────────────────────────────
+      # Surtout PAS un `vitest run --coverage` unique à la racine : chaque
+      # paquet porte son propre environnement (DATABASE_URL, mocks), qu'un
+      # lancement racine n'applique pas — 421 tests tombent alors pour une
+      # raison qui n'a rien à voir avec le code (constaté le 10/09/2026).
+      #
+      # `|| true` par paquet : un paquet qui échoue ne doit pas priver le
+      # portail des 33 autres mesures. Le portail montre l'absence comme une
+      # absence, jamais comme un zéro.
+      #
+      # Le second `--reporter=json` écrit `tests-run.json` à côté de la
+      # couverture : c'est lui qui alimente la mémoire test par test, donc
+      # l'instabilité — qu'aucune exécution isolée ne sait voir. Même passage,
+      # deux sorties : la mesure ne coûte pas un run de plus.
+      - name: Couverture par paquet
+        run: |
+          for d in packages/* packages/adapters/* apps/*; do
+            [ -f "$d/package.json" ] || continue
+            name=$(node -p "require('./$d/package.json').name" 2>/dev/null) || continue
+            [ "$name" = "@nodal-agents/docs" ] && continue
+            echo "::group::$name"
+            (cd "$d" && npx vitest run --coverage --coverage.reporter=json-summary --reporter=dot --reporter=json --outputFile=tests-run.json) || echo "  (échec — on continue)"
+            echo "::endgroup::"
+          done
+
+      # ── Le banc ────────────────────────────────────────────────────────────
+      # Il sort en 1 sur régression ; ici on ne veut pas arrêter la mesure, on
+      # veut l'ENREGISTRER. La porte bloquante, elle, vit dans `ci.yml`.
+      # Chemin ABSOLU : `pnpm bench` délègue à `pnpm --filter @nodal-agents/bench`,
+      # donc le CLI tourne dans `packages/bench` et un chemin relatif visait
+      # `packages/bench/apps/qa/data/` — un dossier qui n'existe pas. L'erreur
+      # était avalée et aucun rapport n'arrivait au collecteur (revue Codex).
+      - name: Banc d'essai
+        run: |
+          mkdir -p apps/qa/data
+          pnpm bench --json "$GITHUB_WORKSPACE/apps/qa/data/bench-run.json" || true
+
+      - name: Install Playwright browsers
+        timeout-minutes: 12
+        run: |
+          for i in 1 2; do
+            timeout 300 pnpm --filter @nodal-agents/web exec playwright install --with-deps chromium && exit 0
+            echo "playwright install attempt $i failed or hung — retrying"
+          done
+          exit 1
+
+      # `NODALAI_ALLOW_OAUTH_MOCK` — contrairement au job `e2e-smoke`, ce
+      # workflow joue les parcours OAuth, qui présentent un code d'autorisation
+      # synthétique `mock-`. La route de callback ne l'accepte qu'avec ce
+      # drapeau ; sans lui ces parcours tentent un vrai échange de jeton chez le
+      # fournisseur et échouent quoi que vaille le produit (revue Codex).
+      # Posé sur CETTE stack de test isolée, jamais ailleurs.
+      - name: Boot the stack
+        env:
+          NODALAI_ALLOW_OAUTH_MOCK: '1'
+        run: pnpm --filter nodal-agents exec tsx src/index.ts --dev &
+
+      - name: Wait for the dashboard
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/ > /dev/null; then echo "web up"; exit 0; fi
+            sleep 5
+          done
+          echo "dashboard never answered on :3000"; exit 1
+
+      # TOUS les parcours, pas les deux de `ci.yml`. C'est le point de ce
+      # workflow : le 10/09/2026, la première exécution des 28 parcours que la
+      # CI ne jouait pas a rendu 25 rouges. Personne ne pouvait le savoir.
+      #
+      # `agent-flows.spec.ts` est exclu, et c'est la seule exclusion : il sonde
+      # un LM Studio sur localhost:1234, qui n'existe pas sur un runner. Il
+      # échouerait à sa première ligne pour une raison qui n'apprend rien.
+      # La liste est construite ici plutôt que passée à un drapeau : Playwright
+      # n'a pas d'option d'exclusion par FICHIER (`--grep-invert` filtre sur les
+      # titres, `--ignore` n'existe pas), et un drapeau inventé aurait fait
+      # échouer le workflow sur sa syntaxe plutôt que sur les tests.
+      - name: Tous les parcours
+        run: |
+          mapfile -t specs < <(ls tests/e2e/*.spec.ts | grep -v 'agent-flows.spec.ts')
+          echo "${#specs[@]} parcours à jouer"
+          npx playwright test "${specs[@]}" --reporter=json > playwright-raw.json || true
+        working-directory: apps/web
+
+      # La sortie JSON de Playwright peut être précédée d'une ligne du
+      # global-setup ; on repart de la première accolade.
+      # Si Playwright n'émet aucun rapport, l'ANCIEN est effacé.
+      #
+      # Sans ça, la collecte qui suit attachait les résultats de la veille à un
+      # horodatage et un commit frais : des mesures périmées présentées comme
+      # celles du jour. C'est précisément le mensonge que ce portail existe pour
+      # empêcher (revue Codex). Mieux vaut une case vide qu'une case fausse.
+      - name: Normaliser le rapport
+        run: |
+          node -e "
+            const fs=require('fs');
+            const cible='apps/qa/data/playwright-run.json';
+            fs.mkdirSync('apps/qa/data',{recursive:true});
+            let brut='';
+            try { brut=fs.readFileSync('apps/web/playwright-raw.json','utf8'); } catch {}
+            const i=brut.indexOf('{');
+            if(i<0){
+              if(fs.existsSync(cible)) fs.rmSync(cible);
+              console.log('::warning::Playwright n a emis aucun rapport — l ancien est efface plutot que servi comme neuf.');
+              process.exit(0);
+            }
+            fs.writeFileSync(cible, brut.slice(i));
+            const s=JSON.parse(brut.slice(i)).stats||{};
+            console.log('verts',s.expected,'rouges',s.unexpected,'ignores',s.skipped);
+          "
+
+      # `GH_TOKEN` est indispensable ICI : sur un runner neuf, `gh` n'est
+      # authentifié nulle part. Sans lui les deux requêtes de `chantiers()`
+      # échouaient, et le portail publiait un tableau marqué ABSENT chaque nuit —
+      # mieux qu'un Kanban vide, mais toujours pas le vrai (revue Codex 11/09).
+      - name: Collecter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node apps/qa/collect.mjs
+
+      # L'historique doit SURVIVRE au runner : c'est la seule donnée de ce
+      # workflow qui ne se recalcule pas. `[skip ci]` évite qu'un push de
+      # données ne relance la CI en boucle.
+      # Un merge ordinaire pendant l'heure de mesure faisait avancer main, et ce
+      # push partait alors en non-fast-forward : la mesure mourait avec le
+      # runner, l'alerte et l'artefact étaient sautés, et la publication refusait
+      # un run en échec. Le groupe de concurrence ne sérialise que les mesures
+      # entre elles, pas les merges des humains (revue Codex 11/09).
+      #
+      # On rejoue donc le commit de DONNÉES sur le main le plus récent, trois
+      # fois au plus. Seul `apps/qa/data/` est réécrit, et personne d'autre n'y
+      # touche : reposer les fichiers sur un main frais est sans ambiguïté.
+      - name: Enregistrer la mesure
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- apps/qa/data; then
+            echo "rien de neuf à enregistrer"
+            exit 0
+          fi
+
+          mkdir -p "$RUNNER_TEMP/mesure"
+          cp -r apps/qa/data/. "$RUNNER_TEMP/mesure/"
+
+          for essai in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            mkdir -p apps/qa/data
+            cp -r "$RUNNER_TEMP/mesure/." apps/qa/data/
+            git add apps/qa/data
+            if git diff --cached --quiet; then
+              echo "main porte déjà cette mesure"
+              exit 0
+            fi
+            git commit -m "chore(qa): mesure du $(date -u +%Y-%m-%d) [skip ci]"
+            if git push origin HEAD:main; then
+              echo "mesure enregistrée (essai $essai)"
+              exit 0
+            fi
+            echo "main a bougé pendant la mesure — on rejoue (essai $essai)"
+          done
+
+          echo "::error::trois tentatives, main bouge trop vite : la mesure n'a pas pu être enregistrée"
+          exit 1
+
+      # Un tableau qu'il faut penser à ouvrir n'existe pas. Ce geste est le seul
+      # qui manquait : quand quelque chose est rouge, le portail ouvre l'issue
+      # lui-même, et elle atterrit dans le Kanban à sa colonne. UNE issue tenue
+      # à jour, fermée dès qu'elle n'a plus rien à dire — un robot qui ouvre
+      # douze billets par nuit se fait couper au bout de trois jours.
+      #
+      # `|| true` : ne jamais faire échouer la mesure parce que l'alerte n'a pas
+      # pu écrire. Ce serait perdre la mesure ET l'alerte.
+      - name: Alerter si quelque chose est rouge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node apps/qa/alerte.mjs --appliquer || true
+
+      - name: Rendre le portail
+        run: node apps/qa/build.mjs
+
+      - name: Publier le portail comme artefact du run
+        uses: actions/upload-artifact@v4
+        with:
+          name: portail-qualite
+          path: apps/qa/dist
+          retention-days: 30

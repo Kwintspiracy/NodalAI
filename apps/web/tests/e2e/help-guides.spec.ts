@@ -17,13 +17,13 @@ test.beforeAll(async () => {
   await cleanCredentialsByType('google-oauth');
 });
 
-test.describe('Help guides — OAuth wizard (Google Drive)', () => {
+test.describe('Help guides — OAuth wizard (Google Drive) @cap:consulter-l-aide', () => {
   test('wizard shows 4 Google API links and format hint', async ({ page }) => {
     await page.goto('/connectors');
 
     // Find the Google Drive card.
     const driveCard = page
-      .locator('.rounded-xl')
+      .locator('[data-marketplace-card]')
       .filter({ has: page.getByRole('heading', { name: 'Google Drive', level: 3 }) });
     await expect(driveCard).toBeVisible({ timeout: 10_000 });
 
@@ -69,13 +69,13 @@ test.describe('Help guides — OAuth wizard (Google Drive)', () => {
   });
 });
 
-test.describe('Help guides — api_key connector (Apify)', () => {
+test.describe('Help guides — api_key connector (Apify) @cap:consulter-l-aide', () => {
   test('"Where do I get this?" expander reveals console.apify.com link', async ({ page }) => {
     await page.goto('/connectors');
 
     // Find the Apify card.
     const apifyCard = page
-      .locator('.rounded-xl')
+      .locator('[data-marketplace-card]')
       .filter({ has: page.getByRole('heading', { name: 'Apify', level: 3 }) });
     await expect(apifyCard).toBeVisible({ timeout: 10_000 });
 

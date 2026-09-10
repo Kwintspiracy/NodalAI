@@ -109,6 +109,15 @@ jobs:
       - name: Architecture check
         run: pnpm deps:check
 
+      # Le lien entre le produit et ses preuves. Ne juge AUCUN résultat : elle
+      # lit les titres des tests versionnés et refuse deux pourritures
+      # silencieuses — une étiquette `@cap:` qui ne désigne plus rien, et une
+      # capacité exigée que plus aucun test ne revendique. Quelques secondes,
+      # sans build ni base, ce qui est la raison pour laquelle elle peut tourner
+      # sur chaque PR.
+      - name: Capacités du produit
+        run: pnpm capacites:check
+
       - name: Unit tests
         # Cap turbo concurrency: running all ~26 package suites at once (each with
         # its own vitest worker pool) oversubscribes the shared runner and starves
@@ -121,6 +130,24 @@ jobs:
       # Its suites were effectively dead code until 0.8.0 shipped a broken pack.
       - name: Script tests
         run: pnpm test:scripts
+
+      # Le banc répond à une AUTRE question que la suite : pas « est-ce
+      # cassé ? » mais « qu'est-ce qui a CHANGÉ, et de combien ». Il sort en 1
+      # dès qu'une métrique s'écarte de sa baseline acceptée.
+      #
+      # Il existait depuis le 11/08 et RIEN ne le lançait. Le 10/09/2026, un
+      # premier passage a trouvé la section `gate` en régression : deux
+      # décisions d'approbation étaient passées de « passe » à « demande »
+      # depuis la 0.8.9. Un changement voulu — mais il aurait tout aussi bien pu
+      # être l'inverse, et il serait parti en production sans un mot.
+      #
+      # Bloquant, et c'est le point : une régression de métrique s'accepte
+      # sciemment (`pnpm bench --update`, qui réécrit la baseline et se
+      # committe), jamais par omission. La section `catalog-drift` reste hors
+      # course — elle interroge l'API du fournisseur, et un incident chez lui
+      # n'est pas une régression chez nous.
+      - name: Banc d'essai
+        run: pnpm bench
 
       # SUPPLY-002 (audit 2026-08-07): nothing in CI ever looked at whether a
       # dependency had a known vulnerability. Non-blocking on purpose — on a
