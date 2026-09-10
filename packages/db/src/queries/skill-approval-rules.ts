@@ -29,15 +29,31 @@ import { approvalRules, agentSkills, agentSkillAssignments } from '../schema/ind
 import type { AnyDrizzleDb } from '../client.ts';
 
 /**
- * Retire les règles d'approbation devenues sans objet parce qu'une skill vient
+ * Retire les DONS d'approbation devenus sans objet parce qu'une skill vient
  * d'être détachée de cet agent.
  *
- * Deux bornes, et elles sont tout le correctif :
+ * Trois bornes, et elles sont tout le correctif :
  *
- *  1. **Seuls les outils que CETTE skill débloquait.** Une règle sur un outil
+ *  1. **Seuls les `auto_approve`.** Un `auto_approve` est un DON — le toggle
+ *     Yolo — et il se reprend avec la skill. Un `block` ou un
+ *     `require_approval` est une RESTRICTION posée par le propriétaire :
+ *     l'effacer n'est pas « revenir au défaut prudent », c'est LEVER une
+ *     interdiction.
+ *
+ *     Cette asymétrie n'est pas de la prudence décorative. `detach_skill` et
+ *     `attach_skill` tournent sans approbation pour un ROOT qui porte les
+ *     droits de gestion sous `destructive_gate` : une version qui supprimait
+ *     toutes les règles donnait à cet agent un moyen d'effacer le `block` d'un
+ *     worker — détacher, rattacher, déléguer — et de lui rendre un shell
+ *     auto-exécuté que personne n'avait rouvert (revue Codex, PR #50, passe 5,
+ *     P1). Une restriction dormante sur un outil que l'agent n'a plus ne coûte
+ *     rien, et reprend son effet si la skill revient : c'est exactement ce que
+ *     le propriétaire a voulu.
+ *
+ *  2. **Seuls les outils que CETTE skill débloquait.** Une règle sur un outil
  *     étranger n'a rien à voir avec elle, et l'effacer détruirait un réglage
  *     sans raison.
- *  2. **Et seulement s'ils ne sont plus débloqués par une AUTRE skill encore
+ *  3. **Et seulement s'ils ne sont plus débloqués par une AUTRE skill encore
  *     assignée.** Sinon l'agent garderait le pouvoir et perdrait sa posture —
  *     le même défaut, à l'envers.
  *
@@ -80,17 +96,22 @@ export async function dropApprovalRulesForDetachedSkill(
     ).flatMap((r) => r.requiredBuiltins ?? []),
   );
 
-  const aOublier = debloquesParLaSkill.filter((t) => !encoreDebloques.has(t));
-  if (aOublier.length === 0) return [];
+  const candidats = debloquesParLaSkill.filter((t) => !encoreDebloques.has(t));
+  if (candidats.length === 0) return [];
 
-  await db
+  // `action = 'auto_approve'` dans le WHERE, pas un filtre après coup : une
+  // seule requête, et aucune restriction ne peut disparaître par un chemin
+  // qu'on aurait oublié de relire.
+  const retirees = await db
     .delete(approvalRules)
     .where(
       and(
         eq(approvalRules.entityId, params.entityId),
         eq(approvalRules.agentId, params.agentId),
-        inArray(approvalRules.toolName, aOublier),
+        eq(approvalRules.action, 'auto_approve'),
+        inArray(approvalRules.toolName, candidats),
       ),
-    );
-  return aOublier;
+    )
+    .returning({ toolName: approvalRules.toolName });
+  return retirees.map((r) => r.toolName);
 }
