@@ -698,7 +698,37 @@ export async function executeTool<TInput extends z.ZodTypeAny, TOutput>(
     // tool error and leave the assistant message with an unresolved tool_call.
     // Detected by name (not instanceof) because @nodal-agents/tools must not depend
     // on @nodal-agents/orchestration (which depends on us — would be a cycle).
+    //
+    // La ligne d'audit s'écrit AVANT la relance : déléguer est une action, et
+    // le journal doit la montrer. Elle manquait, donc une délégation ne laissait
+    // aucune trace dans `tool_calls` — sur le run 20b73ed1, l'orchestrateur a
+    // fait deux appels d'outils et la table en montrait un. Qui diagnostique un
+    // run par cette table lit une délégation comme un trou (revue croisée
+    // Codex, 10/09). L'enfant existe déjà à ce point : `delegate.ts` le crée
+    // puis lève. La ligne nomme donc un fait, pas une intention.
     if (err instanceof Error && err.name === 'DelegationPendingError') {
+      const signal = err as Error & { childJobId?: string; childSlug?: string };
+      try {
+        await _writeToolCall(
+          ctx,
+          auditTool,
+          validatedInput,
+          JSON.stringify({
+            outcome: 'delegated',
+            childJobId: signal.childJobId ?? null,
+            childSlug: signal.childSlug ?? null,
+          }),
+          Date.now() - startMs,
+        );
+      } catch (auditErr) {
+        // Une ligne d'audit ne vaut JAMAIS un signal de contrôle perdu : sans
+        // la relance, le parent ne serait pas suspendu et son message garderait
+        // un appel d'outil sans réponse. On dit l'échec, et on relance.
+        console.error(
+          `[tools] audit de délégation non écrit (job=${ctx.jobId}, outil=${tool.name}) — le signal est relancé quand même:`,
+          auditErr,
+        );
+      }
       throw err;
     }
 

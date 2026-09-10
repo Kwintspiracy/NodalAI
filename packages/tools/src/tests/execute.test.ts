@@ -1297,7 +1297,6 @@ describe('executeTool — une preuve déclarée est jugée sous la règle de run
   });
 
   it('un outil ORDINAIRE n’est pas touché par la règle run_command', async () => {
-    // La règle ne doit pas fuir vers les outils qui ne font tourner aucun shell.
     const res = await executeTool(
       makeSimpleTool(),
       { value: 'x' },
@@ -1305,5 +1304,86 @@ describe('executeTool — une preuve déclarée est jugée sous la règle de run
       gate([rule('run_command', 'block')]),
     );
     expect(res.outcome).toBe('success');
+  });
+});
+
+// Déléguer est une ACTION, et le journal d'audit doit la montrer.
+//
+// `assign_*` lève `DelegationPendingError` comme primitive de contrôle : le
+// runner l'attrape pour suspendre le parent et créer l'enfant. Cette exception
+// était relancée SANS écrire la ligne d'audit — donc une délégation ne laissait
+// aucune trace dans `tool_calls`.
+//
+// Constaté sur le run 20b73ed1 (revue croisée Codex, 10/09) : Alfred a fait deux
+// appels d'outils, la table en montrait un. Qui diagnostique un run par cette
+// table lit une délégation comme un trou — et c'est exactement ce qui m'est
+// arrivé en analysant ce run.
+describe('executeTool — une délégation laisse une ligne d’audit', () => {
+  const assignSchema = z.object({ task: z.string() });
+  const CHILD_JOB = '11111111-2222-3333-4444-555555555555';
+
+  function makeAssignTool(): ToolDefinition<typeof assignSchema, string> {
+    return {
+      name: 'assign_lead',
+      description: 'test assign tool',
+      inputSchema: assignSchema,
+      riskLevel: 'write',
+      execute: async () => {
+        // La forme exacte de la primitive : détectée par `name`, jamais par
+        // `instanceof` (le paquet tools ne peut pas dépendre d'orchestration).
+        const err = Object.assign(new Error('delegation_pending: delegated to lead-dev'), {
+          name: 'DelegationPendingError',
+          childJobId: CHILD_JOB,
+          childSlug: 'lead-dev',
+        });
+        throw err;
+      },
+    };
+  }
+
+  it('écrit la ligne, en nommant le job enfant créé', async () => {
+    const tache = `deleguer-${Date.now()}`;
+    await expect(
+      executeTool(makeAssignTool(), { task: tache }, makeCtx(), makeOpts()),
+    ).rejects.toThrow('delegation_pending');
+
+    const row = (await db.select().from(toolCalls).where(eq(toolCalls.jobId, seed.jobId))).find(
+      (c) => c.toolName === 'assign_lead' && (c.toolInput as { task?: string })?.task === tache,
+    );
+    expect(row).toBeDefined();
+    // Le contenu compte autant que la présence : une ligne qui dirait « erreur »
+    // serait pire que pas de ligne. Elle nomme ce qui s'est passé et vers qui.
+    const out = JSON.parse(String(row?.toolOutput)) as {
+      outcome?: string;
+      childJobId?: string;
+      childSlug?: string;
+    };
+    expect(out.outcome).toBe('delegated');
+    expect(out.childJobId).toBe(CHILD_JOB);
+    expect(out.childSlug).toBe('lead-dev');
+  });
+
+  it('le signal de délégation reste relancé — écrire l’audit ne l’avale pas', async () => {
+    // La ligne d'audit ne doit JAMAIS transformer la primitive de contrôle en
+    // erreur d'outil : le parent ne serait pas suspendu, et le message de
+    // l'assistant garderait un appel d'outil sans réponse.
+    await expect(
+      executeTool(makeAssignTool(), { task: 'signal' }, makeCtx(), makeOpts()),
+    ).rejects.toMatchObject({ name: 'DelegationPendingError' });
+  });
+
+  it('une écriture d’audit qui échoue ne mange pas non plus le signal', async () => {
+    // Base en panne au moment d'écrire la ligne : la délégation prime.
+    const ctxCasse = makeCtx({
+      db: {
+        ...(db as unknown as ToolContext['db']),
+        insert: () => {
+          throw new Error('db insert boom');
+        },
+      } as unknown as ToolContext['db'],
+    });
+    await expect(
+      executeTool(makeAssignTool(), { task: 'db-en-panne' }, ctxCasse, makeOpts()),
+    ).rejects.toMatchObject({ name: 'DelegationPendingError' });
   });
 });
